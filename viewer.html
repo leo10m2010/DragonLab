@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="es"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>DragonLab · Visor</title>
+<style>
+:root{color-scheme:dark;--bg:#101c26;--ink:#ecf3f7;--muted:#96acb9;--green:#72dfba;--orange:#ffb86c}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:16px 'Trebuchet MS',sans-serif}header{padding:24px 6vw;border-bottom:1px solid #294353;display:flex;justify-content:space-between;align-items:center}header strong{font-size:24px;letter-spacing:-1px}small,.label{color:var(--muted);font:12px Consolas,monospace;letter-spacing:1px}.live{color:var(--green)}main{max-width:1100px;margin:auto;padding:40px 6vw}.top{display:grid;grid-template-columns:1.5fr 1fr;gap:30px}h1{font-size:clamp(70px,14vw,150px);line-height:.9;margin:20px 0;color:var(--green);letter-spacing:-7px}h1 span{font-size:25px;letter-spacing:0;color:var(--muted)}.instrument{border-left:1px solid #294353;padding-left:30px}.values{display:flex;gap:32px;margin-top:25px}.values b{display:block;font-size:32px;margin-top:8px}.dial{width:125px;height:125px;border:1px solid #486171;border-radius:50%;position:relative;margin:25px auto}.dial b{position:absolute;inset:0;display:grid;place-items:center;font-size:38px}.dial i{position:absolute;top:13px;left:60px;width:3px;height:30px;background:var(--orange);transform-origin:1px 49px}.plot{margin-top:30px;background:#0c151d;border:1px solid #294353;width:100%;height:auto;aspect-ratio:4/3}footer{color:var(--muted);line-height:1.6;padding-top:16px}.quality{color:var(--orange)}@media(max-width:600px){main{padding-top:28px}.top{grid-template-columns:1fr 1fr;gap:15px}.instrument{padding-left:15px}h1{letter-spacing:-4px}.values{gap:15px}.values b{font-size:23px}header strong{font-size:20px}header small{max-width:100px;text-align:right}.dial{width:105px;height:105px}.dial i{left:50px;transform-origin:1px 39px}}@media(prefers-reduced-motion:reduce){*{transition:none!important}}
+.force{height:14px;background:#294353;position:relative;margin:35px 0 18px}.force b{display:block;height:100%;background:var(--green);width:0}.force i{position:absolute;top:-10px;width:3px;height:34px;background:var(--orange);left:0}.force-label{color:var(--orange);font:14px Consolas,monospace}</style>
+<header><strong>DRAGON / LAB</strong><small id="signal">CONECTANDO</small></header>
+<main><div class="top"><section><div class="label">POTENCIA CALCULADA</div><h1 id="power">—</h1><div id="mobile" class="label">ESPERANDO DATOS</div><div class="values"><div><small>ÁNGULO</small><b id="angle">—</b></div><div><small>TIEMPO</small><b id="time">—</b></div></div></section><section class="instrument"><div class="label">VIENTO / ESTE = 0°</div><div class="dial"><b id="wind">—</b><i id="arrow"></i></div><div id="windAngle" class="label" style="text-align:center">—</div></section></div><div class="force" role="meter" aria-label="Fuerza recomendada" id="meter"><b id="forceFill"></b><i id="forceMark"></i></div><div class="force-label" id="forceLabel">ESPERANDO POTENCIA</div><canvas class="plot" width="800" height="600" id="plot" aria-label="Trayectoria estimada entre jugador y objetivo"></canvas><footer><div id="quality" class="quality">Modelo base</div><div>Visor de lectura. Las trayectorias son estimaciones; el terreno y los disparos especiales requieren validación.</div></footer></main>
+<script>
+const token=new URLSearchParams(location.search).get('token'),by=id=>document.getElementById(id);
+const canvas=by('plot'),c=canvas.getContext('2d');let camera=null,viewport=[800,600];
+function project(x,y){
+ if(!camera||camera.x==null||camera.y==null||!camera.scale)return[x,y];
+ if(camera.convention==='top-left')return[(x-camera.x)*camera.scale,(y-camera.y)*camera.scale];
+ let[width,height]=viewport;return[(x-camera.x-width/2)*camera.scale+width/2,(y-camera.y-height/2)*camera.scale+height/2];
+}
+function draw(s,r){
+ let[width,height]=viewport;canvas.width=width;canvas.height=height;canvas.style.aspectRatio=width+'/'+height;
+ c.clearRect(0,0,width,height);c.strokeStyle='#1a2b38';c.lineWidth=1;
+ for(let x=0;x<=width;x+=50){c.beginPath();c.moveTo(x,0);c.lineTo(x,height);c.stroke()}
+ for(let y=0;y<=height;y+=50){c.beginPath();c.moveTo(0,y);c.lineTo(width,y);c.stroke()}
+ if(r.reachable)for(let path of r.projectile_paths||[r.path]){c.beginPath();path.forEach(([x,y],i)=>{[x,y]=project(x,y);i?c.lineTo(x,y):c.moveTo(x,y)});c.strokeStyle='#72dfba';c.lineWidth=3;c.stroke()}
+ for(let[x,y,label,color]of[[s.hero_x,s.hero_y,'TÚ','#72dfba'],[s.target_x,s.target_y,'OBJETIVO','#ffb86c']]){[x,y]=project(x,y);c.beginPath();c.arc(x,y,8,0,Math.PI*2);c.strokeStyle=color;c.stroke();c.fillStyle=color;c.font='14px Consolas';c.fillText(label,x+12,y+4)}
+}
+async function poll(){
+ try{
+  let res=await fetch('/state?token='+encodeURIComponent(token),{cache:'no-store'});if(!res.ok)throw Error('Acceso al visor rechazado');
+  let d=await res.json();if(d.error)throw Error(d.error);let s=d.settings,r=d.result;if(!s||!r)return;camera=d.camera;viewport=d.viewport||[800,600];
+  by('signal').textContent=Date.now()/1000-d.updated<4?'SEÑAL ACTIVA':'DATOS ANTIGUOS';by('signal').className='live';
+  by('power').textContent=r.reachable?r.power:'—';let span=document.createElement('span');span.textContent=' / '+s.max_power;by('power').append(span);
+  by('mobile').textContent=s.mobile;by('angle').textContent=s.angle+'°';by('time').textContent=r.reachable?r.time+' s':'—';
+  by('wind').textContent=s.wind;by('windAngle').textContent=s.wind_angle+'°';by('arrow').style.transform=`rotate(${90-s.wind_angle}deg)`;
+  by('quality').textContent=r.quality||r.reason;
+  let fraction=r.reachable?Math.max(0,Math.min(1,r.power/s.max_power)):0;by('forceFill').style.width=by('forceMark').style.left=(fraction*100)+'%';
+  by('forceMark').hidden=!r.reachable;by('forceLabel').textContent=r.reachable?'SUELTA EN '+r.power+' / '+s.max_power+' · '+(fraction*100).toFixed(1)+'%':'SIN POTENCIA VÁLIDA';
+  by('meter').setAttribute('aria-valuemin','0');by('meter').setAttribute('aria-valuemax',s.max_power);by('meter').setAttribute('aria-valuenow',r.reachable?r.power:0);draw(s,r);
+ }catch(e){by('signal').textContent='SIN SEÑAL';by('quality').textContent=e.message}
+ finally{setTimeout(poll,500)}
+}poll();
+</script></html>
+

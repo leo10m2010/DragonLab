@@ -1,0 +1,643 @@
+{
+  "schema": 1,
+  "records": {
+    "dragonbound:ICE:0": {
+      "samples": [],
+      "muzzle": {
+        "angle": 58,
+        "radius": 50
+      },
+      "muzzle_source": "native-player-aim",
+      "updated": 1791575269.104573
+    },
+    "dragonbound:ICE:1": {
+      "samples": [],
+      "muzzle": {
+        "angle": 40,
+        "radius": 40
+      },
+      "muzzle_source": "native-player-aim",
+      "updated": 1791575269.104573
+    },
+    "dragonbound:ICE:2": {
+      "samples": [],
+      "muzzle": {
+        "angle": 40,
+        "radius": 40
+      },
+      "muzzle_source": "native-player-aim",
+      "updated": 1791575269.104573
+    },
+    "dragonbound:GRUB:0": {
+      "samples": [],
+      "muzzle": {
+        "angle": 58,
+        "radius": 40
+      },
+      "muzzle_source": "native-player-aim",
+      "updated": 1791575269.104573
+    },
+    "dragonbound:GRUB:1": {
+      "samples": [],
+      "muzzle": {
+        "angle": 58,
+        "radius": 40
+      },
+      "muzzle_source": "native-player-aim",
+      "updated": 1791575269.104573
+    },
+    "dragonbound:GRUB:2": {
+      "samples": [],
+      "muzzle": {
+        "angle": 58,
+        "radius": 40
+      },
+      "muzzle_source": "native-player-aim",
+      "updated": 1791575269.104573
+    },
+    "dragonbound:MAGE:0": {
+      "samples": [],
+      "muzzle": {
+        "angle": 58,
+        "radius": 50
+      },
+      "muzzle_source": "native-player-aim"
+    },
+    "dragonbound:MAGE:1": {
+      "samples": [],
+      "muzzle": {
+        "angle": 58,
+        "radius": 50
+      },
+      "muzzle_source": "native-player-aim"
+    },
+    "dragonbound:MAGE:2": {
+      "samples": [],
+      "muzzle": {
+        "angle": 58,
+        "radius": 50
+      },
+      "muzzle_source": "native-player-aim"
+    },
+    "dragonbound:ARMOR:0": {
+      "samples": [
+        {
+          "power": 124,
+          "vx": -161.17497861464398,
+          "vy": -230.18172444520667,
+          "ax": -5,
+          "ay": 386,
+          "wind": 1,
+          "wind_angle": 173,
+          "source": "native-shot-start",
+          "sample_id": "3292:1120,69,125,281,-5,386"
+        }
+      ],
+      "muzzle": {
+        "angle": 52,
+        "radius": 33
+      },
+      "muzzle_source": "native-player-aim",
+      "updated": 1791591119.4139352,
+      "status": "Muestras inconsistentes; perfil base conservado"
+    },
+    "dragonbound:ARMOR:1": {
+      "samples": [
+        {
+          "power": 275,
+          "vx": -111.82942641750311,
+          "vy": -634.2161929398619,
+          "ax": -5,
+          "ay": 427,
+          "wind": 4,
+          "wind_angle": 260,
+          "source": "native-shot-start",
+          "sample_id": "7201:1236,126,100,644,-5,427"
+        },
+        {
+          "power": 262,
+          "vx": -95.89432706966149,
+          "vy": -605.4529527848194,
+          "ax": -5,
+          "ay": 419,
+          "wind": 2,
+          "wind_angle": 260,
+          "source": "native-shot-start",
+          "sample_id": "7282:1202,154,99,613,-5,419"
+        },
+        {
+          "power": 260,
+          "vx": -95.11215474446034,
+          "vy": -600.5145110818438,
+          "ax": -5,
+          "ay": 419,
+          "wind": 2,
+          "wind_angle": 260,
+          "source": "native-shot-start",
+          "sample_id": "7326:1202,154,99,608,-5,419"
+        },
+        {
+          "power": 85,
+          "vx": -77.7554945693655,
+          "vy": -183.18046583703563,
+          "ax": -5,
+          "ay": 419,
+          "wind": 2,
+          "wind_angle": 260,
+          "source": "native-shot-start",
+          "sample_id": "7416:1129,172,113,199,-5,419"
+        },
+        {
+          "power": 43,
+          "vx": -98.79290767411437,
+          "vy": -20.99908077259369,
+          "ax": -5,
+          "ay": 415,
+          "wind": 1,
+          "wind_angle": 260,
+          "source": "native-shot-start",
+          "sample_id": "7506:1075,158,168,101,-5,415"
+        },
+        {
+          "power": 52,
+          "vx": -119.3340072895243,
+          "vy": -25.365226279766638,
+          "ax": -5,
+          "ay": 419,
+          "wind": 2,
+          "wind_angle": 260,
+          "source": "native-shot-start",
+          "sample_id": "7774:1075,158,168,122,-5,419"
+        },
+        {
+          "power": 335,
+          "vx": -529.9514402362157,
+          "vy": -588.5707017780962,
+          "ax": 43,
+          "ay": 458,
+          "wind": 17,
+          "wind_angle": 311,
+          "source": "native-shot-start",
+          "sample_id": "120:1432,87,132,792,43,458"
+        },
+        {
+          "power": 363,
+          "vx": -415.96665417135716,
+          "vy": -750.4237087256016,
+          "ax": 39,
+          "ay": 458,
+          "wind": 16,
+          "wind_angle": 311,
+          "source": "native-shot-start",
+          "sample_id": "427:1341,105,119,858,39,458"
+        },
+        {
+          "power": 255,
+          "vx": -292.3402010085412,
+          "vy": -527.3956834050557,
+          "ax": -99,
+          "ay": 410,
+          "wind": 25,
+          "wind_angle": 181,
+          "source": "native-shot-start",
+          "sample_id": "718:1341,105,119,603,-99,410"
+        },
+        {
+          "power": 327,
+          "vx": -486.4646622815242,
+          "vy": -600.7338282062386,
+          "ax": 70,
+          "ay": 414,
+          "wind": 19,
+          "wind_angle": 356,
+          "source": "native-shot-start",
+          "sample_id": "1039:1341,105,129,773,70,414"
+        }
+      ],
+      "muzzle": {
+        "angle": 52,
+        "radius": 33
+      },
+      "muzzle_source": "native-player-aim",
+      "updated": 1791591613.0407865,
+      "status": "Ajuste observado",
+      "fit": {
+        "power_scale": 2.3623447558608532,
+        "speed_offset": -1.8812113977945728,
+        "gravity": 411.4071611995918,
+        "wind_scale": 3.854985288846561,
+        "sample_count": 10,
+        "speed_rmse": 2.7524024132908402,
+        "gravity_spread": 3.4962916509510933,
+        "wind_observed": true,
+        "holdout_speed_error": 4.8581408100030785
+      }
+    },
+    "dragonbound:ARMOR:2": {
+      "samples": [
+        {
+          "power": 122,
+          "vx": -158.8806728692398,
+          "vy": -226.9051162680507,
+          "ax": -9,
+          "ay": 386,
+          "wind": 2,
+          "wind_angle": 173,
+          "source": "native-shot-start",
+          "sample_id": "3341:1120,69,125,277,-9,386"
+        },
+        {
+          "power": 242,
+          "vx": -150.89150329476965,
+          "vy": -563.1347567265268,
+          "ax": 33,
+          "ay": 391,
+          "wind": 9,
+          "wind_angle": 354,
+          "source": "native-shot-start",
+          "sample_id": "3656:1460,160,105,583,33,391"
+        },
+        {
+          "power": 243,
+          "vx": 438.9219897589441,
+          "vy": -342.9234417563917,
+          "ax": 8,
+          "ay": 415,
+          "wind": 3,
+          "wind_angle": 323,
+          "source": "native-shot-start",
+          "sample_id": "6082:566,29,38,557,8,415"
+        },
+        {
+          "power": 311,
+          "vx": -163.76436756233375,
+          "vy": -709.3414071636513,
+          "ax": -5,
+          "ay": 415,
+          "wind": 1,
+          "wind_angle": 260,
+          "source": "native-shot-start",
+          "sample_id": "7815:1120,161,103,728,-5,415"
+        },
+        {
+          "power": 359,
+          "vx": -741.6775116542076,
+          "vy": -411.1185579688939,
+          "ax": 47,
+          "ay": 466,
+          "wind": 19,
+          "wind_angle": 311,
+          "source": "native-shot-start",
+          "sample_id": "9:1432,87,151,848,47,466"
+        },
+        {
+          "power": 342,
+          "vx": -508.49087596826854,
+          "vy": -627.9339368572325,
+          "ax": 78,
+          "ay": 414,
+          "wind": 21,
+          "wind_angle": 356,
+          "source": "native-shot-start",
+          "sample_id": "975:1341,105,129,808,78,414"
+        }
+      ],
+      "muzzle": {
+        "angle": 52,
+        "radius": 33
+      },
+      "muzzle_source": "native-player-aim",
+      "updated": 1791591594.9821918,
+      "status": "Muestras inconsistentes; perfil base conservado"
+    },
+    "dragonbound:LIGHTNING:0": {
+      "samples": [],
+      "muzzle": {
+        "angle": 58,
+        "radius": 44
+      },
+      "muzzle_source": "native-player-aim"
+    },
+    "dragonbound:LIGHTNING:1": {
+      "samples": [],
+      "muzzle": {
+        "angle": 58,
+        "radius": 44
+      },
+      "muzzle_source": "native-player-aim"
+    },
+    "dragonbound:LIGHTNING:2": {
+      "samples": [],
+      "muzzle": {
+        "angle": 58,
+        "radius": 44
+      },
+      "muzzle_source": "native-player-aim"
+    },
+    "dragonbound:KALSIDDON:0": {
+      "samples": [],
+      "muzzle": {
+        "angle": 58,
+        "radius": 50
+      },
+      "muzzle_source": "native-player-aim"
+    },
+    "dragonbound:KALSIDDON:1": {
+      "samples": [],
+      "muzzle": {
+        "angle": 58,
+        "radius": 50
+      },
+      "muzzle_source": "native-player-aim"
+    },
+    "dragonbound:KALSIDDON:2": {
+      "samples": [],
+      "muzzle": {
+        "angle": 58,
+        "radius": 50
+      },
+      "muzzle_source": "native-player-aim"
+    },
+    "dragonbound:NAK:0": {
+      "samples": [],
+      "muzzle": {
+        "angle": 130,
+        "radius": 40
+      },
+      "muzzle_source": "native-player-aim"
+    },
+    "dragonbound:NAK:1": {
+      "samples": [],
+      "muzzle": {
+        "angle": 130,
+        "radius": 40
+      },
+      "muzzle_source": "native-player-aim"
+    },
+    "dragonbound:NAK:2": {
+      "samples": [],
+      "muzzle": {
+        "angle": 130,
+        "radius": 40
+      },
+      "muzzle_source": "native-player-aim"
+    },
+    "dragonbound:TRICO:0": {
+      "samples": [],
+      "muzzle": {
+        "angle": 58,
+        "radius": 50
+      },
+      "muzzle_source": "native-player-aim"
+    },
+    "dragonbound:TRICO:1": {
+      "samples": [
+        {
+          "power": 400,
+          "vx": -382.2596400000756,
+          "vy": -783.7484083728735,
+          "ax": 11,
+          "ay": 395,
+          "wind": 4,
+          "wind_angle": 322,
+          "source": "native-shot-start",
+          "sample_id": "1130:1323,20,116,872,11,395"
+        },
+        {
+          "power": 369,
+          "vx": -352.45040201841834,
+          "vy": -722.6304132245302,
+          "ax": 11,
+          "ay": 399,
+          "wind": 5,
+          "wind_angle": 322,
+          "source": "native-shot-start",
+          "sample_id": "1239:1323,20,116,804,11,399"
+        },
+        {
+          "power": 356,
+          "vx": -340.17600990832415,
+          "vy": -697.4641799281535,
+          "ax": 7,
+          "ay": 383,
+          "wind": 3,
+          "wind_angle": 15,
+          "source": "native-shot-start",
+          "sample_id": "1384:1323,20,116,776,7,383"
+        },
+        {
+          "power": 321,
+          "vx": -587.0693975617968,
+          "vy": -381.2473245105191,
+          "ax": 15,
+          "ay": 380,
+          "wind": 5,
+          "wind_angle": 15,
+          "source": "native-shot-start",
+          "sample_id": "1437:1299,43,147,700,15,380"
+        },
+        {
+          "power": 311,
+          "vx": -568.6186450669975,
+          "vy": -369.2652657401885,
+          "ax": 11,
+          "ay": 380,
+          "wind": 4,
+          "wind_angle": 15,
+          "source": "native-shot-start",
+          "sample_id": "1509:1299,43,147,678,11,380"
+        },
+        {
+          "power": 134,
+          "vx": -270.7376855335019,
+          "vy": -109.38512527744638,
+          "ax": 27,
+          "ay": 360,
+          "wind": 10,
+          "wind_angle": 44,
+          "source": "native-shot-start",
+          "sample_id": "1592:1299,43,158,292,27,360"
+        },
+        {
+          "power": 95,
+          "vx": -192.21725594857014,
+          "vy": -58.766712649270055,
+          "ax": -70,
+          "ay": 444,
+          "wind": 22,
+          "wind_angle": 222,
+          "source": "native-shot-start",
+          "sample_id": "1664:837,27,163,201,-70,444"
+        },
+        {
+          "power": 95,
+          "vx": -192.21725594857014,
+          "vy": -58.766712649270055,
+          "ax": -70,
+          "ay": 444,
+          "wind": 22,
+          "wind_angle": 222,
+          "source": "native-shot-start",
+          "sample_id": "1668:837,27,163,201,-70,444"
+        },
+        {
+          "power": 117,
+          "vx": -47.129821858006565,
+          "vy": -242.461914311573,
+          "ax": -74,
+          "ay": 453,
+          "wind": 24,
+          "wind_angle": 222,
+          "source": "native-shot-start",
+          "sample_id": "1807:849,116,101,247,-74,453"
+        }
+      ],
+      "muzzle": {
+        "angle": 58,
+        "radius": 50
+      },
+      "muzzle_source": "native-player-aim",
+      "updated": 1791591891.1582046,
+      "fit": {
+        "power_scale": 2.1969642900893627,
+        "speed_offset": -5.985335959495501,
+        "gravity": 385.10738281540955,
+        "wind_scale": 4.095016560531918,
+        "sample_count": 8,
+        "speed_rmse": 1.624561642300907,
+        "gravity_spread": 4.728595421779403,
+        "wind_observed": true,
+        "holdout_speed_error": 4.857907611279472
+      },
+      "status": "Muestras inconsistentes; perfil base conservado"
+    },
+    "dragonbound:TRICO:2": {
+      "samples": [],
+      "muzzle": {
+        "angle": 58,
+        "radius": 50
+      },
+      "muzzle_source": "native-player-aim"
+    },
+    "dragonbound:FOX:0": {
+      "samples": [],
+      "muzzle": {
+        "angle": 45,
+        "radius": 47
+      },
+      "muzzle_source": "native-player-aim"
+    },
+    "dragonbound:FOX:1": {
+      "samples": [],
+      "muzzle": {
+        "angle": 45,
+        "radius": 47
+      },
+      "muzzle_source": "native-player-aim"
+    },
+    "dragonbound:FOX:2": {
+      "samples": [],
+      "muzzle": {
+        "angle": 45,
+        "radius": 47
+      },
+      "muzzle_source": "native-player-aim"
+    },
+    "dragonbound:ELECTRICO:0": {
+      "samples": [],
+      "muzzle": {
+        "angle": 44,
+        "radius": 51
+      },
+      "muzzle_source": "native-player-aim"
+    },
+    "dragonbound:ELECTRICO:1": {
+      "samples": [],
+      "muzzle": {
+        "angle": 44,
+        "radius": 51
+      },
+      "muzzle_source": "native-player-aim"
+    },
+    "dragonbound:ELECTRICO:2": {
+      "samples": [],
+      "muzzle": {
+        "angle": 44,
+        "radius": 51
+      },
+      "muzzle_source": "native-player-aim"
+    },
+    "dragonbound:RAON:0": {
+      "samples": [],
+      "muzzle": {
+        "angle": 64,
+        "radius": 35
+      },
+      "muzzle_source": "native-player-aim"
+    },
+    "dragonbound:RAON:1": {
+      "samples": [],
+      "muzzle": {
+        "angle": 64,
+        "radius": 35
+      },
+      "muzzle_source": "native-player-aim"
+    },
+    "dragonbound:RAON:2": {
+      "samples": [],
+      "muzzle": {
+        "angle": 64,
+        "radius": 35
+      },
+      "muzzle_source": "native-player-aim"
+    },
+    "dragonbound:DRAGON:0": {
+      "samples": [],
+      "muzzle": {
+        "angle": 58,
+        "radius": 50
+      },
+      "muzzle_source": "native-player-aim"
+    },
+    "dragonbound:DRAGON:1": {
+      "samples": [],
+      "muzzle": {
+        "angle": 58,
+        "radius": 50
+      },
+      "muzzle_source": "native-player-aim"
+    },
+    "dragonbound:DRAGON:2": {
+      "samples": [],
+      "muzzle": {
+        "angle": 58,
+        "radius": 50
+      },
+      "muzzle_source": "native-player-aim"
+    },
+    "dragonbound:JD:0": {
+      "samples": [],
+      "muzzle": {
+        "angle": 68,
+        "radius": 45
+      },
+      "muzzle_source": "native-player-aim"
+    },
+    "dragonbound:JD:1": {
+      "samples": [],
+      "muzzle": {
+        "angle": 68,
+        "radius": 45
+      },
+      "muzzle_source": "native-player-aim"
+    },
+    "dragonbound:JD:2": {
+      "samples": [],
+      "muzzle": {
+        "angle": 68,
+        "radius": 45
+      },
+      "muzzle_source": "native-player-aim"
+    }
+  }
+}
