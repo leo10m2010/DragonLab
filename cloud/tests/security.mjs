@@ -1,0 +1,20 @@
+import {PGlite} from '@electric-sql/pglite';
+import fs from 'node:fs/promises';import assert from 'node:assert/strict';
+const db=new PGlite();
+await db.exec(`create role anon;create role authenticated;create role service_role bypassrls;create schema auth;create table auth.users(id uuid primary key,email text);create function auth.uid() returns uuid language sql as $$select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid$$;grant usage on schema auth to authenticated;grant execute on function auth.uid() to authenticated;`);
+await db.exec(await fs.readFile(process.env.DRAGONLAB_SQL||new URL('../supabase/migrations/001_accounts.sql',import.meta.url),'utf8'));
+const admin='00000000-0000-0000-0000-000000000001',user='00000000-0000-0000-0000-000000000002',other='00000000-0000-0000-0000-000000000003';
+await db.query('insert into auth.users values($1,$2),($3,$4),($5,$6)',[admin,'admin@example.test',user,'user@example.test',other,'other@example.test']);await db.query('insert into private.admins values($1)',[admin]);
+async function as(id){await db.exec('reset role;set role authenticated');await db.query("select set_config('request.jwt.claim.sub',$1,false)",[id]);}
+async function denied(sql,args=[]){await assert.rejects(()=>db.query(sql,args));}
+await as(user);await denied('select public.admin_users()');await denied('select public.admin_grant($1,1,$2)',[user,crypto.randomUUID()]);await denied('insert into private.admins values($1)',[user]);await denied("update public.members set share_measurements=true where id=$1",[user]);await denied('select public.published_calibrations()');
+await as(admin);const request=crypto.randomUUID();const first=(await db.query('select public.admin_grant($1,1,$2) result',[user,request])).rows[0].result;await db.query('select public.admin_grant($1,1,$2)',[user,request]);const users=(await db.query('select public.admin_users() result')).rows[0].result;assert.equal(users.find(x=>x.id===user).expires_at,first.expires_at);
+await as(user);let account=(await db.query('select public.my_account() result')).rows[0].result;assert.equal(account.active,true);assert.equal(account.role,'user');assert.equal((await db.query('select * from public.members')).rows.length,1);
+const shot={sample_key:'a'.repeat(64),clone:'dragonbound',mobile:'ICE',shot:0,source:'native-shot-start',power:150,vx:200,vy:-300,ax:0,ay:398,wind:0,wind_angle:20};
+await denied('select public.ingest_measurements($1)',[JSON.stringify([shot])]);await db.query('select public.set_measurement_consent(true)');assert.equal((await db.query('select public.ingest_measurements($1) n',[JSON.stringify([shot])])).rows[0].n,1);assert.equal((await db.query('select public.ingest_measurements($1) n',[JSON.stringify([shot])])).rows[0].n,0);
+await denied('select public.ingest_measurements($1)',[JSON.stringify([{...shot,sample_key:'b'.repeat(64),power:900}])]);await denied('select public.ingest_measurements($1)',[JSON.stringify([{...shot,sample_key:'b'.repeat(64),source:null}])]);
+await db.query('select public.set_measurement_consent(false,true)');await denied('select public.ingest_measurements($1)',[JSON.stringify([shot])]);await db.exec('reset role');assert.equal((await db.query('select count(*) n from public.measurements')).rows[0].n,0);
+await as(admin);await db.query('select public.admin_revoke($1,$2)',[user,crypto.randomUUID()]);await as(user);account=(await db.query('select public.my_account() result')).rows[0].result;assert.equal(account.active,false);await denied('select public.published_calibrations()');
+await db.exec('reset role');await db.query("insert into public.access_passes(user_id,expires_at) values($1,now()-interval '1 hour') on conflict(user_id) do update set expires_at=excluded.expires_at,revoked=false",[user]);await as(user);assert.equal((await db.query('select public.my_account() result')).rows[0].result.active,false);
+await db.exec('reset role;set role anon');await denied('select public.my_account()');await db.exec('reset role');
+console.log('PASS: admin permissions, RLS, server expiry, idempotent grants, suspension, opt-in ingestion, deduplication, range checks and deletion.');await db.close();

@@ -1,0 +1,6 @@
+project_id = "dragonlab-cloud"
+[functions.admin-create-user]
+# The function checks the authenticated role through PostgREST for every call.
+verify_jwt = false
+[functions.dragonlab-api]
+verify_jwt = false

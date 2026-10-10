@@ -1,0 +1,1 @@
+{"buildCommand":"npm ci --prefix cloud/frontend && node cloud/write_config.mjs && npm run build --prefix cloud/frontend","outputDirectory":"cloud/frontend/dist","framework":null}

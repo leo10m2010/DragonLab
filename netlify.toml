@@ -1,0 +1,5 @@
+[build]
+command = "npm ci --prefix cloud/frontend && node cloud/write_config.mjs && npm run build --prefix cloud/frontend"
+publish = "cloud/frontend/dist"
+[build.environment]
+NODE_VERSION = "22"

@@ -1,0 +1,19 @@
+name: Propose calibration improvements
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '19 */6 * * *'
+permissions:
+  contents: read
+jobs:
+  propose:
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python cloud/jobs/calibrate.py

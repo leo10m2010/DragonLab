@@ -46,7 +46,7 @@ def open_settings(app):
         tk.Label(grid,text=label,bg=PANEL,fg=TEXT,font=('Bahnschrift',12)).grid(row=row,column=0,sticky='w',pady=4)
         RoundedChoice(grid,textvariable=var,values=values,state='readonly',width=10).grid(row=row,column=1,sticky='e')
     RoundedSwitch(keys,text='Habilitar tiro por atajo',variable=auto,bg=PANEL,fg=TEXT,activebackground=PANEL,activeforeground=TEXT,selectcolor=BG,font=('Bahnschrift',11)).pack(anchor='w',padx=12,pady=(6,0))
-    tk.Label(keys,text='Se aplica la fuerza calculada cuando es tu turno\ny la ventana del juego está en primer plano.',justify='left',bg=PANEL,fg=MUTED,font=('Bahnschrift',10)).pack(anchor='w',padx=16,pady=(5,6))
+    tk.Label(keys,text='Pulsa y suelta el atajo una vez, sin mover ni ajustar ángulo.\nFunciona en tu turno con el juego en primer plano.\nEsc libera la entrada; una carga iniciada puede lanzar parcialmente.',justify='left',bg=PANEL,fg=MUTED,font=('Bahnschrift',10)).pack(anchor='w',padx=16,pady=(5,6))
     speed=section('RENDIMIENTO')
     row=tk.Frame(speed,bg=PANEL);row.pack(fill='x',padx=16)
     tk.Label(row,text='Modo',bg=PANEL,fg=TEXT,font=('Bahnschrift',12)).pack(side='left')

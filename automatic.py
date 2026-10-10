@@ -1,5 +1,5 @@
 """Automatic passive capture of the selected game page; no game input or storage."""
-import base64,io,ctypes,os,time
+import base64,io,ctypes,os,time,secrets,json
 from PIL import Image
 
 GEOMETRY_JS = r'''(()=>{
@@ -8,6 +8,26 @@ GEOMETRY_JS = r'''(()=>{
  let rect=box(game),power=box(bar),fill=document.getElementById('powerBar')?.getBoundingClientRect();if(power&&fill?.height>1){power[1]=fill.y;power[3]=fill.height;}let canvas=[...document.querySelectorAll('canvas')].map(box).filter(Boolean).sort((a,b)=>b[2]*b[3]-a[2]*a[3])[0];
  return {game:rect,bar:power,canvas,active:!!rect&&getComputedStyle(game).visibility!=='hidden',focused:document.hasFocus()&&document.visibilityState==='visible',dpr:devicePixelRatio,
  screen:[screenX,screenY],outer:[outerWidth,outerHeight],inner:[innerWidth,innerHeight],title:document.title,scroll:[scrollX,scrollY]};
+})()'''
+
+# Only this configured action is counted. No key text, chat or storage is read.
+GESTURE_JS = r'''(()=>{
+ const owner=__OWNER__,key=__KEY__;
+ let s=window.__dragonlabShotGesture;
+ if(!s||s.owner!==owner||s.key!==key){
+  if(s?.handler)window.removeEventListener('keydown',s.handler,true);
+  s={owner,key,count:0,at:0};
+  s.handler=e=>{
+   if(!e.isTrusted||e.repeat||e.keyCode!==s.key||e.ctrlKey||e.shiftKey||e.altKey||e.metaKey)return;
+   const g=document.getElementById('gameScreen');
+   if(!g||!g.getClientRects().length||getComputedStyle(g).visibility==='hidden')return;
+   const f=document.activeElement;
+   if(['INPUT','TEXTAREA','SELECT'].includes(f?.tagName)||f?.isContentEditable||!document.hasFocus()||document.visibilityState!=='visible')return;
+   s.count++;s.at=Date.now();
+  };
+  window.addEventListener('keydown',s.handler,true);window.__dragonlabShotGesture=s;
+ }
+ return {owner:s.owner,key:s.key,count:s.count,at:s.at};
 })()'''
 
 def content_origin(meta):
@@ -55,13 +75,18 @@ def screen_geometry(meta,origin):
 
 class AutoCapture:
     def __init__(self,client,clock=time.monotonic):
-        self.client=client;self.clock=clock;self.last_capture=-float('inf');self.capture_interval=3
-    def read(self,capture=True):
+        self.client=client;self.clock=clock;self.last_capture=-float('inf');self.capture_interval=3;self.gesture_owner=secrets.token_hex(12)
+    def read(self,capture=True,fire_key='Q'):
         result=self.client.call('Runtime.evaluate',{'expression':GEOMETRY_JS,'returnByValue':True,'timeout':1500})
         meta=result.get('result',{}).get('value',{})
         origin=content_origin(meta) if meta.get('active') else None
         area,points=screen_geometry(meta,origin)
         out={'geometry':meta,'screen_box':area,'guide_points':points}
+        if meta.get('active'):
+            from shortcuts import KEYS
+            script=GESTURE_JS.replace('__OWNER__',json.dumps(self.gesture_owner)).replace('__KEY__',str(KEYS[fire_key]))
+            gesture=self.client.call('Runtime.evaluate',{'expression':script,'returnByValue':True}).get('result',{}).get('value')
+            if isinstance(gesture,dict):out['fire_gesture']=gesture
         now=self.clock()
         if capture and meta.get('active') and now-self.last_capture>=self.capture_interval:
             self.last_capture=now
