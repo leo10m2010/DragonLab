@@ -1,0 +1,448 @@
+{
+  "version": "0.12.1",
+  "data": "Native launch measurements; no wind observed. Not a guarantee of all impacts or weather behavior.",
+  "profiles": [
+    {
+      "profile": "dragonbound:ICE:0",
+      "launch_samples": 0,
+      "fit": null,
+      "historical_regimes": 0,
+      "drift_pending": false
+    },
+    {
+      "profile": "dragonbound:ICE:1",
+      "launch_samples": 0,
+      "fit": null,
+      "historical_regimes": 0,
+      "drift_pending": false
+    },
+    {
+      "profile": "dragonbound:ICE:2",
+      "launch_samples": 0,
+      "fit": null,
+      "historical_regimes": 0,
+      "drift_pending": false
+    },
+    {
+      "profile": "dragonbound:GRUB:0",
+      "launch_samples": 0,
+      "fit": null,
+      "historical_regimes": 0,
+      "drift_pending": false
+    },
+    {
+      "profile": "dragonbound:GRUB:1",
+      "launch_samples": 0,
+      "fit": null,
+      "historical_regimes": 0,
+      "drift_pending": false
+    },
+    {
+      "profile": "dragonbound:GRUB:2",
+      "launch_samples": 0,
+      "fit": null,
+      "historical_regimes": 0,
+      "drift_pending": false
+    },
+    {
+      "profile": "dragonbound:MAGE:0",
+      "launch_samples": 0,
+      "fit": null,
+      "historical_regimes": 0,
+      "drift_pending": false
+    },
+    {
+      "profile": "dragonbound:MAGE:1",
+      "launch_samples": 0,
+      "fit": null,
+      "historical_regimes": 0,
+      "drift_pending": false
+    },
+    {
+      "profile": "dragonbound:MAGE:2",
+      "launch_samples": 0,
+      "fit": null,
+      "historical_regimes": 0,
+      "drift_pending": false
+    },
+    {
+      "profile": "dragonbound:ARMOR:0",
+      "launch_samples": 7,
+      "fit": null,
+      "historical_regimes": 4,
+      "drift_pending": false
+    },
+    {
+      "profile": "dragonbound:ARMOR:1",
+      "launch_samples": 9,
+      "fit": {
+        "power_scale": 2.269616999056054,
+        "speed_offset": 7.891315699624556,
+        "gravity": 398,
+        "wind_scale": null,
+        "sample_count": 9,
+        "speed_rmse": 2.123238782219489,
+        "gravity_spread": 4,
+        "acceleration_rmse": 2.309401076758503,
+        "acceleration_max_error": 4.0,
+        "power_range": [
+          184,
+          397
+        ],
+        "wind_range": [
+          0,
+          0
+        ],
+        "wind_observed": false,
+        "holdout_speed_error": 4.076828938233234,
+        "holdout_acceleration_error": 4.0
+      },
+      "historical_regimes": 4,
+      "drift_pending": false
+    },
+    {
+      "profile": "dragonbound:ARMOR:2",
+      "launch_samples": 2,
+      "fit": null,
+      "historical_regimes": 1,
+      "drift_pending": false
+    },
+    {
+      "profile": "dragonbound:LIGHTNING:0",
+      "launch_samples": 0,
+      "fit": null,
+      "historical_regimes": 0,
+      "drift_pending": false
+    },
+    {
+      "profile": "dragonbound:LIGHTNING:1",
+      "launch_samples": 0,
+      "fit": null,
+      "historical_regimes": 0,
+      "drift_pending": false
+    },
+    {
+      "profile": "dragonbound:LIGHTNING:2",
+      "launch_samples": 0,
+      "fit": null,
+      "historical_regimes": 0,
+      "drift_pending": false
+    },
+    {
+      "profile": "dragonbound:KALSIDDON:0",
+      "launch_samples": 2,
+      "fit": null,
+      "historical_regimes": 0,
+      "drift_pending": false
+    },
+    {
+      "profile": "dragonbound:KALSIDDON:1",
+      "launch_samples": 4,
+      "fit": {
+        "power_scale": 2.3677254199672597,
+        "speed_offset": -0.4650897065448589,
+        "gravity": 408.0,
+        "wind_scale": null,
+        "sample_count": 4,
+        "speed_rmse": 0.11994626292159,
+        "gravity_spread": 0,
+        "acceleration_rmse": 0.0,
+        "acceleration_max_error": 0.0,
+        "power_range": [
+          181,
+          347
+        ],
+        "wind_range": [
+          0,
+          0
+        ],
+        "wind_observed": false,
+        "holdout_speed_error": 0.3358452581750271,
+        "holdout_acceleration_error": 0.0
+      },
+      "historical_regimes": 0,
+      "drift_pending": false
+    },
+    {
+      "profile": "dragonbound:KALSIDDON:2",
+      "launch_samples": 4,
+      "fit": null,
+      "historical_regimes": 0,
+      "drift_pending": false
+    },
+    {
+      "profile": "dragonbound:NAK:0",
+      "launch_samples": 11,
+      "fit": {
+        "power_scale": 2.0680392602944524,
+        "speed_offset": 0.40134551009128927,
+        "gravity": 356,
+        "wind_scale": null,
+        "sample_count": 11,
+        "speed_rmse": 0.29089821420373313,
+        "gravity_spread": 0,
+        "acceleration_rmse": 0.0,
+        "acceleration_max_error": 0.0,
+        "power_range": [
+          180,
+          299
+        ],
+        "wind_range": [
+          0,
+          0
+        ],
+        "wind_observed": false,
+        "holdout_speed_error": 1.7565645820503732,
+        "holdout_acceleration_error": 0.0
+      },
+      "historical_regimes": 1,
+      "drift_pending": false
+    },
+    {
+      "profile": "dragonbound:NAK:1",
+      "launch_samples": 8,
+      "fit": {
+        "power_scale": 2.0727619617672364,
+        "speed_offset": -0.3662975571433549,
+        "gravity": 356.0,
+        "wind_scale": null,
+        "sample_count": 8,
+        "speed_rmse": 0.3039309504974977,
+        "gravity_spread": 0,
+        "acceleration_rmse": 0.0,
+        "acceleration_max_error": 0.0,
+        "power_range": [
+          164,
+          308
+        ],
+        "wind_range": [
+          0,
+          0
+        ],
+        "wind_observed": false,
+        "holdout_speed_error": 0.7743526825652225,
+        "holdout_acceleration_error": 0.0
+      },
+      "historical_regimes": 1,
+      "drift_pending": false
+    },
+    {
+      "profile": "dragonbound:NAK:2",
+      "launch_samples": 2,
+      "fit": null,
+      "historical_regimes": 0,
+      "drift_pending": false
+    },
+    {
+      "profile": "dragonbound:TRICO:0",
+      "launch_samples": 0,
+      "fit": null,
+      "historical_regimes": 0,
+      "drift_pending": false
+    },
+    {
+      "profile": "dragonbound:TRICO:1",
+      "launch_samples": 12,
+      "fit": null,
+      "historical_regimes": 0,
+      "drift_pending": false
+    },
+    {
+      "profile": "dragonbound:TRICO:2",
+      "launch_samples": 1,
+      "fit": null,
+      "historical_regimes": 0,
+      "drift_pending": false
+    },
+    {
+      "profile": "dragonbound:FOX:0",
+      "launch_samples": 0,
+      "fit": null,
+      "historical_regimes": 0,
+      "drift_pending": false
+    },
+    {
+      "profile": "dragonbound:FOX:1",
+      "launch_samples": 0,
+      "fit": null,
+      "historical_regimes": 0,
+      "drift_pending": false
+    },
+    {
+      "profile": "dragonbound:FOX:2",
+      "launch_samples": 0,
+      "fit": null,
+      "historical_regimes": 0,
+      "drift_pending": false
+    },
+    {
+      "profile": "dragonbound:ELECTRICO:0",
+      "launch_samples": 0,
+      "fit": null,
+      "historical_regimes": 0,
+      "drift_pending": false
+    },
+    {
+      "profile": "dragonbound:ELECTRICO:1",
+      "launch_samples": 0,
+      "fit": null,
+      "historical_regimes": 0,
+      "drift_pending": false
+    },
+    {
+      "profile": "dragonbound:ELECTRICO:2",
+      "launch_samples": 0,
+      "fit": null,
+      "historical_regimes": 0,
+      "drift_pending": false
+    },
+    {
+      "profile": "dragonbound:RAON:0",
+      "launch_samples": 0,
+      "fit": null,
+      "historical_regimes": 0,
+      "drift_pending": false
+    },
+    {
+      "profile": "dragonbound:RAON:1",
+      "launch_samples": 0,
+      "fit": null,
+      "historical_regimes": 0,
+      "drift_pending": false
+    },
+    {
+      "profile": "dragonbound:RAON:2",
+      "launch_samples": 0,
+      "fit": null,
+      "historical_regimes": 0,
+      "drift_pending": false
+    },
+    {
+      "profile": "dragonbound:DRAGON:0",
+      "launch_samples": 0,
+      "fit": null,
+      "historical_regimes": 0,
+      "drift_pending": false
+    },
+    {
+      "profile": "dragonbound:DRAGON:1",
+      "launch_samples": 0,
+      "fit": null,
+      "historical_regimes": 0,
+      "drift_pending": false
+    },
+    {
+      "profile": "dragonbound:DRAGON:2",
+      "launch_samples": 0,
+      "fit": null,
+      "historical_regimes": 0,
+      "drift_pending": false
+    },
+    {
+      "profile": "dragonbound:JD:0",
+      "launch_samples": 0,
+      "fit": null,
+      "historical_regimes": 0,
+      "drift_pending": false
+    },
+    {
+      "profile": "dragonbound:JD:1",
+      "launch_samples": 0,
+      "fit": null,
+      "historical_regimes": 0,
+      "drift_pending": false
+    },
+    {
+      "profile": "dragonbound:JD:2",
+      "launch_samples": 0,
+      "fit": null,
+      "historical_regimes": 0,
+      "drift_pending": false
+    },
+    {
+      "profile": "dragonbound:BIGFOOT:0",
+      "launch_samples": 0,
+      "fit": null,
+      "historical_regimes": 0,
+      "drift_pending": false
+    },
+    {
+      "profile": "dragonbound:BIGFOOT:1",
+      "launch_samples": 0,
+      "fit": null,
+      "historical_regimes": 0,
+      "drift_pending": false
+    },
+    {
+      "profile": "dragonbound:BIGFOOT:2",
+      "launch_samples": 0,
+      "fit": null,
+      "historical_regimes": 0,
+      "drift_pending": false
+    },
+    {
+      "profile": "dragonbound:ASATE:0",
+      "launch_samples": 0,
+      "fit": null,
+      "historical_regimes": 0,
+      "drift_pending": false
+    },
+    {
+      "profile": "dragonbound:ASATE:1",
+      "launch_samples": 0,
+      "fit": null,
+      "historical_regimes": 0,
+      "drift_pending": false
+    },
+    {
+      "profile": "dragonbound:ASATE:2",
+      "launch_samples": 0,
+      "fit": null,
+      "historical_regimes": 0,
+      "drift_pending": false
+    },
+    {
+      "profile": "dragonbound:RANDOMIZER:0",
+      "launch_samples": 0,
+      "fit": null,
+      "historical_regimes": 0,
+      "drift_pending": false
+    },
+    {
+      "profile": "dragonbound:RANDOMIZER:1",
+      "launch_samples": 0,
+      "fit": null,
+      "historical_regimes": 0,
+      "drift_pending": false
+    },
+    {
+      "profile": "dragonbound:RANDOMIZER:2",
+      "launch_samples": 0,
+      "fit": null,
+      "historical_regimes": 0,
+      "drift_pending": false
+    },
+    {
+      "profile": "dragonbound:ADUKA:0",
+      "launch_samples": 0,
+      "fit": null,
+      "historical_regimes": 0,
+      "drift_pending": false
+    },
+    {
+      "profile": "dragonbound:ADUKA:1",
+      "launch_samples": 0,
+      "fit": null,
+      "historical_regimes": 0,
+      "drift_pending": false
+    },
+    {
+      "profile": "dragonbound:ADUKA:2",
+      "launch_samples": 0,
+      "fit": null,
+      "historical_regimes": 0,
+      "drift_pending": false
+    }
+  ],
+  "validated_profiles": 4
+}

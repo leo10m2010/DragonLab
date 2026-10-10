@@ -1,6 +1,7 @@
 """Own configuration, clone selection and calibration tools for DragonLab."""
 import json,threading,queue,copy,pathlib,subprocess,os
 import tkinter as tk
+from rounded_controls import RoundedChoice,RoundedSwitch,RoundedEntry,RoundedTabs,RoundedTable,RoundedScroll,RoundedText
 from tkinter import ttk,messagebox,filedialog
 from dataclasses import asdict
 from core import Settings,solve,optimize_angles,fit_calibration
@@ -12,7 +13,7 @@ def open_advanced(app):
     win=tk.Toplevel(app.root);win.title('DragonLab · Motor y conexiones');win.geometry('950x740');win.configure(bg=BG)
     status=tk.StringVar(value='Los perfiles físicos se guardan por juego y vehículo.');q=queue.Queue();closed=False
     tk.Label(win,textvariable=status,bg=BG,fg=GREEN,wraplength=900).pack(fill='x',padx=18,pady=12)
-    book=ttk.Notebook(win);book.pack(fill='both',expand=True,padx=18,pady=8)
+    book=RoundedTabs(win);book.pack(fill='both',expand=True,padx=18,pady=8)
     tabs={}
     for name in ['Juego y navegador','Proyectiles y clima','Calibración','Ángulos']:
         p=tk.Frame(book,bg=PANEL);book.add(p,text=name);tabs[name]=p
@@ -46,9 +47,9 @@ def open_advanced(app):
     names={x.get('name',x['id']):x for x in profiles}
     selected=tk.StringVar(value=next((n for n,x in names.items() if x['id']==app.clone_id),'DragonBound'))
     note(p,'DragonBound: lectura comprobada. GunBound World: conector experimental y física propia por calibrar. El modo de captura permite trabajar con una ventana sin acceso interno al juego.')
-    combo=ttk.Combobox(p,textvariable=selected,values=list(names),state='readonly');combo.pack(fill='x',padx=16,pady=8)
+    combo=RoundedChoice(p,textvariable=selected,values=list(names),state='readonly');combo.pack(fill='x',padx=16,pady=8)
     page_var=tk.StringVar(value='Selección automática por dominio');pages={}
-    page_combo=ttk.Combobox(p,textvariable=page_var,state='readonly',values=[page_var.get()]);page_combo.pack(fill='x',padx=16,pady=8)
+    page_combo=RoundedChoice(p,textvariable=page_var,state='readonly',values=[page_var.get()]);page_combo.pack(fill='x',padx=16,pady=8)
     details=tk.StringVar(value=names[selected.get()]['compatibility']);tk.Label(p,textvariable=details,bg=PANEL,fg=MUTED,wraplength=850,justify='left').pack(anchor='w',padx=16,pady=8)
     combo.bind('<<ComboboxSelected>>',lambda e:details.set(names[selected.get()].get('compatibility','Perfil propio')))
     def refreshed(values):
@@ -89,12 +90,12 @@ def open_advanced(app):
     fields=[('selected_shot','Disparo: 0 = 1, 1 = 2, 2 = SS'),('max_time','Tiempo máximo (s)'),('max_power','Potencia máxima'),('speed_offset','Desplazamiento velocidad'),('angle_offset','Corrección de ángulo °')]
     for i,(key,label) in enumerate(fields):
         tk.Label(grid,text=label,bg=PANEL,fg=TEXT).grid(row=i,column=0,sticky='w',pady=5)
-        v=tk.StringVar(value=str(getattr(app.s,key)));values[key]=v;tk.Entry(grid,textvariable=v,bg=BG,fg=TEXT,insertbackground=TEXT,width=15).grid(row=i,column=1,padx=16)
-    quant=tk.BooleanVar(value=app.s.quantize_power);tk.Checkbutton(p,text='Cuantizar velocidad del proyectil',variable=quant,bg=PANEL,fg=TEXT,selectcolor=BG).pack(anchor='w',padx=12,pady=6)
-    direction=tk.StringVar(value=app.direction);ttk.Combobox(p,textvariable=direction,values=['Auto','Derecha','Izquierda'],state='readonly').pack(anchor='w',padx=16,pady=3)
-    backshot=tk.BooleanVar(value=app.s.is_backshot);tk.Checkbutton(p,text='Modelo de backshot NAK (solo sin clima)',variable=backshot,bg=PANEL,fg=TEXT,selectcolor=BG).pack(anchor='w',padx=12,pady=3)
+        v=tk.StringVar(value=str(getattr(app.s,key)));values[key]=v;RoundedEntry(grid,textvariable=v,bg=BG,fg=TEXT,insertbackground=TEXT,width=15).grid(row=i,column=1,padx=16,pady=(0,4))
+    quant=tk.BooleanVar(value=app.s.quantize_power);RoundedSwitch(p,text='Cuantizar velocidad del proyectil',variable=quant,bg=PANEL,fg=TEXT,selectcolor=BG).pack(anchor='w',padx=12,pady=6)
+    direction=tk.StringVar(value=app.direction);RoundedChoice(p,textvariable=direction,values=['Auto','Derecha','Izquierda'],state='readonly').pack(anchor='w',padx=16,pady=3)
+    backshot=tk.BooleanVar(value=False)
     note(p,'Climas: introduce su ubicación en coordenadas del mapa. Mirror usa typeId 7; Tornado usa typeId 8 y size. El terreno admite alturas, polígonos o filas de píxeles. Los modelos especiales proceden de la interfaz observada; su precisión requiere pruebas de juego.')
-    env=tk.Text(p,height=10,bg=BG,fg=TEXT,insertbackground=TEXT,font=('Consolas',10));env.pack(fill='both',expand=True,padx=16,pady=8);env.insert('1.0',json.dumps(app.s.environment,indent=2))
+    env=RoundedText(p,height=10,bg=BG,fg=TEXT,insertbackground=TEXT,font=('Consolas',10));env.pack(fill='both',expand=True,padx=16,pady=8);env.insert('1.0',json.dumps(app.s.environment,indent=2))
     row=tk.Frame(p,bg=PANEL);row.pack(fill='x',padx=10,pady=8)
     def apply_engine():
         settings=Settings(**asdict(app.read()))
@@ -121,7 +122,7 @@ def open_advanced(app):
     p=tabs['Calibración'];samples=getattr(app,'calibration_samples',[]);app.calibration_samples=samples
     note(p,'Importa una lista JSON de medidas de disparos: power, vx, vy, ax, ay, wind, wind_angle. Se requieren al menos dos potencias distintas. El ajuste estima gravedad, viento, velocidad y desplazamiento; muestra el error antes de aplicarlo.')
     summary=tk.StringVar(value=f'{len(samples)} muestras');tk.Label(p,textvariable=summary,bg=PANEL,fg=GREEN,wraplength=850,justify='left').pack(anchor='w',padx=16,pady=8)
-    result_box=tk.Text(p,height=14,bg=BG,fg=TEXT,insertbackground=TEXT,font=('Consolas',11));result_box.pack(fill='both',expand=True,padx=16,pady=8)
+    result_box=RoundedText(p,height=14,bg=BG,fg=TEXT,insertbackground=TEXT,font=('Consolas',11));result_box.pack(fill='both',expand=True,padx=16,pady=8)
     fitted={}
     def import_samples():
         path=filedialog.askopenfilename(parent=win,filetypes=[('Muestras JSON','*.json')])
@@ -153,8 +154,8 @@ def open_advanced(app):
     p=tabs['Ángulos'];note(p,'Busca soluciones usando el perfil y el entorno actuales. Las trayectorias con clima o terreno requieren más tiempo de cálculo. La búsqueda no modifica ni dispara en el juego.')
     bounds=tk.Frame(p,bg=PANEL);bounds.pack(fill='x',padx=16,pady=8);avs=[]
     for name,value in [('Desde',10),('Hasta',80),('Paso',5)]:
-        tk.Label(bounds,text=name,bg=PANEL,fg=TEXT).pack(side='left',padx=6);v=tk.StringVar(value=str(value));avs.append(v);tk.Entry(bounds,textvariable=v,width=7).pack(side='left')
-    table=ttk.Treeview(p,columns=('angle','power','error','time'),show='headings',height=13)
+        tk.Label(bounds,text=name,bg=PANEL,fg=TEXT).pack(side='left',padx=6);v=tk.StringVar(value=str(value));avs.append(v);RoundedEntry(bounds,textvariable=v,width=7).pack(side='left')
+    table=RoundedTable(p,columns=('angle','power','error','time'),show='headings',height=13)
     for key,label in [('angle','Ángulo'),('power','Potencia'),('error','Error del modelo (px)'),('time','Tiempo (s)')]:table.heading(key,text=label);table.column(key,width=170)
     table.pack(fill='both',expand=True,padx=16,pady=8);solutions=[]
     def found(results):

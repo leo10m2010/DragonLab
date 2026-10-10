@@ -1,6 +1,27 @@
 """Stable enemy order and a passive, combination-safe Control tap reader."""
 import os
 import math
+import time
+
+class PlayerTracker:
+    def __init__(self):self.cache={}
+    def reset(self):self.cache.clear()
+    def update(self,players,now=None):
+        now=time.monotonic() if now is None else now;present=set();result=[]
+        for raw in players:
+            if not isinstance(raw,dict):continue
+            ident=identity(raw.get('id'))
+            if ident is None:continue
+            present.add(ident);prior=self.cache.get(ident)
+            if raw.get('dead'):self.cache.pop(ident,None);result.append(raw);continue
+            valid=all(isinstance(raw.get(k),(int,float)) and math.isfinite(raw[k]) for k in ('x','y'))
+            if valid:
+                player={**(prior[0] if prior else {}),**{k:v for k,v in raw.items() if v is not None},'id':ident,'stale':False};self.cache[ident]=(player,now);result.append(player)
+            elif prior and now-prior[1]<=.8:result.append({**prior[0],'stale':True})
+        for ident,(player,last) in list(self.cache.items()):
+            if now-last>.8:self.cache.pop(ident,None)
+            elif ident not in present:result.append({**player,'stale':True})
+        return normalize_players(result)
 
 def identity(value):
     if isinstance(value,str) and value.strip().lstrip('-').isdigit():return int(value)

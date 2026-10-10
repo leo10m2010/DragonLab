@@ -1,6 +1,7 @@
 """Per-vehicle calibration from attributed native shot starts; never synthetic evidence."""
 import math,json,pathlib,time
 from core import PROFILES,fit_calibration
+from calibration_validation import validated_fit,current_fit
 
 def mobile_name(value):
     if isinstance(value,int) and 0<=value<len(PROFILES):return list(PROFILES)[value]
@@ -8,7 +9,7 @@ def mobile_name(value):
 
 class CalibrationBook:
     def __init__(self,path):
-        self.path=pathlib.Path(path);self.records={};self.seen=set();self.message='Esperando tiros medibles'
+        self.path=pathlib.Path(path);self.records={};self.seen=set();self.revision=0;self.message='Esperando tiros medibles'
         try:
             saved=json.loads(self.path.read_text(encoding='utf-8'))
             if saved.get('schema')==1:self.records=saved.get('records',{})
@@ -20,16 +21,47 @@ class CalibrationBook:
         if record.get('drift_pending'):return None
         if not fit or (not fit.get('wind_observed') and wind!=0):return None
         return fit
+    def confidence(self,clone,mobile,shot,wind):
+        record=self.records.get(self.key(clone,mobile,shot),{});fit=self.profile(clone,mobile,shot,wind)
+        count=len(record.get('samples',[]))
+        if record.get('drift_pending'):return {'label':'Recalibrando','count':count,'level':'low'}
+        if fit:return {'label':'Salida calibrada' if mobile in ('KALSIDDON','NAK','TRICO') else 'Calibrado','count':count,'level':'measured','residual':fit.get('holdout_speed_error')}
+        return {'label':'Aproximado' if count else 'Faltan datos','count':count,'level':'low'}
+    def provisional(self,clone,mobile,shot,wind,angle):
+        record=self.records.get(self.key(clone,mobile,shot),{})
+        if record.get('drift_pending'):return None
+        matching=[m for m in record.get('samples',[]) if m.get('wind')==wind and (wind==0 or abs((m.get('wind_angle',999)-angle+180)%360-180)<1e-6)]
+        if not matching:return None
+        sample=matching[-1];g,w,p,*_=PROFILES[mobile]
+        return {'gravity':max(1,sample['ay']+math.sin(math.radians(angle))*wind*w),'wind_scale':w,'power_scale':math.hypot(sample['vx'],sample['vy'])/sample['power'],'speed_offset':0,'provisional':True}
+    def underground_gravity(self,clone):
+        samples=self.records.get(self.key(clone,'NAK',1),{}).get('underground_samples',[])
+        if len(samples)<3:return None
+        import statistics
+        return statistics.median(s['gravity'] for s in samples)
     def acceleration(self,clone,mobile,shot,wind,angle):
         record=self.records.get(self.key(clone,mobile,shot),{})
-        if not record.get('fit'):return None
-        matching=[m for m in record.get('samples',[]) if abs(m.get('wind',-1)-wind)<1e-6 and abs((m.get('wind_angle',999)-angle+180)%360-180)<1e-6]
+        if record.get('drift_pending'):return None
+        matching=[m for m in record.get('samples',[]) if abs(m.get('wind',-1)-wind)<1e-6 and (wind==0 or abs((m.get('wind_angle',999)-angle+180)%360-180)<1e-6)]
         return [matching[-1]['ax'],matching[-1]['ay']] if matching else None
     def save(self):
         self.path.parent.mkdir(parents=True,exist_ok=True);temp=self.path.with_suffix('.tmp')
         temp.write_text(json.dumps({'schema':1,'records':self.records},indent=2),encoding='utf-8');temp.replace(self.path)
+        self.revision+=1
     def observe(self,state,clone='dragonbound'):
         if state.get('status')!='live':return []
+        shots=state.get('shots',[])
+        for child in shots:
+            if child.get('bulletId')!=36 or not child.get('native'):continue
+            parent=next((p for p in shots if p.get('bulletId')==35 and p.get('duration')==child.get('delay')),None)
+            if not parent:continue
+            a=parent.get('start',[]);b=child.get('start',[])
+            if len(a)!=6 or len(b)!=6 or not all(isinstance(v,(int,float)) and math.isfinite(v) for v in a+b):continue
+            t=parent['duration']/1000;vx=a[3]*math.cos(math.radians(a[2]))+a[4]*t;vy=-a[3]*math.sin(math.radians(a[2]))+a[5]*t
+            if math.dist((vx,vy),(b[3]*math.cos(math.radians(b[2])),-b[3]*math.sin(math.radians(b[2]))))>2 or abs(b[4])>1 or not 500<=-b[5]<=4000:continue
+            record=self.records.setdefault(self.key(clone,'NAK',1),{'samples':[]});samples=record.setdefault('underground_samples',[]);ident=str(child['id'])+':'+str(b)
+            if not any(s['id']==ident for s in samples):
+                samples.append({'id':ident,'gravity':-b[5],'source':'native-shot-continuation'});record['underground_samples']=samples[-32:];self.save()
         players=[p for p in state.get('players',[]) if all(isinstance(p.get(k),(int,float)) for k in ('x','y'))]
         muzzle_changed=False
         for player in players:
@@ -79,6 +111,9 @@ class CalibrationBook:
                 pending=record.setdefault('drift_pending',[]);pending.append(sample)
                 record['status']='Recalibrando: cambiaron las mediciones';self.message=f'{name}: comprobando un cambio de física'
                 if len(pending)<2:self.save();return []
+                archives=record.setdefault('previous_regimes',[])
+                archives.append({'samples':record['samples'],'fit':prior,'reason':'Two incompatible native starts','archived':time.time()})
+                record['previous_regimes']=archives[-8:]
                 record.pop('fit',None);record['samples']=pending[:-1];record.pop('drift_pending',None)
             else:record.pop('drift_pending',None)
         record['samples']=(record['samples']+[sample])[-48:];record['updated']=time.time()
@@ -86,28 +121,47 @@ class CalibrationBook:
         self.message=f'{name}: {len(samples)} tiros medidos'
         if len(samples)>=4 and len(set(powers))>=3 and max(powers)-min(powers)>=40:
             try:
-                fit=fit_calibration(samples)
-                heldout=[]
-                if len(samples)>=4:
-                    for index,measurement in enumerate(samples):
-                        training=samples[:index]+samples[index+1:]
-                        if len({m['power'] for m in training})<2:continue
-                        trial=fit_calibration(training)
-                        heldout.append(abs(math.hypot(measurement['vx'],measurement['vy'])-(trial['power_scale']*measurement['power']+trial['speed_offset'])))
-                fit['holdout_speed_error']=max(heldout) if heldout else None
-                if fit['speed_rmse']<=3 and fit['gravity_spread']<=max(5,.05*fit['gravity']) and (not heldout or max(heldout)<=5):
-                    record['fit']=fit;record['status']='Ajuste observado';self.message=f'{name}: ajuste guardado con {len(samples)} tiros'
-                    accepted.append((key,fit))
-                else:record['status']='Muestras inconsistentes; perfil base conservado'
-            except ValueError:record['status']='Faltan datos compatibles'
+                fit,cut=current_fit(samples)
+                if cut:
+                    archives=record.setdefault('previous_regimes',[])
+                    archives.append({'samples':samples[:cut],'reason':'Recent contiguous observations pass independent validation','archived':time.time()})
+                    record['previous_regimes']=archives[-8:];record['samples']=samples[cut:]
+                record['fit']=fit;record['status']='Ajuste observado';self.message=f'{name}: ajuste guardado con {len(samples)} tiros'
+                accepted.append((key,fit))
+            except ValueError:
+                if prior:
+                    archives=record.setdefault('previous_regimes',[])
+                    cohort=samples[:-1]
+                    ids=[s.get('sample_id') for s in cohort]
+                    if not any([s.get('sample_id') for s in a.get('samples',[])]==ids for a in archives):
+                        archives.append({'samples':cohort,'fit':prior,'reason':'Prior validated fit preserved after a new observation failed validation','archived':time.time()})
+                        record['previous_regimes']=archives[-8:]
+                record.pop('fit',None);record['status']='Faltan datos compatibles o falló la validación independiente'
         self.save();return accepted
+    def refit_measured(self):
+        changed=0
+        for record in self.records.values():
+            if record.get('drift_pending'):continue
+            samples=record.get('samples',[])
+            if len(samples)<4:continue
+            try:
+                fit,cut=current_fit(samples)
+                if cut:
+                    record.setdefault('previous_regimes',[]).append({'samples':samples[:cut],'reason':'Recent contiguous observations pass independent validation','archived':time.time()})
+                    record['previous_regimes']=record['previous_regimes'][-8:];record['samples']=samples[cut:]
+                record['fit']=fit;record['status']='Ajuste observado';changed+=1
+            except ValueError:
+                record.pop('fit',None);record['status']='Faltan datos compatibles o falló la validación independiente'
+        self.save();return changed
     def rows(self,clone='dragonbound'):
         rows=[]
         for name in PROFILES:
             modes=[self.records.get(self.key(clone,name,i),{}) for i in (0,1,2)]
             record=max(modes,key=lambda r:(bool(r.get('fit')),len(r.get('samples',[])),bool(r.get('muzzle'))));fit=record.get('fit');count=sum(len(r.get('samples',[])) for r in modes)
             status=('Ajuste observado' if fit and fit.get('wind_observed') else 'Ajuste sin viento' if fit else 'Midiendo' if count else 'Salida medida · fuerza base' if record.get('muzzle') else 'Perfil base · faltan tiros')
-            if record.get('drift_pending'):status='Revisando cambio de física'
+            if any(r.get('drift_pending') for r in modes):status='Revisando cambio de física'
+            elif any(r.get('fit') for r in modes):
+                status=' · '.join(f'{label}: '+('con viento' if r.get('fit',{}).get('wind_observed') else 'sin viento' if r.get('fit') else 'pendiente') for label,r in zip(('1','2','SS'),modes))
             rows.append((name,status,count))
         return rows
     def import_samples(self,data,clone='dragonbound'):
@@ -118,9 +172,6 @@ class CalibrationBook:
             name=mobile_name(sample.get('mobile'));shot=sample.get('selected_shot',0)
             if name is None or shot not in (0,1,2):raise ValueError('Muestra sin vehículo o tiro válido')
             groups.setdefault(self.key(clone,name,shot),[]).append({k:sample[k] for k in ('power','vx','vy','ax','ay','wind','wind_angle')})
-        fitted={key:fit_calibration(values) for key,values in groups.items()}
-        for key,values in groups.items():
-            fit=fitted[key]
-            if len(values)<4 or fit['speed_rmse']>3 or fit['gravity_spread']>max(5,.05*fit['gravity']):raise ValueError('Se requieren cuatro muestras consistentes por vehículo y tiro')
+        fitted={key:validated_fit(values) for key,values in groups.items()}
         for key,values in groups.items():self.records[key]={'samples':values[-48:],'fit':fitted[key],'status':'Ajuste importado','updated':time.time()}
         self.save();return len(groups)

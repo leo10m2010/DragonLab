@@ -2,6 +2,8 @@
 import math
 
 def position(shot,seconds):
+    change=shot.get('change') or {};pause=change.get('dur',0)/1000;at=change.get('at',0)/1000
+    if pause and seconds>at:seconds=at if seconds<at+pause else seconds-pause
     x,y,angle,speed,ax,ay=shot['start'][:6]
     vx=speed*math.cos(math.radians(angle));vy=-speed*math.sin(math.radians(angle));start=0
     for jump in sorted(shot.get('jumps') or [],key=lambda j:j[0]):
@@ -12,7 +14,7 @@ def position(shot,seconds):
     dt=seconds-start;x+=vx*dt+ax*dt*dt/2;y+=vy*dt+ay*dt*dt/2
     orbit=shot.get('orbit');wave=shot.get('wave');path=shot.get('path')
     if path and len(path)>=3:
-        duration=max(.001,shot.get('duration',0)/1000);count=len(path)//3;index=seconds/duration*count
+        duration=max(.001,shot.get('duration',0)/1000-pause);count=len(path)//3;index=seconds/duration*count
         lo=min(count-1,max(0,int(index)));hi=min(count-1,lo+1);weight=index-math.floor(index)
         return tuple(path[lo*3+k]*(1-weight)+path[hi*3+k]*weight for k in (0,1))
     if orbit and len(orbit)==4:

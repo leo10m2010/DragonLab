@@ -1,5 +1,7 @@
 """Tk tools for calibrated local vision and explicitly armed one-shot input."""
 import tkinter as tk
+from rounded_controls import RoundedChoice,RoundedSwitch,RoundedEntry,RoundedTabs,RoundedTable,RoundedScroll
+from rounded_widgets import RoundedButton
 from tkinter import ttk,messagebox,simpledialog,filedialog
 import time,threading,json,ctypes,queue
 from pathlib import Path
@@ -32,7 +34,7 @@ def open_tools(app):
         if app.image is None:raise ValueError('Abre una captura o captura el área del juego primero')
         state['image']=app.image.convert('RGB').resize(app.viewport);state['photo']=ImageTk.PhotoImage(state['image'].resize((800,500)))
         canvas.delete('all');canvas.create_image(0,0,anchor='nw',image=state['photo']);say('Arrastra para elegir región; clic para elegir color')
-    tk.Button(win,text='Usar captura actual',command=guarded(refresh)).pack(pady=4)
+    RoundedButton(win,text='Usar captura actual',command=guarded(refresh)).pack(pady=4)
     def down(e):state['anchor']=(max(0,min(799,e.x)),max(0,min(499,e.y)))
     def up(e):
         if state['image'] is None:return
@@ -43,15 +45,15 @@ def open_tools(app):
         box=(int(min(x,x2)*vw/800),int(min(y,y2)*vh/500),min(vw,int(max(x,x2)*vw/800)+1),min(vh,int(max(y,y2)*vh/500)+1))
         state['box']=box;state['crop']=state['image'].crop(box);canvas.delete('region');canvas.create_rectangle(box[0]*800/vw,box[1]*500/vh,box[2]*800/vw,box[3]*500/vh,outline=GREEN,width=2,tags='region');say('Región %s'%str(box))
     canvas.bind('<ButtonPress-1>',down);canvas.bind('<ButtonRelease-1>',up)
-    notebook=ttk.Notebook(win);notebook.pack(fill='both',expand=True,padx=12,pady=8)
+    notebook=RoundedTabs(win);notebook.pack(fill='both',expand=True,padx=12,pady=8)
     tabs={}
     for name in ('Terreno','Números OCR','Seguimiento','Disparo'):
         tab=tk.Frame(notebook,bg=PANEL);notebook.add(tab,text=name);tabs[name]=tab
     def label(tab,text):tk.Label(tab,text=text,bg=PANEL,fg=TEXT,wraplength=950,justify='left').pack(anchor='w',padx=12,pady=5)
-    def button(tab,text,fn):tk.Button(tab,text=text,command=guarded(fn),bg=BG,fg=TEXT).pack(side='left',padx=5,pady=5)
+    def button(tab,text,fn):RoundedButton(tab,text=text,command=guarded(fn),bg=BG,fg=TEXT).pack(side='left',padx=5,pady=5)
     def world(x,y):return list(app.unprojected(x,y))
     label(tabs['Terreno'],'Selecciona un color uniforme del suelo y opcionalmente una región de terreno. Es una detección por color; revisa la línea antes de usarla para colisiones.')
-    tolerance=tk.StringVar(value='35');row=tk.Frame(tabs['Terreno'],bg=PANEL);row.pack(fill='x');tk.Label(row,text='Tolerancia RGB',bg=PANEL,fg=TEXT).pack(side='left');tk.Entry(row,textvariable=tolerance,width=6).pack(side='left')
+    tolerance=tk.StringVar(value='35');row=tk.Frame(tabs['Terreno'],bg=PANEL);row.pack(fill='x');tk.Label(row,text='Tolerancia RGB',bg=PANEL,fg=TEXT).pack(side='left');RoundedEntry(row,textvariable=tolerance,width=6).pack(side='left')
     def terrain():
         if not state['color'] or state['image'] is None:raise ValueError('Selecciona primero el color del terreno')
         vw,vh=app.viewport;im=state['crop'] or state['image'];box=state['box'] if state['crop'] else (0,0,vw,vh)
@@ -72,8 +74,8 @@ def open_tools(app):
         app.s.environment.pop('terrain',None);canvas.delete('terrain');app.mark();say('Terreno eliminado')
     button(row,'Quitar terreno',clear_terrain)
     label(tabs['Números OCR'],'OCR local por plantillas: enseña recortes conocidos de los dígitos del clon. No es una IA entrenada universal; debe recalibrarse si cambia fuente, tema o escala.')
-    label_value=tk.StringVar(value='');field=tk.StringVar(value='angle');ocr_row=tk.Frame(tabs['Números OCR'],bg=PANEL);ocr_row.pack(fill='x');tk.Entry(ocr_row,textvariable=label_value,width=12).pack(side='left');ttk.Combobox(ocr_row,textvariable=field,values=['angle','wind','wind_angle'],width=12,state='readonly').pack(side='left',padx=5)
-    use_color=tk.BooleanVar(value=False);tk.Checkbutton(tabs['Números OCR'],text='Usar color seleccionado para texto (si no: contraste con fondo)',variable=use_color,bg=PANEL,fg=TEXT,selectcolor=BG).pack(anchor='w')
+    label_value=tk.StringVar(value='');field=tk.StringVar(value='angle');ocr_row=tk.Frame(tabs['Números OCR'],bg=PANEL);ocr_row.pack(fill='x');RoundedEntry(ocr_row,textvariable=label_value,width=12).pack(side='left');RoundedChoice(ocr_row,textvariable=field,values=['angle','wind','wind_angle'],width=12,state='readonly').pack(side='left',padx=5)
+    use_color=tk.BooleanVar(value=False);RoundedSwitch(tabs['Números OCR'],text='Usar color seleccionado para texto (si no: contraste con fondo)',variable=use_color,bg=PANEL,fg=TEXT,selectcolor=BG).pack(anchor='w')
     def fg():return state['color'] if use_color.get() else None
     def teach():
         if state['crop'] is None:raise ValueError('Arrastra un recorte que contenga solo el número conocido')
@@ -124,7 +126,7 @@ def open_tools(app):
     label(tabs['Disparo'],'Un único disparo voluntario. Configura y verifica primero duración o barra. La cuenta regresiva permite dar foco al juego. Esc cancela. La simulación no envía entradas; el modo real requiere habilitación explícita por disparo.')
     controller=FireController();app.fire_controller=controller
     method=tk.StringVar(value='space');duration=tk.StringVar(value='1800');dry=tk.BooleanVar(value=True);armed=tk.BooleanVar(value=False)
-    firingrow=tk.Frame(tabs['Disparo'],bg=PANEL);firingrow.pack(fill='x');ttk.Combobox(firingrow,textvariable=method,values=['space','bar'],width=9,state='readonly').pack(side='left');tk.Label(firingrow,text='Duración máxima ms',bg=PANEL,fg=TEXT).pack(side='left');tk.Entry(firingrow,textvariable=duration,width=7).pack(side='left');tk.Checkbutton(firingrow,text='Simulación',variable=dry,bg=PANEL,fg=TEXT,selectcolor=BG).pack(side='left');tk.Checkbutton(firingrow,text='Habilitar UN disparo',variable=armed,bg=PANEL,fg=TEXT,selectcolor=BG).pack(side='left')
+    firingrow=tk.Frame(tabs['Disparo'],bg=PANEL);firingrow.pack(fill='x');RoundedChoice(firingrow,textvariable=method,values=['space','bar'],width=9,state='readonly').pack(side='left');tk.Label(firingrow,text='Duración máxima ms',bg=PANEL,fg=TEXT).pack(side='left');RoundedEntry(firingrow,textvariable=duration,width=7).pack(side='left');RoundedSwitch(firingrow,text='Simulación',variable=dry,bg=PANEL,fg=TEXT,selectcolor=BG).pack(side='left');RoundedSwitch(firingrow,text='Habilitar UN disparo',variable=armed,bg=PANEL,fg=TEXT,selectcolor=BG).pack(side='left')
     def capture(which):
         say('En 3 segundos selecciona la ventana del juego / coloca el cursor en la barra');win.withdraw();app.root.iconify()
         def finish():

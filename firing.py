@@ -80,3 +80,6 @@ class WindowsInput:
     def key(self,down):self.u.keybd_event(0x20,0,0 if down else 2,0)
     def mouse(self,down):self.u.mouse_event(2 if down else 4,0,0,0,0)
     def move(self,x,y):self.u.SetCursorPos(int(x),int(y))
+    def cursor(self):
+        from ctypes import wintypes
+        point=wintypes.POINT();self.u.GetCursorPos(ctypes.byref(point));return point.x,point.y

@@ -44,9 +44,6 @@ def segments(s,power):
     if s.quantize_power:speed=math.trunc(speed)
     vx=side*math.cos(angle)*speed;vy=-math.sin(angle)*speed
     ax,ay=acceleration(s);base=(ax,ay)
-    if s.mobile=='NAK' and s.selected_shot!=1 and s.is_backshot and s.angle<=70 and not s.environment.get('activeWeathers'):
-        # Observed NAK special: inverted vertical acceleration and doubled horizontal speed.
-        ay*=-8;vx*=-2;base=(ax,ay)
     tornado,mirrors=weather_records(s.environment)
     entered=set();active=None;clock=0;result=[];events=[]
     for _ in range(max(8,len(tornado)*5+4,64 if mirrors else 0)):
@@ -86,7 +83,10 @@ def segments(s,power):
             if abs(origin-center)>=25 and y<top:
                 hit=crossing(y,vy,ay,top,1,remaining)
                 if hit is not None and abs(x+vx*hit+ax*hit*hit/2-center)<25 and hit<dt:dt,event=hit,'mirror'
-        floor=s.environment.get('originY',0)+max(600,s.environment.get('mapHeight',1200))+160
+        terrain=s.environment.get('terrain') or {}
+        origin_y=terrain.get('originY',s.environment.get('originY',0))
+        map_height=terrain.get('height',len(terrain.get('heights',[]))) or s.environment.get('mapHeight',1200)
+        floor=max(origin_y+map_height,s.hero_y,s.target_y)+160
         hit=crossing(y,vy,ay,floor,1,remaining)
         if hit is not None and hit<=dt:dt,event=hit,'end'
         segment={'start':clock,'end':clock+dt,'x':x,'y':y,'vx':vx,'vy':vy,'ax':ax,'ay':ay}
@@ -161,18 +161,19 @@ def swept_impact(terrain,a,b):
         if solid(terrain,p[0],p[1]):return p
     return None
 
-def trajectory(s,power,step=.025):
-    paths=[];events=[];impacts=[]
+def trajectory(s,power,step=.025,include_deployment=False):
+    paths=[];events=[];impacts=[];damage_paths=[];hit_ids=[];deployment=None
     terrain=s.environment.get('terrain')
     for variant in variants(s):
         local=replace(s,angle_offset=s.angle_offset+variant.get('angleOffset',0),
                       speed_offset=s.speed_offset+variant.get('speedOffset',0))
         parts,interactions=segments(local,power*variant.get('speedRatio',1)+variant.get('powerOffset',0))
-        events.extend(interactions);path=[];impact=None
+        events.extend(interactions);path=[];impact=None;hit_id=None
         for seg in parts:
-            duration=seg['end']-seg['start'];count=max(1,math.ceil(duration/step))
+            duration=seg['end']-seg['start'];native_nak=s.mobile=='NAK' and s.selected_shot==1
+            interval=.025 if native_nak else step;count=max(1,math.ceil(duration/interval))
             for index in range(count+1):
-                time=seg['start']+duration*index/count;x,y=at(seg,time)
+                time=seg['start']+(min(duration,index*interval) if native_nak else duration*index/count);x,y=at(seg,time)
                 orbit=variant.get('orbit')
                 if orbit:
                     initial,rate,growth,radius=orbit
@@ -187,16 +188,81 @@ def trajectory(s,power,step=.025):
                     else:radius=ms/400*25 if ms<400 else 25*math.cos((ms-400)/95) if ms<2200 else 25-(ms-2200)/400*22 if ms<2600 else 3
                     x+=radius*math.cos(normal);y-=radius*math.sin(normal)
                 point=(x,y,time)
-                if terrain and time>0:
+                if s.mobile=='NAK' and s.selected_shot==2 and path:
+                    first=None
+                    for player in s.environment.get('players',[]):
+                        if player.get('dead'):continue
+                        a=path[-1];dx=point[0]-a[0];dy=point[1]-a[1];length=dx*dx+dy*dy
+                        if max(a[0],point[0])<player['x']-14 or min(a[0],point[0])>player['x']+14 or max(a[1],point[1])<player['y']-30 or min(a[1],point[1])>player['y']+6:continue
+                        ox=(a[0]-player['x'])/14;oy=(a[1]-player['y']+12)/18;ux=dx/14;uy=dy/18
+                        hits=[t for t in roots(ux*ux+uy*uy,2*(ox*ux+oy*uy),ox*ox+oy*oy-1) if 0<=t<=1]
+                        if ox*ox+oy*oy<=1:fraction=0
+                        elif hits:fraction=min(hits)
+                        else:continue
+                        q=tuple(a[k]+fraction*(point[k]-a[k]) for k in range(3))
+                        if ((q[0]-player['x'])/14)**2+((q[1]-player['y']+12)/18)**2<=1 and (first is None or fraction<first[0]):first=(fraction,q,player['id'])
+                    if first:
+                        _,impact,hit_id=first;path.append(impact);break
+                if terrain and time>0 and not (s.mobile=='NAK' and s.selected_shot==2):
                     impact=swept_impact(terrain,path[-1],point) if path else point if solid(terrain,x,y) else None
                     if impact:path.append(impact);break
                 path.append(point)
             if impact:break
-        paths.append(path);impacts.append(impact)
-    return {'projectile_paths':paths,'interactions':events,'impacts':impacts}
+        if s.mobile=='NAK' and s.selected_shot==1 and impact:
+            tick=math.ceil((impact[2]-EPS)/.025)*.025
+            # The native continuation begins on its next 25 ms clock tick,
+            # at the integer first occupied pixel, not the ballistic tick end.
+            entry=(round(impact[0]),round(impact[1]),tick);path[-1]=entry
+            parent=next((p for p in parts if p['start']-EPS<=tick<=p['end']+EPS),seg)
+            vx=parent['vx']+parent['ax']*(tick-parent['start']);vy=parent['vy']+parent['ay']*(tick-parent['start'])
+            # Five observed secondary starts preserved entry velocity, removed
+            # horizontal wind acceleration and used ay=-1440 world units/s².
+            gravity=s.environment.get('nakUndergroundGravity',1440)
+            events.append({'kind':'underground','time':entry[2],'x':entry[0],'y':entry[1]})
+            previous=entry;impact=None;seen_solid=True;outside=False
+            for index in range(1,max(2,math.ceil((s.max_time-entry[2])/.025))+1):
+                dt=index*.025;point=(entry[0]+vx*dt,entry[1]+vy*dt-gravity*dt*dt/2,entry[2]+dt)
+                count=max(1,math.ceil(max(abs(point[0]-previous[0]),abs(point[1]-previous[1]))))
+                for i in range(1,count+1):
+                    q=tuple(previous[k]+(point[k]-previous[k])*i/count for k in range(3))
+                    if terrain.get('width') and not terrain.get('originX',0)<=q[0]<terrain.get('originX',0)+terrain['width'] or terrain.get('height') and q[1]>=terrain.get('originY',0)+terrain['height']:
+                        outside=True;break
+                    occupied=solid(terrain,q[0],q[1])
+                    if occupied:seen_solid=True
+                    elif seen_solid:impact=q;break
+                path.append(impact or point)
+                if outside:break
+                if impact:
+                    events.append({'kind':'surface','time':impact[2],'x':impact[0],'y':impact[1]});break
+                previous=point
+                if terrain.get('width') and not terrain.get('originX',0)<=point[0]<=terrain.get('originX',0)+terrain['width']:break
+            damage_paths.append([impact] if impact else [])
+        elif s.mobile=='NAK' and s.selected_shot==1:damage_paths.append([])
+        else:damage_paths.append(path)
+        if s.mobile=='KALSIDDON' and path:
+            apex=None
+            for part in parts:
+                if part['ay']>0:
+                    candidate=part['start']-part['vy']/part['ay']
+                    if part['start']<=candidate<=part['end'] and 0<candidate<path[-1][2]:apex=candidate;break
+            count=(2,4,8)[s.selected_shot]
+            deployment={'missiles':count,'split_time':apex,'follow_time':apex+1 if apex is not None and s.selected_shot!=2 else None,'complete':bool(apex is not None and path[-1][2]>=apex+1),'guide_only':False,'approximate':True,'first_stage':4 if s.selected_shot==2 else count}
+            if apex is not None:
+                part=next(p for p in parts if p['start']<=apex<=p['end']);x,y=at(part,apex);events.append({'kind':'split','time':apex,'x':x,'y':y,'missiles':deployment['first_stage']})
+        paths.append(path);impacts.append(impact);hit_ids.append(hit_id)
+    display_paths=list(paths)
+    if include_deployment and deployment and deployment['split_time'] is not None:
+        from kals_deployment import forecast
+        split=next(e for e in events if e['kind']=='split')
+        branches=forecast(s.selected_shot,(split['x'],split['y']),paths[0][-1],split['time'])
+        display_paths.extend(branches)
+        if s.selected_shot==2 and len(branches)==12:
+            for branch in branches[:4]:
+                x,y,t=branch[-1];events.append({'kind':'split','time':t,'x':x,'y':y,'missiles':2})
+    return {'projectile_paths':paths,'display_paths':display_paths,'damage_paths':damage_paths,'interactions':events,'impacts':impacts,'hit_ids':hit_ids,'deployment':deployment}
 
 def closest(path,x,y):
-    best=(math.inf,None)
+    best=(math.hypot(path[0][0]-x,path[0][1]-y),path[0]) if len(path)==1 else (math.inf,None)
     for a,b in zip(path,path[1:]):
         dx=b[0]-a[0];dy=b[1]-a[1];length=dx*dx+dy*dy
         weight=0 if length==0 else max(0,min(1,((x-a[0])*dx+(y-a[1])*dy)/length))
@@ -219,13 +285,15 @@ def solve_extended(s):
     def evaluate(power):
         if power not in cache:
             traces=trajectory(s,power,step=.04)
-            candidates=[closest(p,s.target_x,s.target_y) for p in traces['projectile_paths']]
+            candidates=[closest(p,s.target_x,s.target_y) for p in traces.get('damage_paths',traces['projectile_paths'])]
+            if s.mobile=='NAK' and s.selected_shot==2 and s.environment.get('players'):
+                candidates=[c if ident==s.environment.get('targetId') else (math.inf,None) for c,ident in zip(candidates,traces['hit_ids'])]
             best=min(candidates,key=lambda c:c[0]) if candidates else (math.inf,None)
             cache[power]=(score(candidates) if candidates else (math.inf,),best)
         return cache[power][0]
     tornado,mirror=weather_records(s.environment)
     # Weather creates narrow discontinuities; evaluate every available integer.
-    grid=list(range(1,int(s.max_power)+1,1 if tornado or mirror or cluster else 8));grid.append(int(s.max_power))
+    grid=list(range(1,int(s.max_power)+1,1 if tornado or mirror or cluster or s.mobile=='NAK' and s.selected_shot==2 and s.environment.get('players') else 8));grid.append(int(s.max_power))
     for p in grid:evaluate(p)
     minima=[p for i,p in enumerate(grid) if (i==0 or evaluate(p)<=evaluate(grid[i-1])) and (i==len(grid)-1 or evaluate(p)<=evaluate(grid[i+1]))]
     for p in minima:
@@ -235,22 +303,30 @@ def solve_extended(s):
         refined=[]
         for candidate in sorted(cache,key=evaluate)[:12]:
             fine=trajectory(s,candidate,step=.02)
-            contacts=[closest(p,s.target_x,s.target_y) for p in fine['projectile_paths']]
+            contacts=[closest(p,s.target_x,s.target_y) for p in fine.get('damage_paths',fine['projectile_paths'])]
             if contacts:refined.append((score(contacts),candidate))
         if refined:power=min(refined)[1]
-    traces=trajectory(s,power,step=.02)
-    candidates=[closest(p,s.target_x,s.target_y) for p in traces['projectile_paths']]
+    traces=trajectory(s,power,step=.02,include_deployment=True)
+    candidates=[closest(p,s.target_x,s.target_y) for p in traces.get('damage_paths',traces['projectile_paths'])]
     if candidates:error,end=min(candidates,key=lambda c:c[0])
+    hit_target=False
+    if s.mobile=='NAK' and s.selected_shot==2 and s.environment.get('players'):
+        ids=traces.get('hit_ids',[])
+        hit_target=s.environment.get('targetId') in ids
+        if not hit_target:error=math.inf
+        if hit_target:end=traces['projectile_paths'][ids.index(s.environment['targetId'])][-1]
     if end is None:return {'reachable':False,'reason':'No hay trayectoria válida.'}
     from core import launch,SPECIAL
     origin=launch(s)
     approximate=s.mobile in SPECIAL or s.selected_shot>0 or bool(s.environment.get('terrain')) or bool(traces['interactions']) or s.weather!='Normal'
-    reachable=error<=s.environment.get('hitTolerance',35)
+    reachable=hit_target or error<=s.environment.get('hitTolerance',35)
     return {'reachable':reachable,'reason':'' if reachable else 'Ninguna potencia alcanza el objetivo con este ángulo.',
             'power':power,'exact_power':float(power),'required':power,'time':round(end[2],3),'error':round(error,2),
-            'path':[(p[0],p[1]) for p in traces['projectile_paths'][0]],
+            'path':[(p[0],p[1]) for p in traces.get('damage_paths',traces['projectile_paths'])[0]],
             'projectile_paths':[[(p[0],p[1]) for p in path] for path in traces['projectile_paths']],
+            'display_paths':[[(p[0],p[1]) for p in path] for path in traces['display_paths']],
             'interactions':traces['interactions'],'impacts':traces['impacts'],
+            'deployment':traces.get('deployment'),
             'cluster_hits':sum(c[0]<=tolerance for c in candidates),'projectile_count':len(candidates),
             'distance':round(math.hypot(s.target_x-origin[0],s.target_y-origin[1])),
             'quality':'Modelo de proyectil/clima: requiere validación con el servidor' if approximate else 'Modelo por segmentos',
@@ -272,12 +348,21 @@ def fit_calibration(samples):
     if denominator<EPS:raise ValueError('Las muestras necesitan potencias distintas')
     scale=sum((x-meanx)*(y-meany) for x,y in zip(powers,speeds))/denominator;offset=meany-scale*meanx
     wx=[math.cos(math.radians(p['wind_angle']))*p['wind'] for p in valid]
-    denom=sum(x*x for x in wx)
-    coupling=sum(x*p['ax'] for x,p in zip(wx,valid))/denom if denom>EPS else None
-    gravities=[p['ay']+(math.sin(math.radians(p['wind_angle']))*p['wind']*coupling if coupling is not None else 0) for p in valid]
+    wy=[math.sin(math.radians(p['wind_angle']))*p['wind'] for p in valid]
+    mean_wy=statistics.mean(wy);mean_ay=statistics.mean(p['ay'] for p in valid)
+    # Joint least squares: ax=k*wx, ay=g-k*wy. Centering the vertical
+    # component removes unknown g and allows varying vertical winds to fit k.
+    denom=sum(x*x for x in wx)+sum((y-mean_wy)**2 for y in wy)
+    numerator=sum(x*p['ax'] for x,p in zip(wx,valid))-sum((y-mean_wy)*(p['ay']-mean_ay) for y,p in zip(wy,valid))
+    coupling=numerator/denom if denom>EPS else None
+    if coupling is None and abs(mean_wy)>EPS:raise ValueError('Falta variar el viento para separar gravedad y aceleración vertical')
+    gravities=[p['ay']+(y*coupling if coupling is not None else 0) for p,y in zip(valid,wy)]
     gravity=statistics.median(gravities)
     if scale<=0 or gravity<=0 or (coupling is not None and coupling<0):raise ValueError('Las muestras no producen una calibración física válida')
     residual=math.sqrt(statistics.mean((y-(scale*x+offset))**2 for x,y in zip(powers,speeds)))
+    errors=[math.hypot(p['ax']-x*(coupling or 0),p['ay']-(gravity-y*(coupling or 0))) for p,x,y in zip(valid,wx,wy)]
     return {'power_scale':scale,'speed_offset':offset,'gravity':gravity,'wind_scale':coupling,
             'sample_count':len(valid),'speed_rmse':residual,'gravity_spread':max(gravities)-min(gravities),
+            'acceleration_rmse':math.sqrt(statistics.mean(e*e for e in errors)),'acceleration_max_error':max(errors),
+            'power_range':[min(powers),max(powers)],'wind_range':[min(p['wind'] for p in valid),max(p['wind'] for p in valid)],
             'wind_observed':coupling is not None}

@@ -3,7 +3,7 @@
 Baseline profile measurements come from the inspected shipped UI; algorithms
 and application code are original. Special projectiles need calibration.
 """
-from dataclasses import dataclass, asdict, field, replace
+from dataclasses import dataclass, asdict, field, replace, fields
 import math
 
 # name: gravity, wind coupling, speed per UI power, muzzle angle, muzzle radius
@@ -13,7 +13,7 @@ PROFILES = {
  'BIGFOOT':(90,.74,1,58,50), 'JD':(62.5,.625,1,68,45),
  'ASATE':(76,.765,1,40,30), 'RANDOM':(81,.827,1,51,51),
  'KNIGHT':(65.5,.695,1,130,40), 'FOX':(61,.61,1,30,44),
- 'DRAGON':(90,.74,1,58,50), 'NAK':(82,.867,1,130,40),
+ 'DRAGON':(90,.74,1,58,50), 'NAK':(365.8538295973809,3.976086945099325,2.027218192511272,130,40),
  'TRICO':(392.6577767735536,3.575285390397936,863/400,51,51),
  'MAGE':(71.5,.78,1,51,51),
  'TURTLE':(390.5073375,3.9316385,922/400,51,51),
@@ -21,7 +21,7 @@ PROFILES = {
  'ELECTRICO':(79,.87,1,51,51), 'GRUB':(61,.65,1,54,33),
  'DRAGON2':(93.5,.78,1,58,50), 'RAON':(81,.827,1,51,51),
  'RANDOMIZER':(73.5,.74,1,52,33), 'FROG':(54.3,.67,1,52,33),
- 'KALSIDDON':(70,.67,1,58,50),
+ 'KALSIDDON':(396,.67,2.487186713260437,58,50),
 }
 REVERSE={'ADUKA','NAK'}
 SPECIAL={'BOOMER','NAK','TRICO','TURTLE','KNIGHT','RANDOMIZER','FROG','KALSIDDON','LIGHTNING'}
@@ -55,10 +55,11 @@ class Settings:
 
 def finite_settings(s):
     if s.mobile not in PROFILES:raise ValueError('Vehículo desconocido')
-    for key,value in asdict(s).items():
+    for descriptor in fields(s):
+        key=descriptor.name;value=getattr(s,key)
         if isinstance(value,(int,float)) and not math.isfinite(value):
             raise ValueError('Los valores deben ser números finitos')
-    if not -180<s.angle<180:raise ValueError('El ángulo debe estar entre -179 y 179 grados')
+    if not -180<=s.angle<=180:raise ValueError('El ángulo debe estar entre -180 y 180 grados')
     if not 0<=s.wind<=100:raise ValueError('Viento fuera de rango (0–100)')
     if s.gravity<=0 or s.power_scale<=0 or s.wind_scale<0:
         raise ValueError('Calibración inválida')

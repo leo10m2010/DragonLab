@@ -22,7 +22,7 @@ class CDP:
         expected=base64.b64encode(hashlib.sha1((key+'258EAFA5-E914-47DA-95CA-C5AB0DC85B11').encode()).digest())
         if b' 101 ' not in header.split(b'\r\n')[0] or expected not in header:
             self.sock.close();raise RuntimeError('El navegador rechazó la conexión')
-        self.counter=0;self.game=None;self.renderer=None;self.terrain_cache=None;self.terrain_clock=0;self.terrain_turn=None
+        self.counter=0;self.game=None;self.renderer=None;self.terrain_cache=None;self.terrain_clock=0;self.terrain_turn=None;self.terrain_inflight=False
         self.call('Runtime.enable')
 
     def close(self):self.sock.close()
@@ -117,7 +117,7 @@ class CDP:
                                 if vv.get('description')=='Dragon2D' and vv.get('objectId'):
                                     self.renderer=vv['objectId'];break
         # Read only numeric game fields and player labels; invoke no game functions.
-        terrain_due=time.monotonic()-self.terrain_clock>=1.5
+        terrain_due=time.monotonic()-self.terrain_clock>=getattr(self,"terrain_interval",3)
         serializer='''function(renderer,readTerrain){
           const own=(o,k)=>{const d=o&&Object.getOwnPropertyDescriptor(o,k);return d&&("value"in d)?d.value:undefined};
           const pick=(o,keys)=>{for(const k of keys){let v=own(o,k);if(v!==undefined)return v}return null};
@@ -154,6 +154,8 @@ class CDP:
               jumps:(pick(data,["jumps"])||[]).slice(0,128).filter(j=>Array.isArray(j)&&j.length>=5).map(j=>j.slice(0,8).map(num)),
               orbit:Array.isArray(pick(data,["orbit"]))?pick(data,["orbit"]).slice(0,4).map(num):null,wave:num(pick(data,["wave"])),path:Array.isArray(pick(data,["path"]))?pick(data,["path"]).slice(0,12000).map(num):null,
               bulletId:num(pick(data,["img"])),delay:num(start[6])??0,auxiliary:!!pick(data,["is_lightning"])||!!pick(data,["thor"]),
+              change:pick(data,["change"])?numeric(pick(data,["change"]),["at","dur","img"]):null,
+              hole:Array.isArray(pick(data,["hole"]))?pick(data,["hole"]).slice(0,2).map(num):null,
               shotType:num(pick(data,["shot_type"])),metadata:numeric(pick(data,["start"]),["power","player","player_n","mobile","selectedShot","angle"])};
             return numeric(s,["id","x","y","vx","vy","ax","ay","angle","power","mobile","bullet_id","time","time_ms"]);
           });
@@ -165,7 +167,7 @@ class CDP:
           let ground=pick(this,["terrain","ground"]),surface=pick(ground,["heights","heightmap","surface"]);
           let terrain=null;
           if(readTerrain&&ground){let image=pick(ground,["imageData"]),pixels=image?.data,w=num(pick(ground,["w","width"]))??image?.width,h=num(pick(ground,["h","height"]))??image?.height;
-            if(pixels&&w>0&&h>0&&w*h<=4000000){let rows=[];for(let y=0;y<h;y++){let row=[],inside=false;for(let x=0;x<w;x++){let opaque=pixels[(y*w+x)*4+3]>0;if(opaque!==inside){row.push(x);inside=opaque;}}if(inside)row.push(w);rows.push(row);}terrain={width:w,height:h,originX:0,originY:0,rows};}
+            if(pixels&&w>0&&h>0&&w*h<=12000000){let rows=[];for(let y=0;y<h;y++){let row=[],inside=false;for(let x=0;x<w;x++){let opaque=pixels[(y*w+x)*4+3]>0;if(opaque!==inside){row.push(x);inside=opaque;}}if(inside)row.push(w);rows.push(row);}terrain={width:w,height:h,originX:0,originY:0,rows};}
             else if(Array.isArray(surface))terrain={surface:surface.slice(0,4096).map(num),originX:num(pick(ground,["originX"]))??0,originY:num(pick(ground,["originY"]))??0};}
           return {status:pick(this,["destructed"])===true?"waiting":"live",players,shots,weather:weatherData,terrain,selectedShot:num(pick(this,["selectedShot","selected_shot"])),currentPower:num(pick(this,["curUIPower","power"])),wind:num(pick(this,["windPower","wind_power","wind"]))??num(pick(meter,["value","power"])),
             windAngle:num(pick(this,["windAngle","wind_angle"]))??num(pick(renderer,["wind_angle"]))??num(pick(meter,["angle","ang"])),
@@ -185,6 +187,11 @@ class CDP:
             self.terrain_cache=sample['terrain'];self.terrain_clock=time.monotonic()
         else:sample['terrain']=self.terrain_cache
         if self.terrain_turn!=sample.get('turn'):self.terrain_clock=0;self.terrain_turn=sample.get('turn')
+        # Refresh once after the projectile family disappears: craters can
+        # change Nak's exit before the next turn or periodic map refresh.
+        inflight=bool(sample.get('shots'))
+        if self.terrain_inflight and not inflight:self.terrain_clock=0
+        self.terrain_inflight=inflight
         if sample.get('wind') is None:sample['wind']=sample.get('rendererWind')
         sample.pop('rendererWind',None)
         return sample

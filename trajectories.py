@@ -13,7 +13,8 @@ class TrajectoryOverlay:
         self.lines={};self.marks={};self.labels={};self.key=None;self.visible=False
         self.win.update_idletasks();clickthrough(self.win)
         if os.name=='nt':self.win.wm_attributes('-disabled',True)
-    def update(self,box,viewport,project,planned,observed,visible,players=(),target_id=None,hero_id=None,weather=()):
+    def update(self,box,viewport,project,planned,observed,visible,players=(),target_id=None,hero_id=None,weather=(),style=None):
+        style=style or {};aim_color=style.get('color',GREEN);line_width=style.get('width',2.5);font_size=style.get('font_size',11)
         if not visible or not box:
             if self.visible:self.win.withdraw();self.visible=False
             return
@@ -25,7 +26,7 @@ class TrajectoryOverlay:
         if geometry!=self.key:
             self.win.geometry(f'{width}x{height}{x:+d}{y:+d}');self.key=geometry
         wanted={}
-        for i,path in enumerate(planned):wanted['aim:'+str(i)]=(path,GREEN,True)
+        for i,path in enumerate(planned):wanted['aim:'+str(i)]=(path,aim_color,True)
         for key,path in observed.items():wanted['shot:'+str(key)]=(path,BLUE,False)
         for key,(path,color,dashed) in wanted.items():
             coords=[]
@@ -34,27 +35,38 @@ class TrajectoryOverlay:
                 if len(point)<2 or not all(math.isfinite(v) for v in point[:2]):continue
                 px,py=project(*point[:2]);coords.extend((px*(right-x)/vw,py*(bottom-y)/vh))
             if len(coords)<4:continue
-            if key not in self.lines:self.lines[key]=self.canvas.create_line(*coords,fill=color,width=2.5,dash=(6,4) if dashed else ())
-            else:self.canvas.coords(self.lines[key],*coords);self.canvas.itemconfigure(self.lines[key],state='normal')
+            if key not in self.lines:self.lines[key]=self.canvas.create_line(*coords,fill=color,width=line_width,dash=(6,4) if dashed else ())
+            else:self.canvas.coords(self.lines[key],*coords);self.canvas.itemconfigure(self.lines[key],state='normal',fill=color,width=line_width)
         for key in list(self.lines):
             if key not in wanted or len(wanted[key][0])<2:self.canvas.delete(self.lines.pop(key))
-        annotations={};labels={}
+        annotations={};labels={};outside_split=False
+        for i,event in enumerate(style.get('events',[])):
+            kind=event.get('kind')
+            if kind not in ('underground','surface','split'):continue
+            px,py=project(event['x'],event['y']);px*=width/vw;py*=(bottom-y)/vh
+            if not 12<=px<=width-12 or not 30<=py<=height-25:
+                if kind=='split' and py<30 and not outside_split:
+                    outside_split=True;px=max(65,min(width-65,px))
+                    labels['deployment-outside']=(px,43,f"↑ Apertura · {event.get('missiles',0)} misiles",aim_color)
+                continue
+            key='event:'+str(i);annotations[key]=([px-5,py,px+5,py,px,py-5,px,py+5],aim_color)
+            labels[key]=(px,py-14,{'underground':'Entra','surface':'Sale','split':f'{event.get("missiles",0)} misiles'}[kind],aim_color)
         numbers={p['id']:i for i,p in enumerate(enemies(players,hero_id),1)}
         if numbers:
             current=numbers.get(target_id,'—')
-            labels['target-status']=(min(width/2,190),16,f'Objetivo {current}/{len(numbers)} · Ctrl' if len(numbers)>1 else '1 enemigo vivo',GREEN)
+            labels['target-status']=(min(width/2,190),16,f'Objetivo {current}/{len(numbers)} · {style.get("target_key","Ctrl")}' if len(numbers)>1 else '1 enemigo vivo',GREEN)
         for p in players:
             if p.get('dead') or not all(isinstance(p.get(k),(int,float)) for k in ('x','y')):continue
             px,py=project(p['x'],p['y']);px*=width/vw;py*=(bottom-y)/vh
             outside=not (12<=px<=width-12 and 26<=py<=height-12)
             if outside:
-                if p.get('id') not in numbers:continue
+                if p.get('id') not in numbers and p.get('id')!=hero_id:continue
                 rawx,rawy=px,py;px=max(20,min(width-20,px));py=max(35,min(height-25,py))
                 direction=math.atan2(rawy-py,rawx-px)
                 dx,dy=math.cos(direction),math.sin(direction)
                 color='#ffb86c' if p.get('id')==target_id else '#ecf3f7'
                 annotations['player:'+str(p.get('id'))]=([px-10*dx,py-10*dy,px,py,px-7*dx-4*dy,py-7*dy+4*dx,px,py,px-7*dx+4*dy,py-7*dy-4*dx],color)
-                labels['player:'+str(p['id'])]=(px,py+13,str(numbers[p['id']])+' fuera',color)
+                labels['player:'+str(p['id'])]=(px,py+13,(str(numbers[p['id']]) if p['id'] in numbers else 'Tú')+' fuera',color)
                 continue
             color=GREEN if p.get('id')==hero_id else '#ffb86c' if p.get('id')==target_id else '#c4d1db'
             annotations['player:'+str(p.get('id'))]=([px-8,py,px+8,py,px,py,px,py-12],color)
@@ -75,8 +87,8 @@ class TrajectoryOverlay:
         for key in list(self.marks):
             if key not in annotations:self.canvas.delete(self.marks.pop(key))
         for key,(px,py,text,color) in labels.items():
-            if key not in self.labels:self.labels[key]=self.canvas.create_text(px,py,text=text,fill=color,font=('Bahnschrift',11,'bold'))
-            else:self.canvas.coords(self.labels[key],px,py);self.canvas.itemconfigure(self.labels[key],text=text,fill=color)
+            if key not in self.labels:self.labels[key]=self.canvas.create_text(px,py,text=text,fill=color,font=('Bahnschrift',font_size,'bold'))
+            else:self.canvas.coords(self.labels[key],px,py);self.canvas.itemconfigure(self.labels[key],text=text,fill=color,font=('Bahnschrift',font_size,'bold'))
         for key in list(self.labels):
             if key not in labels:self.canvas.delete(self.labels.pop(key))
         if not self.visible:self.win.deiconify();self.visible=True

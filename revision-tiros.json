@@ -1,0 +1,14 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "mobile": "ARMOR",
+      "shot": 1,
+      "power": 184,
+      "phase": "Tiro",
+      "source": "native-shot-path",
+      "endpoint_error": 0.79,
+      "updated": 1791648987.0900154
+    }
+  ]
+}

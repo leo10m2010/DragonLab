@@ -1,0 +1,186 @@
+{
+  "version": "0.12",
+  "data": "Measured native shot starts; independent fit validation, not a guarantee of hit accuracy",
+  "observed_frames_this_session": 499,
+  "fresh_terrain_versions": 25,
+  "validated_profiles": 3,
+  "profiles": [
+    {
+      "profile": "dragonbound:ARMOR:0",
+      "launch_samples": 1,
+      "underground_samples": 0,
+      "fit": null,
+      "historical_samples_preserved": 0,
+      "state": "Muestras inconsistentes; perfil base conservado",
+      "drift_pending": false
+    },
+    {
+      "profile": "dragonbound:ARMOR:1",
+      "launch_samples": 14,
+      "underground_samples": 0,
+      "fit": null,
+      "historical_samples_preserved": 0,
+      "state": "Faltan datos compatibles o fall\u00f3 la validaci\u00f3n independiente",
+      "drift_pending": false
+    },
+    {
+      "profile": "dragonbound:ARMOR:2",
+      "launch_samples": 6,
+      "underground_samples": 0,
+      "fit": null,
+      "historical_samples_preserved": 0,
+      "state": "Faltan datos compatibles o fall\u00f3 la validaci\u00f3n independiente",
+      "drift_pending": false
+    },
+    {
+      "profile": "dragonbound:KALSIDDON:0",
+      "launch_samples": 2,
+      "underground_samples": 0,
+      "fit": null,
+      "historical_samples_preserved": 0,
+      "state": null,
+      "drift_pending": false
+    },
+    {
+      "profile": "dragonbound:KALSIDDON:1",
+      "launch_samples": 4,
+      "underground_samples": 0,
+      "fit": {
+        "power_scale": 2.3677254199672597,
+        "speed_offset": -0.4650897065448589,
+        "gravity": 408.0,
+        "wind_scale": null,
+        "sample_count": 4,
+        "speed_rmse": 0.11994626292159,
+        "gravity_spread": 0,
+        "acceleration_rmse": 0.0,
+        "acceleration_max_error": 0.0,
+        "power_range": [
+          181,
+          347
+        ],
+        "wind_range": [
+          0,
+          0
+        ],
+        "wind_observed": false,
+        "holdout_speed_error": 0.3358452581750271,
+        "holdout_acceleration_error": 0.0
+      },
+      "historical_samples_preserved": 0,
+      "state": "Ajuste observado",
+      "drift_pending": false
+    },
+    {
+      "profile": "dragonbound:KALSIDDON:2",
+      "launch_samples": 4,
+      "underground_samples": 0,
+      "fit": null,
+      "historical_samples_preserved": 0,
+      "state": "Faltan datos compatibles o fall\u00f3 la validaci\u00f3n independiente",
+      "drift_pending": false
+    },
+    {
+      "profile": "dragonbound:NAK:0",
+      "launch_samples": 11,
+      "underground_samples": 0,
+      "fit": {
+        "power_scale": 2.0680392602944524,
+        "speed_offset": 0.40134551009128927,
+        "gravity": 356,
+        "wind_scale": null,
+        "sample_count": 11,
+        "speed_rmse": 0.29089821420373313,
+        "gravity_spread": 0,
+        "acceleration_rmse": 0.0,
+        "acceleration_max_error": 0.0,
+        "power_range": [
+          180,
+          299
+        ],
+        "wind_range": [
+          0,
+          0
+        ],
+        "wind_observed": false,
+        "holdout_speed_error": 1.7565645820503732,
+        "holdout_acceleration_error": 0.0
+      },
+      "historical_samples_preserved": 3,
+      "state": "Ajuste observado",
+      "drift_pending": false
+    },
+    {
+      "profile": "dragonbound:NAK:1",
+      "launch_samples": 8,
+      "underground_samples": 11,
+      "fit": {
+        "power_scale": 2.0727619617672364,
+        "speed_offset": -0.3662975571433549,
+        "gravity": 356.0,
+        "wind_scale": null,
+        "sample_count": 8,
+        "speed_rmse": 0.3039309504974977,
+        "gravity_spread": 0,
+        "acceleration_rmse": 0.0,
+        "acceleration_max_error": 0.0,
+        "power_range": [
+          164,
+          308
+        ],
+        "wind_range": [
+          0,
+          0
+        ],
+        "wind_observed": false,
+        "holdout_speed_error": 0.7743526825652225,
+        "holdout_acceleration_error": 0.0
+      },
+      "historical_samples_preserved": 3,
+      "state": "Ajuste observado",
+      "drift_pending": false
+    },
+    {
+      "profile": "dragonbound:NAK:2",
+      "launch_samples": 2,
+      "underground_samples": 0,
+      "fit": null,
+      "historical_samples_preserved": 0,
+      "state": null,
+      "drift_pending": false
+    },
+    {
+      "profile": "dragonbound:TRICO:1",
+      "launch_samples": 12,
+      "underground_samples": 0,
+      "fit": null,
+      "historical_samples_preserved": 0,
+      "state": "Faltan datos compatibles o fall\u00f3 la validaci\u00f3n independiente",
+      "drift_pending": false
+    },
+    {
+      "profile": "dragonbound:TRICO:2",
+      "launch_samples": 1,
+      "underground_samples": 0,
+      "fit": null,
+      "historical_samples_preserved": 0,
+      "state": null,
+      "drift_pending": false
+    }
+  ],
+  "phase_checks": [
+    {
+      "id": 1073,
+      "entry_error": 0.0,
+      "time_error_ms": 0.0,
+      "prior_frame_map": "6eedacc7483ced8b",
+      "source": "phase reconstruction using native launch; not held-out aim validation"
+    }
+  ],
+  "pending": [
+    "All-vehicle calibration deferred by user",
+    "Kalsiddon missile pursuit remains a visual estimate",
+    "Wind and SS need more independent observations",
+    "Terrain/player contacts need further live validation"
+  ]
+}

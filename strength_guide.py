@@ -6,13 +6,13 @@ GREEN='#72dfba';ORANGE='#ffb86c';BG='#101c26';MUTED='#96acb9'
 
 def draw_force(canvas,result,maximum=400,current=None):
     canvas.delete('all');w=max(120,canvas.winfo_width());left,right=18,w-18;y=28
-    canvas.create_line(left,y,right,y,fill='#294353',width=11)
+    canvas.create_line(left,y,right,y,fill='#294353',width=11,capstyle='round')
     for i in range(5):
         x=left+(right-left)*i/4;canvas.create_line(x,y-8,x,y+8,fill='#708591')
         canvas.create_text(x,y+21,text=f'{maximum*i/4:g}',fill=MUTED,font=('Consolas',9))
     if result.get('reachable'):
         power=result['power'];fraction=max(0,min(1,power/maximum));x=left+(right-left)*fraction
-        canvas.create_line(left,y,x,y,fill=GREEN,width=9)
+        canvas.create_line(left,y,x,y,fill=GREEN,width=9,capstyle='round')
         canvas.create_line(x,y-15,x,y+13,fill=ORANGE,width=3)
         canvas.create_polygon(x-5,y-17,x+5,y-17,x,y-10,fill=ORANGE)
         label=f'SUELTA AQUÍ · {power:g} / {maximum:g} · {fraction*100:.1f}%'
