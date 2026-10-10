@@ -24,7 +24,7 @@ class PowerReader:
         # A closure flag from a particular prototype version is not a stable API.
         self.client.sock.settimeout(.3)
     def read(self):
-        r=self.client.call('Runtime.callFunctionOn',{'objectId':self.client.game,'functionDeclaration':r'''function(renderer){const own=(o,k)=>o&&Object.getOwnPropertyDescriptor(o,k)?.value;const pick=(o,keys)=>{for(let k of keys){let v=own(o,k);if(typeof v==='number'&&Number.isFinite(v))return v}return null};let meter=own(renderer,'wind_meter');let list=own(this,'players')||[];let mode=document.getElementById('slice_drag_button'),mark=document.getElementById('powerMarkArea')?.getBoundingClientRect(),fill=document.getElementById('powerBar')?.getBoundingClientRect();let id=v=>typeof v==='string'&&/^\d+$/.test(v)?Number(v):v;return {turn:id(own(this,'turn')),hero:id(own(this,'my_player_number')),power:mark?.width>0&&fill?Math.round(Math.max(0,Math.min(400,400*fill.width/mark.width))):pick(this,['curUIPower']),mode:mode?(mode.classList.contains('drag')?'drag':'space'):null,focused:document.hasFocus()&&document.visibilityState==='visible',moving:['intervalDoLeft','intervalDoRight','intervalDoUp','intervalDoDown'].some(k=>!!own(this,k)),dragSens:own(this,'dragSens'),busy:!!own(this,'intervalDoSpace')||!!own(this,'isInDrag'),over:!!own(this,'isGameOver')||!!own(this,'destructed'),chat:['INPUT','TEXTAREA','SELECT'].includes(document.activeElement?.tagName)||!!document.activeElement?.isContentEditable,shot:own(this,'selectedShot'),wind:pick(this,['windPower','wind_power','wind'])??pick(renderer,['wind_power'])??pick(meter,['value','power']),windAngle:pick(this,['windAngle','wind_angle'])??pick(renderer,['wind_angle'])??pick(meter,['angle','ang']),players:list.filter(Boolean).map(p=>({id:id(own(p,'n')),x:own(p,'x'),y:own(p,'y'),rawAngle:own(p,'ang'),body:own(p,'body'),look:own(p,'look'),dead:own(p,'is_alive')===false}))}}''','arguments':[{'objectId':self.client.renderer}] if self.client.renderer else [{'value':None}],'returnByValue':True})
+        r=self.client.call('Runtime.callFunctionOn',{'objectId':self.client.game,'functionDeclaration':r'''function(renderer){const own=(o,k)=>o&&Object.getOwnPropertyDescriptor(o,k)?.value;const pick=(o,keys)=>{for(let k of keys){let v=own(o,k);if(typeof v==='number'&&Number.isFinite(v))return v}return null};let meter=own(renderer,'wind_meter');let list=own(this,'players')||[];let mode=document.getElementById('slice_drag_button'),mark=document.getElementById('powerMarkArea')?.getBoundingClientRect(),fill=document.getElementById('powerBar')?.getBoundingClientRect();let id=v=>typeof v==='string'&&/^\d+$/.test(v)?Number(v):v;return {turn:id(own(this,'turn')),hero:id(own(this,'my_player_number')),power:mark?.width>0&&fill?Math.round(Math.max(0,Math.min(400,400*fill.width/mark.width))):pick(this,['curUIPower']),mode:mode?(mode.classList.contains('drag')?'drag':'space'):null,focused:document.hasFocus()&&document.visibilityState==='visible',moving:['intervalDoLeft','intervalDoRight','intervalDoUp','intervalDoDown'].some(k=>!!own(this,k)),dragSens:own(this,'dragSens'),dragStartX:own(this,'drag_start_x'),dragUpdates:Array.isArray(own(this,'stat'))&&Array.isArray(own(this,'stat')[0])?Math.max(0,own(this,'stat').length-1):null,dragPointX:Array.isArray(own(this,'stat'))&&Array.isArray(own(this,'stat').at(-1))?own(this,'stat').at(-1)[1]:null,busy:!!own(this,'intervalDoSpace')||!!own(this,'isInDrag'),over:!!own(this,'isGameOver')||!!own(this,'destructed'),chat:['INPUT','TEXTAREA','SELECT'].includes(document.activeElement?.tagName)||!!document.activeElement?.isContentEditable,shot:own(this,'selectedShot'),wind:pick(this,['windPower','wind_power','wind'])??pick(renderer,['wind_power'])??pick(meter,['value','power']),windAngle:pick(this,['windAngle','wind_angle'])??pick(renderer,['wind_angle'])??pick(meter,['angle','ang']),players:list.filter(Boolean).map(p=>({id:id(own(p,'n')),x:own(p,'x'),y:own(p,'y'),rawAngle:own(p,'ang'),body:own(p,'body'),look:own(p,'look'),dead:own(p,'is_alive')===false}))}}''','arguments':[{'objectId':self.client.renderer}] if self.client.renderer else [{'value':None}],'returnByValue':True})
         if r.get('exceptionDetails'):raise RuntimeError('No se pudo leer la fuerza del juego')
         return r['result']['value']
     def drag_start(self,window):
@@ -50,14 +50,18 @@ def validate(plan,state):
         for key,value in expected.items():
             if player.get(key)!=value:raise RuntimeError('Cambió la posición o el ángulo; vuelve a calcular')
 
-def execute(plan,reader,cancel,backend=None):
+def execute(plan,reader,cancel,backend=None,trace=None):
     backend=backend or WindowsInput();held=False;method=None;restore=None
+    def report(stage,**data):
+        if trace:
+            try:trace({'stage':stage,**data})
+            except Exception:pass
     if not isinstance(plan['power'],(int,float)) or not math.isfinite(plan['power']) or not 1<=plan['power']<=400:raise ValueError('Fuerza inválida')
     state=reader.read();validate(plan,state)
     if state.get('busy') or backend.input_busy():raise RuntimeError('Termina el movimiento o la carga actual')
     if backend.foreground()[0]!=plan['window']:raise RuntimeError('Vuelve a la ventana del juego')
     method=state['mode'];start=time.monotonic();last_power=-1;last_change=start
-    charging=False;last_cursor=None;window_rect=backend.window_rect(plan['window'])
+    charging=False;last_cursor=None;window_rect=backend.window_rect(plan['window']);expected_drag_x=None;move_revision=None;move_started=None
     def check():
         if cancel.is_set() or backend.escaped():raise RuntimeError('Entrada liberada; el juego puede lanzar con fuerza parcial')
         if backend.foreground()[0]!=plan['window']:raise RuntimeError('La ventana perdió el foco; entrada liberada')
@@ -83,9 +87,14 @@ def execute(plan,reader,cancel,backend=None):
                 raise RuntimeError('No se pudo leer la sensibilidad de este arrastre; entrada liberada')
             if not isinstance(dpr,(int,float)) or not math.isfinite(dpr) or not 0<dpr<=8:
                 raise RuntimeError('Cambió la escala de pantalla; vuelve a calcular')
+            drag_origin=fresh.get('dragStartX');move_revision=fresh.get('dragUpdates')
+            if not isinstance(drag_origin,(int,float)) or not math.isfinite(drag_origin) or not isinstance(move_revision,int):
+                raise RuntimeError('No se pudo confirmar el origen del arrastre; entrada liberada')
             dx=plan['power']*sensitivity*dpr;px=round(x+dx)
             if not getattr(reader,'drag_box',plan['screenBox'])[0]+5<px<getattr(reader,'drag_box',plan['screenBox'])[2]-5:
                 raise RuntimeError('El arrastre no cabe en la ventana; usa Slice')
+            expected_drag_x=drag_origin+(px-x)/dpr;move_started=time.monotonic()
+            report('drag-start',requested=plan['power'],sensitivity=sensitivity,previousPower=fresh.get('power'))
             last_cursor=(px,y);backend.move(*last_cursor);charging=True
         while True:
             check()
@@ -98,6 +107,15 @@ def execute(plan,reader,cancel,backend=None):
             if state['mode']!=method:raise RuntimeError('Cambió Slice / Drag; vuelve a pulsar el atajo')
             if not isinstance(power,(int,float)) or not math.isfinite(power):raise RuntimeError('No se pudo medir la fuerza')
             now=time.monotonic()
+            if method=='drag':
+                if state.get('dragStartX')!=drag_origin or state.get('dragSens')!=sensitivity:
+                    raise RuntimeError('Cambió el arrastre; entrada liberada')
+                observed_x=state.get('dragPointX');revision=state.get('dragUpdates')
+                confirmed=isinstance(revision,int) and revision>move_revision and isinstance(observed_x,(int,float)) and math.isfinite(observed_x) and abs(observed_x-expected_drag_x)<=1
+                if not confirmed:
+                    if now-move_started>.7:raise RuntimeError('El juego no confirmó el movimiento del mouse; entrada liberada')
+                    time.sleep(.01);continue
+                report('drag-confirmed',power=power,updates=revision)
             if not charging:
                 if not state.get('busy'):
                     if now-start>.5:raise RuntimeError('El juego no inició la carga; no se repite el tiro')
@@ -108,12 +126,14 @@ def execute(plan,reader,cancel,backend=None):
             if method=='space':
                 if power>=plan['power']-1:return {'power':power,'method':method}
             else:
-                if abs(power-plan['power'])<=1:return {'power':power,'method':method}
+                if abs(power-plan['power'])<=1:
+                    report('release',power=power);return {'power':power,'method':method}
                 if power>0:
                     gain=dx/power;dx+=max(-80,min(80,(plan['power']-power)*gain))
                 else:dx+=8*plan.get('dpr',1)
                 px=round(x+dx)
                 if not getattr(reader,'drag_box',plan['screenBox'])[0]+5<px<getattr(reader,'drag_box',plan['screenBox'])[2]-5:raise RuntimeError('El arrastre no cabe en la ventana; usa Slice')
+                move_revision=revision;expected_drag_x=drag_origin+(px-x)/dpr;move_started=now
                 last_cursor=(px,y);backend.move(*last_cursor)
             if now-start>5 or now-last_change>.7:raise RuntimeError('La carga no responde; entrada liberada')
             time.sleep(.004 if method=='space' else .015)

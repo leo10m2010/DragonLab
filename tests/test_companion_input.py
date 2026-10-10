@@ -13,7 +13,7 @@ from trajectories import TrajectoryOverlay
 
 class Backend:
     def __init__(self):
-        self.actions=[];self.held=False;self.point=(450,400);self.window=123;self.rect=(0,0,1000,700)
+        self.actions=[];self.held=False;self.point=(450,400);self.window=123;self.rect=(0,0,1000,700);self.drag_updates=0
     def foreground(self):return self.window,10,'Fixture'
     def window_rect(self,h):return self.rect
     def input_busy(self):return False
@@ -22,7 +22,9 @@ class Backend:
     def point_in_window(self,x,y,h):return self.window==h
     def key(self,down):self.actions.append(('key',down));self.held=down
     def mouse(self,down):self.actions.append(('mouse',down));self.held=down
-    def move(self,x,y):self.point=(x,y);self.actions.append(('move',x,y))
+    def move(self,x,y):
+        self.point=(x,y);self.actions.append(('move',x,y))
+        if self.held:self.drag_updates+=1
 
 
 class Reader:
@@ -35,6 +37,7 @@ class Reader:
                'mode':self.mode,'busy':self.backend.held,'dragSens':1.37 if self.backend.held else 1.65,'power':round((self.backend.point[0]-16)/1.37) if self.mode=='drag' and self.backend.held else min(400,(self.count-1)*10) if self.backend.held else 320,
                'players':[{'id':0,'x':10,'y':20,'rawAngle':60,'dead':False},{'id':1,'x':400,'y':20,'dead':False}]}
         if self.stale and self.count==2:state.update(busy=False,power=320)
+        state.update(dragStartX=16,dragPointX=self.backend.point[0],dragUpdates=self.backend.drag_updates)
         if self.mutate:self.mutate(state,self.count)
         return state
 
@@ -60,6 +63,22 @@ class InputTests(unittest.TestCase):
         r.mutate=lambda s,n:s.update(dragSens=None) if n>=2 else None
         with self.assertRaisesRegex(RuntimeError,'sensibilidad'):self.run_shot(b,r)
         self.assertEqual(b.actions,[('move',16,130),('mouse',True),('mouse',False),('move',450,400)])
+    def test_previous_force_equal_to_target_does_not_release_before_move_ack(self):
+        b=Backend();r=Reader(b);events=[]
+        def delayed(s,n):
+            if n==3:s.update(power=150,dragPointX=16,dragUpdates=0)
+        r.mutate=delayed
+        with patch('auto_fire.time.sleep'):
+            result=execute(plan(),r,threading.Event(),b,events.append)
+        self.assertGreaterEqual(r.count,4)
+        self.assertEqual(result['power'],150)
+        self.assertEqual([e['stage'] for e in events],['drag-start','drag-confirmed','release'])
+        self.assertEqual(sum(a==('mouse',True) for a in b.actions),1)
+    def test_old_bar_cannot_trigger_feedback_move_before_ack(self):
+        b=Backend();r=Reader(b)
+        r.mutate=lambda s,n:s.update(power=350,dragPointX=16,dragUpdates=0) if n==3 else None
+        self.run_shot(b,r)
+        self.assertEqual([a for a in b.actions if a[0]=='move'],[('move',16,130),('move',222,130),('move',450,400)])
     def test_charge_does_not_start_never_moves_to_estimate_force(self):
         b=Backend();r=Reader(b)
         r.mutate=lambda s,n:s.update(busy=False) if n>=2 else None
