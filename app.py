@@ -27,7 +27,7 @@ class App:
         self.profiles={};self.server=None;self.share_token=secrets.token_urlsafe(24);self.shared={};self.dirty=True;self.last_input='';self.selected_target=None;self.target_ids={}
         self.base=BASE;self.clone_id='dragonbound';self.adapter_config=None;self.browser_target=None;self.viewport=(800,600);self.last_fingerprint=None;self.last_computed=0;self.compute_generation=0;self.computing=False;self.direction='Auto'
         self.power_guide=None;self.guide_points=None;self.current_game_power=None;self.auto_visible=False;self.auto_enabled=True;self.auto_points=None;self.auto_guide_enabled=True;self.auto_target_id=None;self.target_hero_id=None
-        self.preferences_path=BASE/'preferencias.json';self.target_key='Ctrl';self.fire_key='Q';self.auto_shot_enabled=True;self.performance='Ligero';self.map_expanded=False;self.fire_busy=False;self.pending_fire=None;self.result_context=None;self.fire_shortcut_count=0;self.fire_cancel=threading.Event();self.capture_dpr=1
+        self.preferences_path=BASE/'preferencias.json';self.target_key='Ctrl';self.fire_key='Q';self.auto_shot_enabled=True;self.performance='Ligero';self.map_expanded=False;self.fire_busy=False;self.pending_fire=None;self.result_context=None;self.fire_shortcut_count=0;self.page_shortcuts_active=False;self.last_page_gesture=None;self.last_fire_message=None;self.fire_cancel=threading.Event();self.capture_dpr=1
         self.player_tracker=PlayerTracker();self.compact=False;self.large_text=False;self.path_color='Menta';self.path_width=3
         from shot_review import ShotReview
         self.shot_review=ShotReview(BASE/'revision-tiros.json')
@@ -353,7 +353,7 @@ class App:
                     capture=AutoCapture(client);capture.capture_interval=3 if self.performance=='Ligero' else 1.5;client.terrain_interval=5 if self.performance=='Ligero' else 2
                     while not stop.is_set():
                         interval,capture.capture_interval,client.terrain_interval=governor.intervals(self.performance)
-                        auto=capture.read(capture=self.preview_visible) if clone=='dragonbound' else {}
+                        auto=capture.read(capture=self.preview_visible,fire_key=self.fire_key) if clone=='dragonbound' else {}
                         sample=client.sample()
                         if clone=='dragonbound' and not auto.get('geometry',{}).get('active'):
                             sample={'status':'waiting','reason':'Navegador conectado. La captura aparecerá al empezar la partida.'}
@@ -369,6 +369,12 @@ class App:
         self.worker=threading.Thread(target=run,daemon=True);self.worker.start()
     def apply_auto(self,data):
         auto=data.pop('_auto',{});meta=auto.get('geometry',{})
+        gesture=auto.get('fire_gesture');self.page_shortcuts_active=isinstance(gesture,dict)
+        if gesture:
+            stamp=(gesture.get('owner'),gesture.get('key'),gesture.get('count'))
+            previous=self.last_page_gesture;self.last_page_gesture=stamp
+            if previous and stamp[:2]==previous[:2] and stamp[2]>previous[2] and 0<=time.time()-gesture.get('at',0)/1000<.8:
+                self.events.put({'status':'fire-shortcut','hero':data.get('heroId')})
         if meta.get('windowHandle'):self.game_window=meta['windowHandle']
         self.capture_dpr=meta.get('dpr',1)
         self.game_visible=bool(self.auto_enabled and meta.get('active') and meta.get('focused') and data.get('status')=='live')
@@ -400,6 +406,7 @@ class App:
         if changed or self.book.revision!=revision:self.profile_stamp=None;self.last_fingerprint=None;self.mark()
         self.apply_auto(d)
         if d['status']!='live':
+            self.last_page_gesture=None;self.page_shortcuts_active=False
             self.result={};self.power.config(text='—');self.details.config(text='Abre el juego e inicia una partida.\nLa guía aparecerá automáticamente.');self.s.environment={};self.draw_force()
             self.last_live=0;self.live_camera=None;self.live_look=None;self.live_launch_offset=None;self.s.launch_offset=None;self.has_position_data=False;self.game_visible=False;self.current_game_power=None;self.hide_overlay();self.trails.reset();self.observed_paths={};self.last_fingerprint=None;self.auto_target_id=None;self.target_hero_id=None;self.selected_target=None;self.live_players=[];self.target_ids={};self.target_name.set('Objetivo automático');self.target_box.config(values=['Objetivo automático'])
             if self.power_guide:self.power_guide.draw({},self.s.max_power)
@@ -479,7 +486,7 @@ class App:
             if value==target:self.target_name.set(label);break
         self.last_fingerprint=None;self.mark();self.draw_overlay()
     def start_target_shortcut(self):
-        self.shortcuts=GameShortcuts(lambda:(bool(self.auto_enabled and self.has_position_data and self.last_live and time.monotonic()-self.last_live<4),self.game_window,self.target_hero_id),lambda hero:self.events.put({'status':'target-shortcut','hero':hero}),lambda hero:self.events.put({'status':'fire-shortcut','hero':hero}),self.target_key,self.fire_key,lambda hero:self.events.put({'status':'cancel-shortcut','hero':hero}))
+        self.shortcuts=GameShortcuts(lambda:(bool(self.auto_enabled and self.has_position_data and self.last_live and time.monotonic()-self.last_live<4),self.game_window,self.target_hero_id),lambda hero:self.events.put({'status':'target-shortcut','hero':hero}),lambda hero:None if self.page_shortcuts_active else self.events.put({'status':'fire-shortcut','hero':hero}),self.target_key,self.fire_key,lambda hero:self.events.put({'status':'cancel-shortcut','hero':hero}))
         self.shortcuts.start()
     def share(self):
         if not self.server:
@@ -529,7 +536,7 @@ class App:
                 if event.get('hero')==self.target_hero_id:self.trigger_auto_fire()
                 continue
             if event.get('status')=='fire-finished':
-                self.fire_busy=False;self.notice_until=time.monotonic()+4;self.footer.config(text=event['message'],fg=GREEN if event['message'].startswith('Tiro aplicado') else ORANGE);continue
+                self.fire_busy=False;self.last_fire_message=event['message'];self.notice_until=time.monotonic()+4;self.footer.config(text=event['message'],fg=GREEN if event['message'].startswith('Tiro aplicado') else ORANGE);continue
             if event.get('status')=='target-shortcut':
                 if event.get('hero')==self.target_hero_id and self.auto_enabled and self.has_position_data and self.last_live and time.monotonic()-self.last_live<4:self.shortcut_count+=1;self.cycle_target()
                 continue
@@ -568,7 +575,7 @@ class App:
         self.shared['source']='experimental' if self.last_live and time.monotonic()-self.last_live<4 else 'manual'
         if '--diagnostics' in sys.argv and time.monotonic()-getattr(self,'diagnostic_clock',0)>1:
             self.diagnostic_clock=time.monotonic()
-            health={'version':'0.12.2','updated':time.time(),'connected':bool(self.last_live and time.monotonic()-self.last_live<4),'map_detected':bool(self.s.environment.get('terrain')),'camera_detected':bool(self.live_camera and self.live_camera.get('renderWidth')),'weather':[w.get('resolvedTypeId') or w.get('typeId') for w in self.s.environment.get('activeWeathers',[])],'players_detected':len(self.live_players),'overlay_visible':bool(self.overlay and self.overlay.visible),'power':self.result.get('power'),'computing':self.computing,'last_error':getattr(self,'last_error',None),'target':self.auto_target_id,'enemies_detected':len(enemies(self.live_players,self.target_hero_id)),'preview_capture':self.preview_visible,'solve_seconds':getattr(self,'last_solve_seconds',None),'shortcut_events':self.shortcut_count,'fire_shortcut_events':self.fire_shortcut_count,'fire_busy':self.fire_busy,'fire_pending':bool(self.pending_fire),'shortcut_ready':bool(getattr(self,'shortcuts',None) and self.shortcuts.ready),'shortcut_error':getattr(getattr(self,'shortcuts',None),'error',None)}
+            health={'version':'0.12.4','updated':time.time(),'connected':bool(self.last_live and time.monotonic()-self.last_live<4),'map_detected':bool(self.s.environment.get('terrain')),'camera_detected':bool(self.live_camera and self.live_camera.get('renderWidth')),'weather':[w.get('resolvedTypeId') or w.get('typeId') for w in self.s.environment.get('activeWeathers',[])],'players_detected':len(self.live_players),'overlay_visible':bool(self.overlay and self.overlay.visible),'power':self.result.get('power'),'computing':self.computing,'last_error':getattr(self,'last_error',None),'target':self.auto_target_id,'enemies_detected':len(enemies(self.live_players,self.target_hero_id)),'preview_capture':self.preview_visible,'solve_seconds':getattr(self,'last_solve_seconds',None),'shortcut_events':self.shortcut_count,'fire_shortcut_events':self.fire_shortcut_count,'fire_busy':self.fire_busy,'fire_pending':bool(self.pending_fire),'last_fire_message':self.last_fire_message,'page_shortcuts_active':self.page_shortcuts_active,'shortcut_ready':bool(getattr(self,'shortcuts',None) and self.shortcuts.ready),'shortcut_error':getattr(getattr(self,'shortcuts',None),'error',None)}
             try:(BASE/'estado-live.json').write_text(json.dumps(health,indent=2),encoding='utf-8')
             except OSError:pass
 
