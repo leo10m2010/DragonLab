@@ -28,17 +28,19 @@ class TrajectoryOverlay:
         wanted={}
         for i,path in enumerate(planned):wanted['aim:'+str(i)]=(path,aim_color,True)
         for key,path in observed.items():wanted['shot:'+str(key)]=(path,BLUE,False)
+        rendered=set()
         for key,(path,color,dashed) in wanted.items():
             coords=[]
             step=max(1,(len(path)+399)//400)
             for point in path[::step]:
-                if len(point)<2 or not all(math.isfinite(v) for v in point[:2]):continue
+                if len(point)<2 or not all(isinstance(v,(int,float)) and math.isfinite(v) for v in point[:2]):continue
                 px,py=project(*point[:2]);coords.extend((px*(right-x)/vw,py*(bottom-y)/vh))
             if len(coords)<4:continue
+            rendered.add(key)
             if key not in self.lines:self.lines[key]=self.canvas.create_line(*coords,fill=color,width=line_width,dash=(6,4) if dashed else ())
             else:self.canvas.coords(self.lines[key],*coords);self.canvas.itemconfigure(self.lines[key],state='normal',fill=color,width=line_width)
         for key in list(self.lines):
-            if key not in wanted or len(wanted[key][0])<2:self.canvas.delete(self.lines.pop(key))
+            if key not in rendered:self.canvas.delete(self.lines.pop(key))
         annotations={};labels={};outside_split=False
         for i,event in enumerate(style.get('events',[])):
             kind=event.get('kind')

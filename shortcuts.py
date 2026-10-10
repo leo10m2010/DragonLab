@@ -32,9 +32,9 @@ class ShortcutState:
         return False
 
 class GameShortcuts:
-    def __init__(self,scope,emit,fire_emit=None,target_key='Ctrl',fire_key='Q'):
+    def __init__(self,scope,emit,fire_emit=None,target_key='Ctrl',fire_key='Q',cancel_emit=None):
         self.scope=scope;self.emit=emit;self.state=ShortcutState();self.ready=False;self.error=None;self.thread_id=None;self.stop_event=threading.Event()
-        self.fire_emit=fire_emit;self.pressed=set();self.set_bindings(target_key,fire_key)
+        self.fire_emit=fire_emit;self.cancel_emit=cancel_emit;self.pressed=set();self.set_bindings(target_key,fire_key)
     def set_bindings(self,target,fire):
         validate_bindings(target,fire);self.target_key=KEYS[target];self.fire_key=KEYS[fire];self.pressed=set();self.state.reset()
     def start(self):
@@ -61,7 +61,7 @@ class GameShortcuts:
             try:
                 if code==0 and message in (0x100,0x101,0x104,0x105):
                     event=ctypes.cast(data,ctypes.POINTER(Key)).contents
-                    if event.vkCode in self.state.CTRL or event.vkCode in (self.target_key,self.fire_key) or self.state.controls:
+                    if event.vkCode in self.state.CTRL or event.vkCode in (self.target_key,self.fire_key,0x1b) or self.state.controls:
                         allowed,window,hero=self.scope()
                         foreground=u.GetForegroundWindow()
                         allowed=allowed and bool(window) and foreground==window
@@ -72,6 +72,7 @@ class GameShortcuts:
                         modifier=bool(self.state.controls) or any(u.GetAsyncKeyState(v)&0x8000 for v in (0x10,0x12,0x5b,0x5c))
                         ctrl=self.state.feed(key,down,(foreground,hero),allowed)
                         if allowed:
+                            if self.cancel_emit and key==0x1b and down and fresh:self.cancel_emit(hero)
                             if self.target_key==0x11 and ctrl:self.emit(hero)
                             elif self.target_key!=0x11 and key==self.target_key and down and fresh and not modifier:self.emit(hero)
                             if self.fire_emit and key==self.fire_key and down and fresh and not modifier:self.fire_emit(hero)
