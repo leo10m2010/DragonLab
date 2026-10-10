@@ -1,14 +1,12 @@
 {
-  "version": "0.5",
-  "updated": 1791591417.1776762,
+  "version": "0.6",
+  "updated": 1791592199.9459136,
   "connected": false,
-  "map_detected": true,
+  "map_detected": false,
   "camera_detected": false,
-  "weather": [
-    6
-  ],
-  "players_detected": 2,
+  "weather": [],
+  "players_detected": 0,
   "overlay_visible": false,
-  "power": 181,
+  "power": null,
   "computing": false
 }

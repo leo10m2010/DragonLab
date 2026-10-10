@@ -12,6 +12,7 @@ from strength_guide import draw_force,PowerGuide,select_game_bar
 from trajectories import TrajectoryOverlay,ObservedTrails
 from projection import project,unproject
 from calibration_book import CalibrationBook,mobile_name
+from targeting import enemies,next_target,ControlTap
 
 BASE=pathlib.Path(sys.executable).parent if getattr(sys,'frozen',False) else pathlib.Path(__file__).parent
 ASSETS=pathlib.Path(getattr(sys,'_MEIPASS',BASE))
@@ -65,7 +66,7 @@ class App:
         self.profile_path=BASE/'perfiles.json'
         try:self.profiles=json.loads(self.profile_path.read_text(encoding='utf-8'))
         except (OSError,ValueError):pass
-        self.change_mobile();self.tick()
+        self.control_tap=ControlTap();self.change_mobile();self.tick();self.poll_target_shortcut()
         if '--smoke' not in sys.argv and '--no-auto' not in sys.argv and '--check' not in sys.argv:root.after(300,self.toggle_live)
 
     def open_settings(self):
@@ -333,15 +334,16 @@ class App:
         hero=next((p for p in ps if p.get('isHero') or p.get('id')==d.get('heroId')),None)
         if not hero:self.footer.config(text='Se leen jugadores; identificación del jugador pendiente. Usa el modo manual.');return
         self.has_position_data=True;self.live_players=ps
-        targets=[p for p in ps if p!=hero and not p.get('dead',False) and (hero.get('team') is None or p.get('team')!=hero.get('team'))]
+        targets=enemies(ps,hero['id'])
         if not targets:
             self.has_position_data=False;self.result={};self.auto_target_id=None;self.hide_power_guide();self.draw_overlay();self.show_result();return
-        self.target_ids={f'{p["name"]} / {p["id"]}':p['id'] for p in targets}
+        self.target_ids={f'{i}. {p["name"]}':p['id'] for i,p in enumerate(targets,1)}
         self.target_box.config(values=['Objetivo automático']+list(self.target_ids))
-        if self.target_hero_id!=hero['id']:self.auto_target_id=None;self.target_hero_id=hero['id']
+        if self.target_hero_id!=hero['id']:self.auto_target_id=None;self.selected_target=None;self.target_hero_id=hero['id']
         wanted=self.selected_target if self.selected_target is not None else self.auto_target_id
         target=next((p for p in targets if p['id']==wanted),None) or min(targets,key=lambda p:math.hypot(p['x']-hero['x'],p['y']-hero['y']))
         self.auto_target_id=target['id']
+        if self.selected_target is not None:self.target_name.set(next(k for k,v in self.target_ids.items() if v==target['id']))
         self.live_camera=d.get('camera')
         self.live_look=hero.get('look');self.s.hero_x=hero['x'];self.s.hero_y=hero['y']
         self.s.target_x=target['x'];self.s.target_y=target['y']
@@ -367,10 +369,23 @@ class App:
         self.s.environment['activeWeathers']=d.get('weather',[]) if isinstance(d.get('weather'),list) else []
         self.s.environment['hitTolerance']=18
         self.vehicle_label.config(text=self.mobile.get())
-        self.footer.config(text=f'Objetivo: {target["name"]} · Verde: prevista · Azul: observada · {self.book.message}')
+        black=any((w.get('resolvedTypeId') or w.get('typeId'))==5 for w in self.s.environment['activeWeathers'])
+        self.footer.config(text=f'Objetivo: {target["name"]} · Ctrl: siguiente enemigo · '+('Negro: daño reducido · ' if black else '')+self.book.message)
         self.mark()
     def select_target(self):
         self.selected_target=self.target_ids.get(self.target_name.get());self.last_fingerprint=None;self.mark()
+    def cycle_target(self):
+        target=next_target(self.live_players,self.target_hero_id,self.auto_target_id)
+        if target is None:return
+        self.selected_target=target;self.auto_target_id=target
+        p=next(p for p in self.live_players if p.get('id')==target)
+        self.s.target_x=p['x'];self.s.target_y=p['y'];self.result={}
+        for label,value in self.target_ids.items():
+            if value==target:self.target_name.set(label);break
+        self.last_fingerprint=None;self.mark();self.draw_overlay()
+    def poll_target_shortcut(self):
+        if self.control_tap.poll(self.game_visible and bool(self.last_live) and time.monotonic()-self.last_live<4):self.cycle_target()
+        self.root.after(50,self.poll_target_shortcut)
     def share(self):
         if not self.server:
             app=self
@@ -427,7 +442,7 @@ class App:
         self.shared['source']='experimental' if self.last_live and time.monotonic()-self.last_live<4 else 'manual'
         if '--diagnostics' in sys.argv and time.monotonic()-getattr(self,'diagnostic_clock',0)>1:
             self.diagnostic_clock=time.monotonic()
-            health={'version':'0.5','updated':time.time(),'connected':bool(self.last_live and time.monotonic()-self.last_live<4),'map_detected':bool(self.s.environment.get('terrain')),'camera_detected':bool(self.live_camera and self.live_camera.get('renderWidth')),'weather':[w.get('resolvedTypeId') or w.get('typeId') for w in self.s.environment.get('activeWeathers',[])],'players_detected':len(self.live_players),'overlay_visible':bool(self.overlay and self.overlay.visible),'power':self.result.get('power'),'computing':self.computing}
+            health={'version':'0.6','updated':time.time(),'connected':bool(self.last_live and time.monotonic()-self.last_live<4),'map_detected':bool(self.s.environment.get('terrain')),'camera_detected':bool(self.live_camera and self.live_camera.get('renderWidth')),'weather':[w.get('resolvedTypeId') or w.get('typeId') for w in self.s.environment.get('activeWeathers',[])],'players_detected':len(self.live_players),'overlay_visible':bool(self.overlay and self.overlay.visible),'power':self.result.get('power'),'computing':self.computing}
             try:(BASE/'estado-live.json').write_text(json.dumps(health,indent=2),encoding='utf-8')
             except OSError:pass
         self.root.after(150,self.tick)
@@ -444,7 +459,8 @@ class App:
                 r=self.result
                 if self.clone_id=='gunbound-world' and self.profile_key() not in self.profiles:r['quality']='GunBound World: perfil sin calibrar · '+r['quality'];r['approximate']=True
                 self.power.config(text=str(r['power']),fg=ORANGE if r['approximate'] else GREEN)
-                self.details.config(text=f'FUERZA / {self.s.max_power:g} · {self.s.mobile}\nÁngulo {self.s.angle:g}° · Viento {self.s.wind:g} · Tiro {self.s.selected_shot+1 if self.s.selected_shot<2 else "SS"}')
+                cluster=f' · {r.get("cluster_hits",0)}/{r.get("projectile_count",3)} bolas próximas' if self.s.mobile=="TRICO" and self.s.selected_shot==1 else ""
+                self.details.config(text=f'FUERZA / {self.s.max_power:g} · {self.s.mobile}\nÁngulo {self.s.angle:g}° · Viento {self.s.wind:g} · Tiro {self.s.selected_shot+1 if self.s.selected_shot<2 else "SS"}{cluster}')
             else:
                 self.power.config(text='—');text='Este ángulo no alcanza el objetivo'
                 if self.result.get('preview_power'):text+=f'\nVista de trayectoria a fuerza {self.result["preview_power"]:g}'

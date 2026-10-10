@@ -208,22 +208,36 @@ def closest(path,x,y):
 def solve_extended(s):
     # Coarse-to-fine integer power search; weather interactions are discontinuous,
     # so refine all coarse local minima instead of assuming a single minimum.
-    cache={}
+    cache={};cluster=s.mobile=='TRICO' and s.selected_shot==1
+    tolerance=s.environment.get('hitTolerance',35)
+    def score(candidates):
+        distances=[c[0] for c in candidates]
+        # Reward several predicted contacts, then tighten the whole group.
+        # The single closest orb previously dominated every Trico choice.
+        if cluster:return (-sum(d<=tolerance for d in distances),sum(min(d,1000) for d in distances)/len(distances),max(distances))
+        return (min(distances),)
     def evaluate(power):
         if power not in cache:
             traces=trajectory(s,power,step=.04)
             candidates=[closest(p,s.target_x,s.target_y) for p in traces['projectile_paths']]
             best=min(candidates,key=lambda c:c[0]) if candidates else (math.inf,None)
-            cache[power]=best
+            cache[power]=(score(candidates) if candidates else (math.inf,),best)
         return cache[power][0]
     tornado,mirror=weather_records(s.environment)
     # Weather creates narrow discontinuities; evaluate every available integer.
-    grid=list(range(1,int(s.max_power)+1,1 if tornado or mirror else 8));grid.append(int(s.max_power))
+    grid=list(range(1,int(s.max_power)+1,1 if tornado or mirror or cluster else 8));grid.append(int(s.max_power))
     for p in grid:evaluate(p)
     minima=[p for i,p in enumerate(grid) if (i==0 or evaluate(p)<=evaluate(grid[i-1])) and (i==len(grid)-1 or evaluate(p)<=evaluate(grid[i+1]))]
     for p in minima:
         for fine in range(max(1,p-8),min(int(s.max_power),p+8)+1):evaluate(fine)
-    power=min(cache,key=evaluate);error,end=cache[power]
+    power=min(cache,key=evaluate);error,end=cache[power][1]
+    if cluster:
+        refined=[]
+        for candidate in sorted(cache,key=evaluate)[:12]:
+            fine=trajectory(s,candidate,step=.02)
+            contacts=[closest(p,s.target_x,s.target_y) for p in fine['projectile_paths']]
+            if contacts:refined.append((score(contacts),candidate))
+        if refined:power=min(refined)[1]
     traces=trajectory(s,power,step=.02)
     candidates=[closest(p,s.target_x,s.target_y) for p in traces['projectile_paths']]
     if candidates:error,end=min(candidates,key=lambda c:c[0])
@@ -237,6 +251,7 @@ def solve_extended(s):
             'path':[(p[0],p[1]) for p in traces['projectile_paths'][0]],
             'projectile_paths':[[(p[0],p[1]) for p in path] for path in traces['projectile_paths']],
             'interactions':traces['interactions'],'impacts':traces['impacts'],
+            'cluster_hits':sum(c[0]<=tolerance for c in candidates),'projectile_count':len(candidates),
             'distance':round(math.hypot(s.target_x-origin[0],s.target_y-origin[1])),
             'quality':'Modelo de proyectil/clima: requiere validación con el servidor' if approximate else 'Modelo por segmentos',
             'approximate':approximate,'end':end[:2]}
