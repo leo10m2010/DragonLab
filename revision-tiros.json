@@ -2,256 +2,130 @@
   "schema": 1,
   "records": [
     {
-      "mobile": "ARMOR",
-      "shot": 1,
-      "power": 252,
-      "phase": "Tiro",
-      "source": "native-shot-path",
-      "endpoint_error": 49.82,
-      "updated": 1791649235.1057801
-    },
-    {
-      "mobile": "ARMOR",
-      "shot": 1,
-      "power": 138,
-      "phase": "Tiro",
-      "source": "native-shot-path",
-      "endpoint_error": 12.93,
-      "updated": 1791649248.8122108
-    },
-    {
-      "mobile": "ARMOR",
-      "shot": 1,
-      "power": 138,
-      "phase": "Tiro",
-      "source": "native-shot-path",
-      "endpoint_error": 41.52,
-      "updated": 1791649248.8132129
-    },
-    {
-      "mobile": "ARMOR",
+      "mobile": "BIGFOOT",
       "shot": 0,
-      "power": 296,
+      "power": 1,
       "phase": "Tiro",
       "source": "native-shot-path",
-      "endpoint_error": 63.28,
-      "updated": 1791649261.4530847
+      "endpoint_error": 35.55,
+      "updated": 1791672972.7937007
     },
     {
-      "mobile": "ARMOR",
+      "mobile": "BIGFOOT",
       "shot": 0,
-      "power": 291,
+      "power": 341,
       "phase": "Tiro",
       "source": "native-shot-path",
-      "endpoint_error": 0.41,
-      "updated": 1791649276.2078013
+      "endpoint_error": 608.42,
+      "updated": 1791673069.233797
     },
     {
-      "mobile": "ARMOR",
-      "shot": 0,
-      "power": 291,
-      "phase": "Tiro",
-      "source": "native-shot-path",
-      "endpoint_error": 8.77,
-      "updated": 1791649293.8475375
-    },
-    {
-      "mobile": "ARMOR",
+      "mobile": "BIGFOOT",
       "shot": 1,
-      "power": 296,
+      "power": 347,
       "phase": "Tiro",
       "source": "native-shot-path",
-      "endpoint_error": 68.32,
-      "updated": 1791649316.5621028
+      "endpoint_error": 650.98,
+      "updated": 1791673092.5643754
     },
     {
-      "mobile": "ARMOR",
+      "mobile": "BIGFOOT",
       "shot": 1,
-      "power": 211,
+      "power": 347,
       "phase": "Tiro",
       "source": "native-shot-path",
-      "endpoint_error": 7.86,
-      "updated": 1791649341.4612954
+      "endpoint_error": 698.21,
+      "updated": 1791673092.5673752
     },
     {
-      "mobile": "ARMOR",
+      "mobile": "BIGFOOT",
       "shot": 1,
-      "power": 207,
+      "power": 347,
       "phase": "Tiro",
       "source": "native-shot-path",
-      "endpoint_error": 323.18,
-      "updated": 1791649358.3827612
+      "endpoint_error": 748.7,
+      "updated": 1791673092.571376
     },
     {
-      "mobile": "ARMOR",
-      "shot": 0,
-      "power": 291,
-      "phase": "Tiro",
-      "source": "native-shot-path",
-      "endpoint_error": 0.03,
-      "updated": 1791649376.4611716
-    },
-    {
-      "mobile": "ARMOR",
-      "shot": 0,
-      "power": 261,
-      "phase": "Tiro",
-      "source": "native-shot-path",
-      "endpoint_error": 8.02,
-      "updated": 1791649393.0448954
-    },
-    {
-      "mobile": "ARMOR",
+      "mobile": "BIGFOOT",
       "shot": 1,
-      "power": 151,
+      "power": 308,
       "phase": "Tiro",
       "source": "native-shot-path",
-      "endpoint_error": 6.35,
-      "updated": 1791649412.1882215
+      "endpoint_error": 559.49,
+      "updated": 1791673117.9007344
     },
     {
-      "mobile": "ARMOR",
+      "mobile": "BIGFOOT",
       "shot": 1,
-      "power": 194,
+      "power": 308,
       "phase": "Tiro",
       "source": "native-shot-path",
-      "endpoint_error": 0.63,
-      "updated": 1791649453.3225658
+      "endpoint_error": 543.3,
+      "updated": 1791673117.9042444
     },
     {
-      "mobile": "ARMOR",
+      "mobile": "BIGFOOT",
       "shot": 1,
-      "power": 194,
+      "power": 308,
       "phase": "Tiro",
       "source": "native-shot-path",
-      "endpoint_error": 0.63,
-      "updated": 1791649453.3235662
+      "endpoint_error": 614.54,
+      "updated": 1791673117.9102457
     },
     {
-      "mobile": "ARMOR",
-      "shot": 0,
-      "power": 215,
-      "phase": "Tiro",
-      "source": "native-shot-path",
-      "endpoint_error": 14.34,
-      "updated": 1791649473.1082032
-    },
-    {
-      "mobile": "ARMOR",
-      "shot": 0,
-      "power": 125,
-      "phase": "Tiro",
-      "source": "native-shot-path",
-      "endpoint_error": 6.48,
-      "updated": 1791649483.950307
-    },
-    {
-      "mobile": "ARMOR",
+      "mobile": "BIGFOOT",
       "shot": 1,
-      "power": 162,
+      "power": 297,
       "phase": "Tiro",
       "source": "native-shot-path",
-      "endpoint_error": 5.88,
-      "updated": 1791649526.1613538
+      "endpoint_error": 586.15,
+      "updated": 1791673139.302472
     },
     {
-      "mobile": "ARMOR",
+      "mobile": "BIGFOOT",
       "shot": 1,
-      "power": 162,
+      "power": 297,
       "phase": "Tiro",
       "source": "native-shot-path",
-      "endpoint_error": 5.86,
-      "updated": 1791649526.1623552
+      "endpoint_error": 637.72,
+      "updated": 1791673139.3064713
     },
     {
-      "mobile": "ARMOR",
+      "mobile": "BIGFOOT",
       "shot": 1,
-      "power": 162,
+      "power": 297,
       "phase": "Tiro",
       "source": "native-shot-path",
-      "endpoint_error": 0.82,
-      "updated": 1791649538.4725482
+      "endpoint_error": 658.26,
+      "updated": 1791673139.3104715
     },
     {
-      "mobile": "ARMOR",
+      "mobile": "BIGFOOT",
       "shot": 1,
-      "power": 162,
+      "power": 400,
       "phase": "Tiro",
       "source": "native-shot-path",
-      "endpoint_error": 19.67,
-      "updated": 1791649538.4745483
+      "endpoint_error": 526.2,
+      "updated": 1791673159.675724
     },
     {
-      "mobile": "ICE",
-      "shot": 0,
-      "power": 300,
-      "phase": "Tiro",
-      "source": "native-shot-path",
-      "endpoint_error": 872.26,
-      "updated": 1791649755.0239968
-    },
-    {
-      "mobile": "ICE",
-      "shot": 0,
-      "power": 296,
-      "phase": "Tiro",
-      "source": "native-shot-path",
-      "endpoint_error": 14.82,
-      "updated": 1791649775.9521995
-    },
-    {
-      "mobile": "ICE",
-      "shot": 0,
-      "power": 300,
-      "phase": "Tiro",
-      "source": "native-shot-path",
-      "endpoint_error": 0.57,
-      "updated": 1791649801.1352398
-    },
-    {
-      "mobile": "ICE",
-      "shot": 0,
-      "power": 222,
-      "phase": "Tiro",
-      "source": "native-shot-path",
-      "endpoint_error": 0.3,
-      "updated": 1791649850.203779
-    },
-    {
-      "mobile": "ICE",
-      "shot": 0,
-      "power": 184,
-      "phase": "Tiro",
-      "source": "native-shot-path",
-      "endpoint_error": 8.39,
-      "updated": 1791649868.4951072
-    },
-    {
-      "mobile": "ICE",
-      "shot": 0,
-      "power": 161,
-      "phase": "Tiro",
-      "source": "native-shot-path",
-      "endpoint_error": 2.68,
-      "updated": 1791649890.8366592
-    },
-    {
-      "mobile": "ICE",
-      "shot": 0,
-      "power": 109,
-      "phase": "Tiro",
-      "source": "native-shot-path",
-      "endpoint_error": 0.36,
-      "updated": 1791649922.1531549
-    },
-    {
-      "mobile": "ICE",
+      "mobile": "BIGFOOT",
       "shot": 1,
-      "power": 123,
+      "power": 400,
       "phase": "Tiro",
       "source": "native-shot-path",
-      "endpoint_error": 211.84,
-      "updated": 1791649960.001213
+      "endpoint_error": 618.12,
+      "updated": 1791673159.67872
+    },
+    {
+      "mobile": "BIGFOOT",
+      "shot": 1,
+      "power": 400,
+      "phase": "Tiro",
+      "source": "native-shot-path",
+      "endpoint_error": 684.37,
+      "updated": 1791673159.684225
     }
   ]
 }
