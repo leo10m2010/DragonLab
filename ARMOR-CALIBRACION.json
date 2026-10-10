@@ -1,13 +1,34 @@
 {
   "vehicle": "Armor",
   "version": "0.12.1",
-  "observed_frames": 2690,
+  "observed_frames": 3821,
   "scope": "Native launch measurements; no wind observed. Not a guarantee of all impacts or weather behavior.",
   "modes": [
     {
       "shot": 1,
       "samples": 7,
-      "fit": null,
+      "fit": {
+        "power_scale": 2.367883211678832,
+        "speed_offset": -1.0218978102188885,
+        "gravity": 398,
+        "wind_scale": null,
+        "sample_count": 7,
+        "speed_rmse": 0.06126916290645699,
+        "gravity_spread": 0,
+        "acceleration_rmse": 0.0,
+        "acceleration_max_error": 0.0,
+        "power_range": [
+          125,
+          296
+        ],
+        "wind_range": [
+          0,
+          0
+        ],
+        "wind_observed": false,
+        "holdout_speed_error": 0.2049658390268405,
+        "holdout_acceleration_error": 0.0
+      },
       "historical_regimes": [
         {
           "samples": [
@@ -207,33 +228,122 @@
           },
           "reason": "Prior validated fit preserved after a new observation failed validation",
           "archived": 1791649015.88813
+        },
+        {
+          "samples": [
+            {
+              "power": 241,
+              "vx": -401.3916085889674,
+              "vy": -387.6193707161204,
+              "ax": 0,
+              "ay": 390,
+              "wind": 0,
+              "wind_angle": 14,
+              "source": "native-shot-start",
+              "sample_id": "417:1447,44,136,558,0,390"
+            },
+            {
+              "power": 321,
+              "vx": -254.46298663429752,
+              "vy": -699.1313098647158,
+              "ax": 0,
+              "ay": 390,
+              "wind": 0,
+              "wind_angle": 14,
+              "source": "native-shot-start",
+              "sample_id": "607:1516,32,110,744,0,390"
+            },
+            {
+              "power": 314,
+              "vx": -272.3389934133681,
+              "vy": -674.0626622700545,
+              "ax": 0,
+              "ay": 390,
+              "wind": 0,
+              "wind_angle": 14,
+              "source": "native-shot-start",
+              "sample_id": "656:1504,25,112,727,0,390"
+            },
+            {
+              "power": 320,
+              "vx": -277.58348572119087,
+              "vy": -687.0432362339894,
+              "ax": 0,
+              "ay": 390,
+              "wind": 0,
+              "wind_angle": 14,
+              "source": "native-shot-start",
+              "sample_id": "847:1504,25,112,741,0,390"
+            },
+            {
+              "power": 246,
+              "vx": -318.7399549783256,
+              "vy": -472.5514163563738,
+              "ax": 0,
+              "ay": 390,
+              "wind": 0,
+              "wind_angle": 14,
+              "source": "native-shot-start",
+              "sample_id": "1131:1348,103,124,570,0,390"
+            }
+          ],
+          "reason": "Recent contiguous observations pass independent validation",
+          "archived": 1791649376.4651732
+        },
+        {
+          "samples": [
+            {
+              "power": 159,
+              "vx": -227.18466116899125,
+              "vy": -280.5496920859665,
+              "ax": 0,
+              "ay": 402,
+              "wind": 0,
+              "wind_angle": 77,
+              "source": "native-shot-start",
+              "sample_id": "2257:1440,36,129,361,0,402"
+            },
+            {
+              "power": 145,
+              "vx": -207.04640865539648,
+              "vy": -255.68102131934347,
+              "ax": 0,
+              "ay": 402,
+              "wind": 0,
+              "wind_angle": 77,
+              "source": "native-shot-start",
+              "sample_id": "2299:1440,36,129,329,0,402"
+            }
+          ],
+          "reason": "Recent contiguous observations pass independent validation",
+          "archived": 1791649473.110202
         }
       ]
     },
     {
       "shot": 2,
-      "samples": 9,
+      "samples": 5,
       "fit": {
-        "power_scale": 2.269616999056054,
-        "speed_offset": 7.891315699624556,
+        "power_scale": 2.3604712502198,
+        "speed_offset": 0.5197819588534571,
         "gravity": 398,
         "wind_scale": null,
-        "sample_count": 9,
-        "speed_rmse": 2.123238782219489,
-        "gravity_spread": 4,
-        "acceleration_rmse": 2.309401076758503,
-        "acceleration_max_error": 4.0,
+        "sample_count": 5,
+        "speed_rmse": 0.2876020930954391,
+        "gravity_spread": 0,
+        "acceleration_rmse": 0.0,
+        "acceleration_max_error": 0.0,
         "power_range": [
-          184,
-          397
+          162,
+          211
         ],
         "wind_range": [
           0,
           0
         ],
         "wind_observed": false,
-        "holdout_speed_error": 4.076828938233234,
-        "holdout_acceleration_error": 4.0
+        "holdout_speed_error": 0.7636827828306991,
+        "holdout_acceleration_error": 0.0
       },
       "historical_regimes": [
         {
@@ -599,12 +709,150 @@
           },
           "reason": "Prior validated fit preserved after a new observation failed validation",
           "archived": 1791649015.8941302
+        },
+        {
+          "samples": [
+            {
+              "power": 348,
+              "vx": 259.8033872568111,
+              "vy": -754.5238233282547,
+              "ax": 0,
+              "ay": 398,
+              "wind": 0,
+              "wind_angle": 22,
+              "source": "native-shot-start",
+              "sample_id": "1474:53,62,71,798,0,398"
+            },
+            {
+              "power": 397,
+              "vx": 250.82999379346924,
+              "vy": -874.7481433038702,
+              "ax": 0,
+              "ay": 398,
+              "wind": 0,
+              "wind_angle": 168,
+              "source": "native-shot-start",
+              "sample_id": "1540:10,107,74,910,0,398"
+            },
+            {
+              "power": 277,
+              "vx": 390.945036831793,
+              "vy": -500.3868285402685,
+              "ax": 0,
+              "ay": 398,
+              "wind": 0,
+              "wind_angle": 168,
+              "source": "native-shot-start",
+              "sample_id": "1587:89,86,52,635,0,398"
+            },
+            {
+              "power": 260,
+              "vx": 398.8018413898795,
+              "vy": -442.914315984527,
+              "ax": 0,
+              "ay": 398,
+              "wind": 0,
+              "wind_angle": 168,
+              "source": "native-shot-start",
+              "sample_id": "1650:164,66,48,596,0,398"
+            },
+            {
+              "power": 254,
+              "vx": 389.4340129008555,
+              "vy": -432.5102884278435,
+              "ax": 0,
+              "ay": 398,
+              "wind": 0,
+              "wind_angle": 168,
+              "source": "native-shot-start",
+              "sample_id": "1695:164,66,48,582,0,398"
+            },
+            {
+              "power": 243,
+              "vx": 407.36401180187795,
+              "vy": -379.87308655481166,
+              "ax": 0,
+              "ay": 398,
+              "wind": 0,
+              "wind_angle": 133,
+              "source": "native-shot-start",
+              "sample_id": "1768:203,53,43,557,0,398"
+            },
+            {
+              "power": 236,
+              "vx": 196.02726840127931,
+              "vy": -510.66849329396933,
+              "ax": 0,
+              "ay": 402,
+              "wind": 0,
+              "wind_angle": 328,
+              "source": "native-shot-start",
+              "sample_id": "2455:1000,-15,69,547,0,402"
+            },
+            {
+              "power": 234,
+              "vx": 194.23542865355282,
+              "vy": -506.0005911614833,
+              "ax": 0,
+              "ay": 402,
+              "wind": 0,
+              "wind_angle": 328,
+              "source": "native-shot-start",
+              "sample_id": "2505:1000,-15,69,542,0,402"
+            },
+            {
+              "power": 184,
+              "vx": 340.21872728014677,
+              "vy": -256.37319986277254,
+              "ax": 0,
+              "ay": 402,
+              "wind": 0,
+              "wind_angle": 259,
+              "source": "native-shot-start",
+              "sample_id": "2598:967,4,37,426,0,402"
+            },
+            {
+              "power": 138,
+              "vx": 270.2662486529436,
+              "vy": -182.29688653146349,
+              "ax": 0,
+              "ay": 398,
+              "wind": 0,
+              "wind_angle": 206,
+              "source": "native-shot-start",
+              "sample_id": "96:705,-23,34,326,0,398"
+            }
+          ],
+          "fit": {
+            "power_scale": 2.257692284122733,
+            "speed_offset": 11.447313752045261,
+            "gravity": 398.0,
+            "wind_scale": null,
+            "sample_count": 10,
+            "speed_rmse": 2.350202716926361,
+            "gravity_spread": 4,
+            "acceleration_rmse": 2.1908902300206643,
+            "acceleration_max_error": 4.0,
+            "power_range": [
+              138,
+              397
+            ],
+            "wind_range": [
+              0,
+              0
+            ],
+            "wind_observed": false,
+            "holdout_speed_error": 4.9015384306400165,
+            "holdout_acceleration_error": 4.0
+          },
+          "reason": "Two incompatible native starts",
+          "archived": 1791649358.3827612
         }
       ]
     },
     {
       "shot": "SS",
-      "samples": 2,
+      "samples": 6,
       "fit": null,
       "historical_regimes": [
         {
@@ -746,6 +994,39 @@
       "regime_changed": false,
       "launch_origin_error_px": 0.0,
       "path_max_error_px": 5.938274549021318,
+      "path_points": 40
+    },
+    {
+      "mode": 1,
+      "power": 138,
+      "speed_error": 9.83914774261541,
+      "acceleration_error": 0.0,
+      "source": "later shot against frozen earlier fit",
+      "regime_changed": true,
+      "launch_origin_error_px": 0.0,
+      "path_max_error_px": 16.578725069491416,
+      "path_points": 40
+    },
+    {
+      "mode": 0,
+      "power": 261,
+      "speed_error": 3.1056680648609927,
+      "acceleration_error": 0.0,
+      "source": "later shot against frozen earlier fit",
+      "regime_changed": false,
+      "launch_origin_error_px": 0.0,
+      "path_max_error_px": 7.997095267017087,
+      "path_points": 40
+    },
+    {
+      "mode": 1,
+      "power": 162,
+      "speed_error": 0.16103983794732812,
+      "acceleration_error": 0.0,
+      "source": "later shot against frozen earlier fit",
+      "regime_changed": false,
+      "launch_origin_error_px": 0.0,
+      "path_max_error_px": 1.2148892511657639,
       "path_points": 40
     }
   ]

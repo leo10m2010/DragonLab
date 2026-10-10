@@ -68,41 +68,62 @@
     {
       "profile": "dragonbound:ARMOR:0",
       "launch_samples": 7,
-      "fit": null,
-      "historical_regimes": 4,
-      "drift_pending": false
-    },
-    {
-      "profile": "dragonbound:ARMOR:1",
-      "launch_samples": 9,
       "fit": {
-        "power_scale": 2.269616999056054,
-        "speed_offset": 7.891315699624556,
+        "power_scale": 2.367883211678832,
+        "speed_offset": -1.0218978102188885,
         "gravity": 398,
         "wind_scale": null,
-        "sample_count": 9,
-        "speed_rmse": 2.123238782219489,
-        "gravity_spread": 4,
-        "acceleration_rmse": 2.309401076758503,
-        "acceleration_max_error": 4.0,
+        "sample_count": 7,
+        "speed_rmse": 0.06126916290645699,
+        "gravity_spread": 0,
+        "acceleration_rmse": 0.0,
+        "acceleration_max_error": 0.0,
         "power_range": [
-          184,
-          397
+          125,
+          296
         ],
         "wind_range": [
           0,
           0
         ],
         "wind_observed": false,
-        "holdout_speed_error": 4.076828938233234,
-        "holdout_acceleration_error": 4.0
+        "holdout_speed_error": 0.2049658390268405,
+        "holdout_acceleration_error": 0.0
       },
-      "historical_regimes": 4,
+      "historical_regimes": 6,
+      "drift_pending": false
+    },
+    {
+      "profile": "dragonbound:ARMOR:1",
+      "launch_samples": 5,
+      "fit": {
+        "power_scale": 2.3604712502198,
+        "speed_offset": 0.5197819588534571,
+        "gravity": 398,
+        "wind_scale": null,
+        "sample_count": 5,
+        "speed_rmse": 0.2876020930954391,
+        "gravity_spread": 0,
+        "acceleration_rmse": 0.0,
+        "acceleration_max_error": 0.0,
+        "power_range": [
+          162,
+          211
+        ],
+        "wind_range": [
+          0,
+          0
+        ],
+        "wind_observed": false,
+        "holdout_speed_error": 0.7636827828306991,
+        "holdout_acceleration_error": 0.0
+      },
+      "historical_regimes": 5,
       "drift_pending": false
     },
     {
       "profile": "dragonbound:ARMOR:2",
-      "launch_samples": 2,
+      "launch_samples": 6,
       "fit": null,
       "historical_regimes": 1,
       "drift_pending": false
@@ -444,5 +465,5 @@
       "drift_pending": false
     }
   ],
-  "validated_profiles": 4
+  "validated_profiles": 5
 }

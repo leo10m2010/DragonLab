@@ -1,0 +1,109 @@
+{
+  "vehicle": "Ice",
+  "mode": "Tiro 1",
+  "source": "native-shot-start",
+  "samples": [
+    {
+      "power": 300,
+      "vx": -297.7371199088266,
+      "vy": -701.4246983307595,
+      "ax": 0,
+      "ay": 396,
+      "wind": 0,
+      "wind_angle": 290,
+      "source": "native-shot-start",
+      "sample_id": "1506:1507,9,113,762,0,396"
+    },
+    {
+      "power": 296,
+      "vx": -293.8298086239339,
+      "vy": -692.2196497962351,
+      "ax": 0,
+      "ay": 396,
+      "wind": 0,
+      "wind_angle": 290,
+      "source": "native-shot-start",
+      "sample_id": "1547:1507,9,113,752,0,396"
+    },
+    {
+      "power": 300,
+      "vx": -285.450224182925,
+      "vy": -706.514097179892,
+      "ax": 0,
+      "ay": 396,
+      "wind": 0,
+      "wind_angle": 290,
+      "source": "native-shot-start",
+      "sample_id": "1605:1496,39,112,762,0,396"
+    },
+    {
+      "power": 222,
+      "vx": -354.9367005521082,
+      "vy": -438.31032226173164,
+      "ax": 0,
+      "ay": 396,
+      "wind": 0,
+      "wind_angle": 290,
+      "source": "native-shot-start",
+      "sample_id": "1681:1239,22,129,564,0,396"
+    },
+    {
+      "power": 184,
+      "vx": -459.90522065670115,
+      "vy": -81.09369897045644,
+      "ax": 0,
+      "ay": 396,
+      "wind": 0,
+      "wind_angle": 290,
+      "source": "native-shot-start",
+      "sample_id": "1725:1178,20,170,467,0,396"
+    },
+    {
+      "power": 161,
+      "vx": -373.6400921758237,
+      "vy": -166.35528701800237,
+      "ax": 0,
+      "ay": 396,
+      "wind": 0,
+      "wind_angle": 290,
+      "source": "native-shot-start",
+      "sample_id": "1755:844,16,156,409,0,396"
+    },
+    {
+      "power": 109,
+      "vx": -239.88903684828952,
+      "vy": -138.49999999999997,
+      "ax": 0,
+      "ay": 396,
+      "wind": 0,
+      "wind_angle": 290,
+      "source": "native-shot-start",
+      "sample_id": "1909:758,-21,150,277,0,396"
+    }
+  ],
+  "independently_rechecked_fit": {
+    "power_scale": 2.540161304589059,
+    "speed_offset": -0.019081544857272092,
+    "gravity": 396,
+    "wind_scale": null,
+    "sample_count": 7,
+    "speed_rmse": 0.16467212072669646,
+    "gravity_spread": 0,
+    "acceleration_rmse": 0.0,
+    "acceleration_max_error": 0.0,
+    "power_range": [
+      109,
+      300
+    ],
+    "wind_range": [
+      0,
+      0
+    ],
+    "wind_observed": false,
+    "holdout_speed_error": 0.457068052442537,
+    "holdout_acceleration_error": 0.0
+  },
+  "shot_2_samples": 1,
+  "SS_samples": 0,
+  "scope": "Launch fit at zero wind, measured forces 109 to 300. Weather, collision and nonzero wind not validated."
+}

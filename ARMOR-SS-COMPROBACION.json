@@ -1,0 +1,79 @@
+{
+  "vehicle": "Armor",
+  "mode": "SS",
+  "status": "Provisional; awaiting subsequent distinct-force shots",
+  "frozen_fit": {
+    "power_scale": 2.3667563930013458,
+    "speed_offset": -0.502355316285275,
+    "gravity": 398.0,
+    "wind_scale": null,
+    "sample_count": 4,
+    "speed_rmse": 0.1065644839186014,
+    "gravity_spread": 0,
+    "acceleration_rmse": 0.0,
+    "acceleration_max_error": 0.0,
+    "power_range": [
+      149,
+      296
+    ],
+    "wind_range": [
+      0,
+      0
+    ],
+    "wind_observed": false,
+    "holdout_speed_error": 0.28460285869363133,
+    "holdout_acceleration_error": 0.0
+  },
+  "fit_samples": [
+    {
+      "power": 252,
+      "vx": 494.10639324280487,
+      "vy": -333.27897046856515,
+      "ax": 0,
+      "ay": 398,
+      "wind": 0,
+      "wind_angle": 206,
+      "source": "native-shot-start",
+      "sample_id": "35:705,-23,34,596,0,398"
+    },
+    {
+      "power": 296,
+      "vx": 494.9747468305833,
+      "vy": -494.9747468305833,
+      "ax": 0,
+      "ay": 398,
+      "wind": 0,
+      "wind_angle": 206,
+      "source": "native-shot-start",
+      "sample_id": "362:448,57,45,700,0,398"
+    },
+    {
+      "power": 151,
+      "vx": 256.80430872089846,
+      "vy": -247.993038253862,
+      "ax": 0,
+      "ay": 398,
+      "wind": 0,
+      "wind_angle": 40,
+      "source": "native-shot-start",
+      "sample_id": "751:1160,56,44,357,0,398"
+    },
+    {
+      "power": 149,
+      "vx": 191.71294032528954,
+      "vy": -295.21203991678925,
+      "ax": 0,
+      "ay": 398,
+      "wind": 0,
+      "wind_angle": 40,
+      "source": "native-shot-start",
+      "sample_id": "971:1223,26,57,352,0,398"
+    }
+  ],
+  "subsequent_checks": [],
+  "pending_powers": [
+    220,
+    320
+  ],
+  "source": "Native shot starts; previous regimes excluded from this candidate fit"
+}

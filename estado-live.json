@@ -1,6 +1,6 @@
 {
   "version": "0.12.1",
-  "updated": 1791649070.766159,
+  "updated": 1791650344.551611,
   "connected": false,
   "map_detected": false,
   "camera_detected": false,
@@ -13,7 +13,7 @@
   "target": null,
   "enemies_detected": 0,
   "preview_capture": false,
-  "solve_seconds": 0.00829110003542155,
+  "solve_seconds": 0.028169099998194724,
   "shortcut_events": 0,
   "shortcut_ready": true,
   "shortcut_error": null
