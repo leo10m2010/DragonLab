@@ -1,9 +1,9 @@
 name: Companion input checks
 on:
   push:
-    paths: ['app.py','auto_fire.py','firing.py','shortcuts.py','strength_guide.py','trajectories.py','tests/**','.github/workflows/companion-checks.yml']
+    paths: ['app.py','automatic.py','auto_fire.py','firing.py','shortcuts.py','strength_guide.py','trajectories.py','tests/**','.github/workflows/companion-checks.yml']
   pull_request:
-    paths: ['app.py','auto_fire.py','firing.py','shortcuts.py','strength_guide.py','trajectories.py','tests/**','.github/workflows/companion-checks.yml']
+    paths: ['app.py','automatic.py','auto_fire.py','firing.py','shortcuts.py','strength_guide.py','trajectories.py','tests/**','.github/workflows/companion-checks.yml']
 permissions:
   contents: read
 jobs:
@@ -16,3 +16,10 @@ jobs:
           python-version: '3.12'
       - run: pip install pillow==12.3.0
       - run: python -B -m unittest discover -s tests -p test_companion_input.py -v
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm ci --prefix tests --ignore-scripts --no-audit --no-fund
+      - run: npx playwright install --with-deps chromium
+        working-directory: tests
+      - run: npm run test:browser --prefix tests

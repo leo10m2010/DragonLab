@@ -32,7 +32,7 @@ class Reader:
     def read(self):
         self.count+=1
         state={'turn':0,'hero':0,'shot':0,'wind':1,'windAngle':30,'over':False,'chat':False,'focused':True,'moving':False,
-               'mode':self.mode,'busy':self.backend.held,'power':round((self.backend.point[0]-16)/1.37) if self.mode=='drag' and self.backend.held else min(400,(self.count-1)*10) if self.backend.held else 320,
+               'mode':self.mode,'busy':self.backend.held,'dragSens':1.37 if self.backend.held else 1.65,'power':round((self.backend.point[0]-16)/1.37) if self.mode=='drag' and self.backend.held else min(400,(self.count-1)*10) if self.backend.held else 320,
                'players':[{'id':0,'x':10,'y':20,'rawAngle':60,'dead':False},{'id':1,'x':400,'y':20,'dead':False}]}
         if self.stale and self.count==2:state.update(busy=False,power=320)
         if self.mutate:self.mutate(state,self.count)
@@ -52,8 +52,20 @@ class InputTests(unittest.TestCase):
         b=Backend();r=Reader(b);out=self.run_shot(b,r)
         self.assertLessEqual(abs(out['power']-150),1)
         self.assertEqual(b.actions[:2],[('move',16,130),('mouse',True)])
+        self.assertEqual(b.actions[2],('move',round(16+150*1.37),130))
         self.assertEqual(sum(a==('mouse',True) for a in b.actions),1)
         self.assertFalse(b.held);self.assertEqual(b.point,(450,400))
+    def test_missing_fresh_sensitivity_releases_without_probe_or_retry(self):
+        b=Backend();r=Reader(b)
+        r.mutate=lambda s,n:s.update(dragSens=None) if n>=2 else None
+        with self.assertRaisesRegex(RuntimeError,'sensibilidad'):self.run_shot(b,r)
+        self.assertEqual(b.actions,[('move',16,130),('mouse',True),('mouse',False),('move',450,400)])
+    def test_charge_does_not_start_never_moves_to_estimate_force(self):
+        b=Backend();r=Reader(b)
+        r.mutate=lambda s,n:s.update(busy=False) if n>=2 else None
+        with patch('auto_fire.time.monotonic',side_effect=[0,0,1]),patch('auto_fire.time.sleep'):
+            with self.assertRaisesRegex(RuntimeError,'inició'):execute(plan(),r,threading.Event(),b)
+        self.assertEqual(sum(a[0]=='move' for a in b.actions),2)
     def test_slice_waits_for_new_charge_not_previous_force(self):
         b=Backend();r=Reader(b,'space');r.stale=True
         out=self.run_shot(b,r)

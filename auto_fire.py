@@ -14,7 +14,10 @@ DRAG_POINT = r"""(()=>{
 
 class PowerReader:
     def __init__(self,endpoint,target=None):
-        self.client=CDP(endpoint,target_id=target);self.initial=self.client.sample()
+        self.client=CDP(endpoint,target_id=target)
+        try:self.initial=self.client.sample()
+        except Exception:
+            self.client.close();raise
         if self.initial.get('status')!='live':
             self.client.close();raise RuntimeError('Espera una partida activa')
         # The visible mode button is authoritative and updates immediately.
@@ -67,8 +70,23 @@ def execute(plan,reader,cancel,backend=None):
             x,y=reader.drag_start(plan['window']);restore=backend.cursor();check();backend.move(x,y);last_cursor=(x,y)
             if not backend.point_in_window(x,y,plan['window']):raise RuntimeError('Otra ventana cubre la zona de arrastre')
             backend.mouse(True);held=True
-            # Begin with a small displacement, then measure the actual drag gain.
-            dx=min(plan['power'],12)*1.5*plan.get('dpr',1);last_cursor=(round(x+dx),y);backend.move(*last_cursor)
+            # UIDragStart assigns a fresh sensitivity. Never reuse a previous
+            # value or move the pointer to discover it with a probe charge.
+            while True:
+                check();fresh=reader.read();check();validate(plan,fresh)
+                if fresh.get('mode')!=method:raise RuntimeError('Cambió Slice / Drag; vuelve a pulsar el atajo')
+                if fresh.get('busy'):break
+                if time.monotonic()-start>.5:raise RuntimeError('El juego no inició la carga; no se repite el tiro')
+                time.sleep(.005)
+            sensitivity=fresh.get('dragSens');dpr=plan.get('dpr',1)
+            if not isinstance(sensitivity,(int,float)) or not math.isfinite(sensitivity) or not 0<sensitivity<=10:
+                raise RuntimeError('No se pudo leer la sensibilidad de este arrastre; entrada liberada')
+            if not isinstance(dpr,(int,float)) or not math.isfinite(dpr) or not 0<dpr<=8:
+                raise RuntimeError('Cambió la escala de pantalla; vuelve a calcular')
+            dx=plan['power']*sensitivity*dpr;px=round(x+dx)
+            if not getattr(reader,'drag_box',plan['screenBox'])[0]+5<px<getattr(reader,'drag_box',plan['screenBox'])[2]-5:
+                raise RuntimeError('El arrastre no cabe en la ventana; usa Slice')
+            last_cursor=(px,y);backend.move(*last_cursor);charging=True
         while True:
             check()
             state=reader.read();check();power=state.get('power')
