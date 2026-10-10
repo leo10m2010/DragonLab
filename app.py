@@ -99,6 +99,9 @@ class App:
         threading.Thread(target=run,daemon=True).start()
     def apply_measured_profile(self):
         fit=self.book.profile(self.clone_id,self.s.mobile,self.s.selected_shot,self.s.wind)
+        if not fit and getattr(self,'cloud_profiles',None):
+            from cloud_profiles import compatible_fit
+            fit=compatible_fit(self.cloud_profiles,self.book,self.clone_id,self.s.mobile,self.s.selected_shot,self.s.wind)
         if not fit:fit=self.book.provisional(self.clone_id,self.s.mobile,self.s.selected_shot,self.s.wind,self.s.wind_angle)
         observed=self.book.acceleration(self.clone_id,self.s.mobile,self.s.selected_shot,self.s.wind,self.s.wind_angle)
         if observed:self.s.environment['observedAcceleration']=observed
@@ -561,6 +564,7 @@ class App:
         refresh(self)
         self.draw();self.draw_overlay();self.draw_force()
     def close(self):
+        if getattr(self,'cloud_runtime',None):self.cloud_runtime.stopped=True
         if hasattr(self,'shortcuts'):self.shortcuts.close()
         self.fire_cancel.set();self.live_stop.set();self.hide_overlay();self.hide_power_guide()
         if hasattr(self,'fire_controller'):self.fire_controller.cancel()

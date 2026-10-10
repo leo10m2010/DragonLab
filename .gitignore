@@ -1,0 +1,14 @@
+node_modules/
+.env
+.env.*
+!*.example
+cloud/frontend/public/config.json
+cloud-desktop.json
+session.bin
+cloud-build/
+cloud-dist/
+cloud-build-*.log
+__pycache__/
+*.pyc
+dist/
+.playwright-cli/
