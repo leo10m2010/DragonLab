@@ -27,7 +27,7 @@ class App:
         self.profiles={};self.server=None;self.share_token=secrets.token_urlsafe(24);self.shared={};self.dirty=True;self.last_input='';self.selected_target=None;self.target_ids={}
         self.base=BASE;self.clone_id='dragonbound';self.adapter_config=None;self.browser_target=None;self.viewport=(800,600);self.last_fingerprint=None;self.last_computed=0;self.compute_generation=0;self.computing=False;self.direction='Auto'
         self.power_guide=None;self.guide_points=None;self.current_game_power=None;self.auto_visible=False;self.auto_enabled=True;self.auto_points=None;self.auto_guide_enabled=True;self.auto_target_id=None;self.target_hero_id=None
-        self.preferences_path=BASE/'preferencias.json';self.target_key='Ctrl';self.fire_key='Q';self.auto_shot_enabled=True;self.performance='Ligero';self.map_expanded=False;self.fire_busy=False;self.fire_cancel=threading.Event();self.capture_dpr=1
+        self.preferences_path=BASE/'preferencias.json';self.target_key='Ctrl';self.fire_key='Q';self.auto_shot_enabled=True;self.performance='Ligero';self.map_expanded=False;self.fire_busy=False;self.pending_fire=None;self.result_context=None;self.fire_shortcut_count=0;self.fire_cancel=threading.Event();self.capture_dpr=1
         self.player_tracker=PlayerTracker();self.compact=False;self.large_text=False;self.path_color='Menta';self.path_width=3
         from shot_review import ShotReview
         self.shot_review=ShotReview(BASE/'revision-tiros.json')
@@ -53,7 +53,7 @@ class App:
         from ui_shell import build
         build(self,prefs)
         self.root.protocol('WM_DELETE_WINDOW',self.close)
-        root.bind('<Control-s>',lambda e:self.save_session());root.bind('<Escape>',lambda e:(self.hide_overlay(),self.hide_power_guide()))
+        root.bind('<Control-s>',lambda e:self.save_session());root.bind('<Escape>',lambda e:(self.fire_cancel.set(),setattr(self,'pending_fire',None),self.hide_overlay(),self.hide_power_guide()))
         self.profile_path=BASE/'perfiles.json'
         try:self.profiles=json.loads(self.profile_path.read_text(encoding='utf-8'))
         except (OSError,ValueError):pass
@@ -68,19 +68,36 @@ class App:
         if self.map_expanded:self.canvas.pack(fill='both',expand=True,padx=24,before=self.summary_panel);self.root.geometry('760x820')
         else:self.canvas.pack_forget();self.root.geometry('760x540' if self.compact else '760x620')
         self.preview_button.config(text='Ocultar mapa' if self.map_expanded else 'Ver mapa');self.draw()
+    def fire_context(self):
+        # A pending key press cannot survive another angle, target or map change.
+        return (self.last_fingerprint,self.auto_target_id,self.target_hero_id,self.clone_id,
+                tuple((k,v.get()) for k,v in self.vars.items()))
+    def fire_notice(self,text):
+        self.notice_until=time.monotonic()+4;self.footer.config(text=text,fg=ORANGE)
+    def process_pending_fire(self):
+        if self.pending_fire:
+            until,context=self.pending_fire
+            if time.monotonic()>until or context!=self.fire_context() or not self.auto_shot_enabled or not self.auto_enabled:
+                self.pending_fire=None;self.fire_notice('El cálculo cambió; vuelve a pulsar el atajo')
+            elif not self.dirty and not self.computing:
+                self.pending_fire=None;self.trigger_auto_fire()
     def trigger_auto_fire(self):
         if self.fire_busy or not self.auto_shot_enabled:return
         if self.clone_id!='dragonbound' or not self.auto_enabled or not self.last_live or time.monotonic()-self.last_live>1.5:
-            self.footer.config(text='Espera la conexión con DragonBound');return
-        if self.computing or self.dirty or not self.result.get('reachable'):
-            self.footer.config(text='Espera una fuerza válida');return
+            self.fire_notice('Espera la conexión con DragonBound');return
+        if self.computing or self.dirty:
+            if self.pending_fire is None:self.pending_fire=(time.monotonic()+.8,self.fire_context())
+            self.fire_notice('Esperando el cálculo actual para este tiro…');return
+        if not self.display_result().get('reachable'):
+            self.fire_notice('Ese ángulo no tiene una fuerza válida');return
         hero=next((p for p in self.live_players if p['id']==self.target_hero_id),None)
         target=next((p for p in self.live_players if p['id']==self.auto_target_id),None)
         if hero and target and (hero.get('stale') or target.get('stale')):
-            self.footer.config(text='Espera a confirmar las posiciones');return
-        if not hero or not target or not self.guide_points or not self.game_window or not self.screen_box:return
-        plan={'power':round(self.result['power']),'window':self.game_window,'hero':hero['id'],'target':target['id'],'shot':self.s.selected_shot,'wind':self.s.wind,'windAngle':self.s.wind_angle,'barStart':self.guide_points[0],'dpr':self.capture_dpr,'screenBox':self.screen_box,'heroState':{k:hero[k] for k in ('x','y','rawAngle','body','look') if k in hero},'targetState':{k:target[k] for k in ('x','y')}}
-        self.fire_busy=True;self.fire_cancel.clear();self.footer.config(text='Aplicando fuerza…')
+            self.fire_notice('Espera a confirmar las posiciones');return
+        if not hero or not target or not self.game_window or not self.screen_box:
+            self.fire_notice('Espera a detectar el jugador y la ventana del juego');return
+        plan={'power':round(self.result['power']),'window':self.game_window,'hero':hero['id'],'target':target['id'],'shot':self.s.selected_shot,'wind':self.s.wind,'windAngle':self.s.wind_angle,'barStart':self.guide_points[0] if self.guide_points else None,'dpr':self.capture_dpr,'screenBox':self.screen_box,'heroState':{k:hero[k] for k in ('x','y','rawAngle','body','look') if k in hero},'targetState':{k:target[k] for k in ('x','y')}}
+        self.pending_fire=None;self.fire_busy=True;self.fire_cancel.clear();self.footer.config(text='Aplicando fuerza…')
         endpoint=self.endpoint.get();target_id=self.browser_target
         def run():
             from auto_fire import PowerReader,execute
@@ -154,9 +171,17 @@ class App:
         return scale,(cw-vw*scale)/2,(ch-vh*scale)/2
     def projected(self,x,y):return project(x,y,self.live_camera,self.viewport)
     def unprojected(self,x,y):return unproject(x,y,self.live_camera,self.viewport)
+    def visual_context(self):
+        return (self.clone_id,self.mobile.get(),self.s.selected_shot,self.target_hero_id,self.auto_target_id,
+                self.s.hero_x,self.s.hero_y,self.s.target_x,self.s.target_y,self.terrain_revision)
+    def display_result(self):
+        if getattr(self,'result_context',None)!=self.visual_context():return {}
+        if (self.dirty or self.computing) and time.monotonic()-self.last_computed>1.5:return {}
+        return self.result
     def planned_paths(self):
-        if self.result.get('reachable'):return self.result.get('display_paths',self.result.get('projectile_paths',[self.result.get('path',[])]))
-        return self.result.get('preview_paths',[])
+        r=self.display_result()
+        if r.get('reachable'):return r.get('display_paths',r.get('projectile_paths',[r.get('path',[])]))
+        return r.get('preview_paths',[])
     def draw(self):
         if self.root.state()!='normal' or not self.map_expanded:return
         c=self.canvas;c.delete('all');scale,ox,oy=self.transform();vw,vh=self.viewport
@@ -249,14 +274,15 @@ class App:
             return
         if not self.overlay:self.overlay=TrajectoryOverlay(self.root)
         planned=self.planned_paths()
-        self.overlay.update(self.screen_box,self.viewport,self.projected,planned,self.observed_paths,True,players=self.live_players,target_id=self.auto_target_id,hero_id=self.target_hero_id,weather=self.s.environment.get('activeWeathers',[]),style={'color':'#80cfff' if self.path_color=='Azul' else GREEN,'width':self.path_width,'font_size':13 if self.large_text else 11,'target_key':self.target_key,'events':self.result.get('interactions',[])})
+        self.overlay.update(self.screen_box,self.viewport,self.projected,planned,self.observed_paths,True,players=self.live_players,target_id=self.auto_target_id,hero_id=self.target_hero_id,weather=self.s.environment.get('activeWeathers',[]),style={'color':MUTED if self.dirty or self.computing else '#80cfff' if self.path_color=='Azul' else GREEN,'width':self.path_width,'font_size':13 if self.large_text else 11,'target_key':self.target_key,'events':self.display_result().get('interactions',[])})
     def hide_overlay(self):
         if self.overlay:self.overlay.close();self.overlay=None
     def copy_power(self):
         if self.result.get('reachable'):self.root.clipboard_clear();self.root.clipboard_append(str(self.result['power']))
     def draw_force(self):
-        if hasattr(self,'force_canvas'):draw_force(self.force_canvas,self.result,self.s.max_power,self.current_game_power)
-        if self.power_guide:self.power_guide.draw(self.result,self.s.max_power)
+        r=self.display_result();updating=self.dirty or self.computing
+        if hasattr(self,'force_canvas'):draw_force(self.force_canvas,r,self.s.max_power,self.current_game_power,updating)
+        if self.power_guide:self.power_guide.draw(r,self.s.max_power,updating)
     def hide_power_guide(self):
         if self.power_guide:self.power_guide.close();self.power_guide=None
     def toggle_power_guide(self):
@@ -450,7 +476,7 @@ class App:
             if value==target:self.target_name.set(label);break
         self.last_fingerprint=None;self.mark();self.draw_overlay()
     def start_target_shortcut(self):
-        self.shortcuts=GameShortcuts(lambda:(bool(self.auto_enabled and self.has_position_data and self.last_live and time.monotonic()-self.last_live<4),self.game_window,self.target_hero_id),lambda hero:self.events.put({'status':'target-shortcut','hero':hero}),lambda hero:self.events.put({'status':'fire-shortcut','hero':hero}),self.target_key,self.fire_key)
+        self.shortcuts=GameShortcuts(lambda:(bool(self.auto_enabled and self.has_position_data and self.last_live and time.monotonic()-self.last_live<4),self.game_window,self.target_hero_id),lambda hero:self.events.put({'status':'target-shortcut','hero':hero}),lambda hero:self.events.put({'status':'fire-shortcut','hero':hero}),self.target_key,self.fire_key,lambda hero:self.events.put({'status':'cancel-shortcut','hero':hero}))
         self.shortcuts.start()
     def share(self):
         if not self.server:
@@ -488,12 +514,15 @@ class App:
     def tick_once(self):
         pending=[]
         while not self.events.empty():pending.append(self.events.get_nowait())
-        live=[e for e in pending if e.get('status') not in ('calculated','target-shortcut','fire-shortcut','fire-finished')]
+        live=[e for e in pending if e.get('status') not in ('calculated','target-shortcut','fire-shortcut','fire-finished','cancel-shortcut')]
         # Consume the latest state before results/shortcuts; old frames must not
         # delay the game or allow an obsolete calculation to replace a new one.
-        pending=([live[-1]] if live else [])+[e for e in pending if e.get('status') in ('calculated','target-shortcut','fire-shortcut','fire-finished')]
+        pending=([live[-1]] if live else [])+[e for e in pending if e.get('status') in ('calculated','target-shortcut','fire-shortcut','fire-finished','cancel-shortcut')]
         for event in pending:
+            if event.get('status')=='cancel-shortcut':
+                self.pending_fire=None;self.fire_cancel.set();continue
             if event.get('status')=='fire-shortcut':
+                self.fire_shortcut_count+=1
                 if event.get('hero')==self.target_hero_id:self.trigger_auto_fire()
                 continue
             if event.get('status')=='fire-finished':
@@ -504,7 +533,7 @@ class App:
             if event.get('status')=='calculated':
                 self.computing=False
                 if event['generation']==self.compute_generation and not self.dirty:
-                    self.result=event['result'];self.last_solve_seconds=event.get('solve_seconds');self.show_result(event.get('error'))
+                    self.result=event['result'];self.result_context=event['context'];self.last_solve_seconds=event.get('solve_seconds');self.show_result(event.get('error'))
             else:self.apply_live(event)
         if self.last_live and time.monotonic()-self.last_live>4:
             self.status.config(text='●  Esperando datos',fg=MUTED);self.auto_visible=False;self.hide_overlay();self.hide_power_guide()
@@ -512,33 +541,36 @@ class App:
         if self.dirty and not self.computing:
             self.dirty=False;self.compute_generation+=1
             try:
-                settings=replace(self.read(),environment=dict(self.s.environment));generation=self.compute_generation;self.computing=True
+                settings=replace(self.read(),environment=dict(self.s.environment));generation=self.compute_generation;context=self.visual_context();self.computing=True
                 self.power.config(text='…')
-                self.result={};self.draw_force()
+                self.draw_force()
                 if self.overlay:self.draw_overlay()
                 preview_power=self.current_game_power if isinstance(self.current_game_power,(int,float)) and 1<=self.current_game_power<=settings.max_power else None
-                def calculate(settings=settings,generation=generation,preview_power=preview_power):
+                def calculate(settings=settings,generation=generation,preview_power=preview_power,context=context):
                     try:
                         started=time.perf_counter();result=solve(settings);solve_seconds=time.perf_counter()-started
                         if not result.get('reachable') and preview_power:
                             from physics_extensions import trajectory
                             preview=trajectory(settings,preview_power,step=.06,include_deployment=True)
                             result['preview_paths']=[[(p[0],p[1]) for p in path] for path in preview['display_paths']];result['preview_power']=preview_power
-                        self.events.put({'status':'calculated','generation':generation,'result':result,'solve_seconds':solve_seconds})
-                    except Exception as e:self.events.put({'status':'calculated','generation':generation,'result':{},'error':str(e)})
+                        self.events.put({'status':'calculated','generation':generation,'context':context,'result':result,'solve_seconds':solve_seconds})
+                    except Exception as e:self.events.put({'status':'calculated','generation':generation,'context':context,'result':{},'error':str(e)})
                 threading.Thread(target=calculate,daemon=True).start()
             except Exception as e:self.result={};self.show_result(str(e))
+        self.process_pending_fire()
+        if (self.dirty or self.computing) and time.monotonic()-self.last_computed>1.5:
+            self.draw_force();self.draw_overlay()
         self.preview_visible=self.root.state()=='normal' and self.map_expanded
         self.shared['updated']=time.time()
         self.shared['source']='experimental' if self.last_live and time.monotonic()-self.last_live<4 else 'manual'
         if '--diagnostics' in sys.argv and time.monotonic()-getattr(self,'diagnostic_clock',0)>1:
             self.diagnostic_clock=time.monotonic()
-            health={'version':'0.12.1','updated':time.time(),'connected':bool(self.last_live and time.monotonic()-self.last_live<4),'map_detected':bool(self.s.environment.get('terrain')),'camera_detected':bool(self.live_camera and self.live_camera.get('renderWidth')),'weather':[w.get('resolvedTypeId') or w.get('typeId') for w in self.s.environment.get('activeWeathers',[])],'players_detected':len(self.live_players),'overlay_visible':bool(self.overlay and self.overlay.visible),'power':self.result.get('power'),'computing':self.computing,'last_error':getattr(self,'last_error',None),'target':self.auto_target_id,'enemies_detected':len(enemies(self.live_players,self.target_hero_id)),'preview_capture':self.preview_visible,'solve_seconds':getattr(self,'last_solve_seconds',None),'shortcut_events':self.shortcut_count,'shortcut_ready':bool(getattr(self,'shortcuts',None) and self.shortcuts.ready),'shortcut_error':getattr(getattr(self,'shortcuts',None),'error',None)}
+            health={'version':'0.12.2','updated':time.time(),'connected':bool(self.last_live and time.monotonic()-self.last_live<4),'map_detected':bool(self.s.environment.get('terrain')),'camera_detected':bool(self.live_camera and self.live_camera.get('renderWidth')),'weather':[w.get('resolvedTypeId') or w.get('typeId') for w in self.s.environment.get('activeWeathers',[])],'players_detected':len(self.live_players),'overlay_visible':bool(self.overlay and self.overlay.visible),'power':self.result.get('power'),'computing':self.computing,'last_error':getattr(self,'last_error',None),'target':self.auto_target_id,'enemies_detected':len(enemies(self.live_players,self.target_hero_id)),'preview_capture':self.preview_visible,'solve_seconds':getattr(self,'last_solve_seconds',None),'shortcut_events':self.shortcut_count,'fire_shortcut_events':self.fire_shortcut_count,'fire_busy':self.fire_busy,'fire_pending':bool(self.pending_fire),'shortcut_ready':bool(getattr(self,'shortcuts',None) and self.shortcuts.ready),'shortcut_error':getattr(getattr(self,'shortcuts',None),'error',None)}
             try:(BASE/'estado-live.json').write_text(json.dumps(health,indent=2),encoding='utf-8')
             except OSError:pass
 
     def compute(self):
-        self.compute_generation+=1;self.result=solve(self.read());self.show_result();return self.result
+        self.compute_generation+=1;self.result=solve(self.read());self.result_context=self.visual_context();self.show_result();return self.result
     def show_result(self,error=None):
         if not self.has_position_data and self.auto_enabled:
             self.result={};self.power.config(text='—');self.details.config(text='Abre el juego e inicia una partida.\nLa guía aparecerá automáticamente.');self.draw();self.draw_force();return
@@ -562,7 +594,7 @@ class App:
         self.draw();self.draw_overlay();self.draw_force()
     def close(self):
         if hasattr(self,'shortcuts'):self.shortcuts.close()
-        self.fire_cancel.set();self.live_stop.set();self.hide_overlay();self.hide_power_guide()
+        self.pending_fire=None;self.fire_cancel.set();self.live_stop.set();self.hide_overlay();self.hide_power_guide()
         if hasattr(self,'fire_controller'):self.fire_controller.cancel()
         if self.server:self.server.shutdown();self.server.server_close()
         self.root.destroy()
