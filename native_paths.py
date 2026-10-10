@@ -30,11 +30,11 @@ def position(shot,seconds):
         x+=radius*math.cos(a);y-=radius*math.sin(a)
     return x,y
 
-def trail(shot):
+def trail(shot,step=.025,max_points=1000):
     duration=shot.get('duration');elapsed=shot.get('elapsed')
     if not all(isinstance(v,(int,float)) and math.isfinite(v) for v in (duration,elapsed)):return []
     time=max(0,min(duration,elapsed-shot.get('delay',0)))/1000
     if time<=0:return []
-    count=max(1,min(1000,math.ceil(time/.025)));times={time*i/count for i in range(count+1)}
+    count=max(1,min(max_points,math.ceil(time/step)));times={time*i/count for i in range(count+1)}
     times.update(j[0]/1000 for j in shot.get('jumps',[]) if 0<=j[0]/1000<=time)
     return [position(shot,t) for t in sorted(times)]

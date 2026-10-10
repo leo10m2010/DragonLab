@@ -20,22 +20,27 @@ def content_origin(meta):
     u.GetWindowRect.argtypes=[w.HWND,ctypes.POINTER(w.RECT)]
     u.GetClassNameW.argtypes=[w.HWND,w.LPWSTR,ctypes.c_int]
     u.GetWindowTextW.argtypes=[w.HWND,w.LPWSTR,ctypes.c_int]
-    found=[];dpr=meta.get('dpr',1);expected=meta['inner']
+    found=[];parent=[None];dpr=meta.get('dpr',1);expected=meta['inner']
     def child(hwnd,_):
         name=ctypes.create_unicode_buffer(256);u.GetClassNameW(hwnd,name,256)
         if name.value=='Chrome_RenderWidgetHostHWND' and u.IsWindowVisible(hwnd):
             r=w.RECT();u.GetWindowRect(hwnd,ctypes.byref(r))
-            if abs((r.right-r.left)-expected[0]*dpr)<8 and abs((r.bottom-r.top)-expected[1]*dpr)<8:found.append((r.left,r.top))
+            if abs((r.right-r.left)-expected[0]*dpr)<8 and abs((r.bottom-r.top)-expected[1]*dpr)<8:found.append((r.left,r.top,parent[0]))
         return True
     child_cb=cb(child)
     def window(hwnd,_):
         title=ctypes.create_unicode_buffer(512);u.GetWindowTextW(hwnd,title,512)
         name=ctypes.create_unicode_buffer(128);u.GetClassNameW(hwnd,name,128)
         if name.value.startswith('Chrome_WidgetWin') and meta.get('title') and meta['title'] in title.value:
+            parent[0]=int(hwnd)
             u.EnumChildWindows(hwnd,child_cb,0)
         return True
     window_cb=cb(window);u.EnumWindows(window_cb,0)
-    return found[0] if len(found)==1 else None
+    u.GetForegroundWindow.restype=w.HWND
+    focused=[entry for entry in found if entry[2]==u.GetForegroundWindow()]
+    selected=focused[0] if len(focused)==1 else found[0] if len(found)==1 else None
+    if selected:meta['windowHandle']=selected[2];return selected[:2]
+    return None
 
 def screen_geometry(meta,origin):
     if not meta.get('active') or origin is None:return None,None
@@ -50,7 +55,7 @@ def screen_geometry(meta,origin):
 
 class AutoCapture:
     def __init__(self,client,clock=time.monotonic):
-        self.client=client;self.clock=clock;self.last_capture=-float('inf');self.capture_interval=1.5
+        self.client=client;self.clock=clock;self.last_capture=-float('inf');self.capture_interval=3
     def read(self,capture=True):
         result=self.client.call('Runtime.evaluate',{'expression':GEOMETRY_JS,'returnByValue':True,'timeout':1500})
         meta=result.get('result',{}).get('value',{})

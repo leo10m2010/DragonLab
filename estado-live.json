@@ -1,12 +1,22 @@
 {
-  "version": "0.6",
-  "updated": 1791592199.9459136,
-  "connected": false,
-  "map_detected": false,
-  "camera_detected": false,
-  "weather": [],
-  "players_detected": 0,
+  "version": "0.8.1",
+  "updated": 1791593661.8256676,
+  "connected": true,
+  "map_detected": true,
+  "camera_detected": true,
+  "weather": [
+    7
+  ],
+  "players_detected": 4,
   "overlay_visible": false,
-  "power": null,
-  "computing": false
+  "power": 113,
+  "computing": false,
+  "last_error": null,
+  "target": 3,
+  "enemies_detected": 3,
+  "preview_capture": true,
+  "solve_seconds": 0.18401670001912862,
+  "shortcut_events": 0,
+  "shortcut_ready": true,
+  "shortcut_error": null
 }

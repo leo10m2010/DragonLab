@@ -122,13 +122,14 @@ class CDP:
           const own=(o,k)=>{const d=o&&Object.getOwnPropertyDescriptor(o,k);return d&&("value"in d)?d.value:undefined};
           const pick=(o,keys)=>{for(const k of keys){let v=own(o,k);if(v!==undefined)return v}return null};
           const num=v=>typeof v==="number"&&Number.isFinite(v)?v:null;
-          let list=pick(this,["players","player_list"]);if(!Array.isArray(list))list=list&&typeof list==="object"?Object.values(list):[];
-          const players=list.slice(0,16).filter(p=>p&&typeof p==="object").map((p,i)=>({
-            id:pick(p,["n","number","id"])??i,name:String(pick(p,["name","nick"])??("Jugador "+(i+1))).slice(0,60),
+          let list=pick(this,["players","player_list"]);let entries=list&&typeof list==="object"?Object.entries(list):[];
+          const flag=v=>v===true||v===1;
+          const players=entries.slice(0,16).filter(([k,p])=>p&&typeof p==="object").map(([k,p],i)=>({
+            id:pick(p,["n","number","id"])??(Number.isFinite(Number(k))?Number(k):k),name:String(pick(p,["name","nick"])??("Jugador "+(i+1))).slice(0,60),
             x:num(pick(p,["x","posX"])),y:num(pick(p,["y","posY"])),
             angle:(()=>{let a=num(pick(p,["ang"])),b=num(pick(p,["body"])),look=num(pick(p,["look"]));return a!==null&&b!==null&&look!==null?(look===0?a+b:a-b):num(pick(p,["angle","display_angle"]))})(),rawAngle:num(pick(p,["ang"])),body:num(pick(p,["body_angle","bodyAngle","body"])),
             look:num(pick(p,["look","direction"])),mobile:num(pick(p,["mobile","mobile_id"])),
-            dead:pick(p,["dead","is_dead","isDead"])===true||pick(p,["is_alive"])===false,muzzles:[["aim_s1_ang","aim_s1_len"],["aim_s2_ang","aim_s2_len"],["aim_ss_ang","aim_ss_len"]].map(keys=>({angle:num(pick(p,[keys[0]])),radius:num(pick(p,[keys[1]]))})),muzzleX:num(pick(p,["aim_circle_x"])),muzzleY:num(pick(p,["aim_circle_y"])),shot:num(pick(p,["selected_shot"])),team:pick(p,["team"]),isHero:pick(p,["is_me","isMe","is_hero"])===true}));
+            dead:flag(pick(p,["dead","is_dead","isDead"]))||[false,0].includes(pick(p,["is_alive"])),muzzles:[["aim_s1_ang","aim_s1_len"],["aim_s2_ang","aim_s2_len"],["aim_ss_ang","aim_ss_len"]].map(keys=>({angle:num(pick(p,[keys[0]])),radius:num(pick(p,[keys[1]]))})),muzzleX:num(pick(p,["aim_circle_x"])),muzzleY:num(pick(p,["aim_circle_y"])),shot:num(pick(p,["selected_shot"])),team:pick(p,["team"]),isHero:flag(pick(p,["is_me","isMe","is_hero"]))}));
           let meter=pick(renderer,["wind_meter","windMeter"]),cam=renderer;
           const numeric=(o,keys)=>Object.fromEntries(keys.map(k=>[k,num(own(o,k))]).filter(x=>x[1]!==null));
           const container=pick(renderer,["camera_container"]),matrix=pick(container,["worldTransform"]),engine=pick(renderer,["renderer"]),view=pick(engine,["view"])??pick(renderer,["view"]);

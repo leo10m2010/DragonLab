@@ -40,10 +40,22 @@ class TrajectoryOverlay:
             if key not in wanted or len(wanted[key][0])<2:self.canvas.delete(self.lines.pop(key))
         annotations={};labels={}
         numbers={p['id']:i for i,p in enumerate(enemies(players,hero_id),1)}
+        if numbers:
+            current=numbers.get(target_id,'—')
+            labels['target-status']=(min(width/2,190),16,f'Objetivo {current}/{len(numbers)} · Ctrl' if len(numbers)>1 else '1 enemigo vivo',GREEN)
         for p in players:
             if p.get('dead') or not all(isinstance(p.get(k),(int,float)) for k in ('x','y')):continue
             px,py=project(p['x'],p['y']);px*=width/vw;py*=(bottom-y)/vh
-            if not (0<=px<=width and 0<=py<=height):continue
+            outside=not (12<=px<=width-12 and 26<=py<=height-12)
+            if outside:
+                if p.get('id') not in numbers:continue
+                rawx,rawy=px,py;px=max(20,min(width-20,px));py=max(35,min(height-25,py))
+                direction=math.atan2(rawy-py,rawx-px)
+                dx,dy=math.cos(direction),math.sin(direction)
+                color='#ffb86c' if p.get('id')==target_id else '#ecf3f7'
+                annotations['player:'+str(p.get('id'))]=([px-10*dx,py-10*dy,px,py,px-7*dx-4*dy,py-7*dy+4*dx,px,py,px-7*dx+4*dy,py-7*dy-4*dx],color)
+                labels['player:'+str(p['id'])]=(px,py+13,str(numbers[p['id']])+' fuera',color)
+                continue
             color=GREEN if p.get('id')==hero_id else '#ffb86c' if p.get('id')==target_id else '#c4d1db'
             annotations['player:'+str(p.get('id'))]=([px-8,py,px+8,py,px,py,px,py-12],color)
             if p.get('id') in numbers:
@@ -71,7 +83,7 @@ class TrajectoryOverlay:
     def close(self):self.win.destroy()
 
 class ObservedTrails:
-    def __init__(self):self.paths={};self.seen={};self.measured={};self.fallback=set()
+    def __init__(self):self.paths={};self.seen={};self.measured={};self.fallback=set();self.render_stamps={}
     def update(self,shots,now=None):
         now=time.monotonic() if now is None else now
         for shot in shots:
@@ -81,7 +93,11 @@ class ObservedTrails:
                 if all(isinstance(v,(int,float)) and math.isfinite(v) for v in (x,y)):
                     if not buffer or math.dist(buffer[-1],(x,y))>.4:buffer.append((x,y))
                     self.measured[label]=buffer[-240:]
-                native=trail(shot)
+                stamp=(shot.get('elapsed'),shot.get('duration'),len(shot.get('jumps',[])))
+                if self.render_stamps.get(label)==stamp and label in self.paths:self.seen[label]=now;continue
+                self.render_stamps[label]=stamp
+                # Keep native jump times; cap only the display sampling density.
+                native=trail(shot,step=.04,max_points=400)
                 # Slow, homing or changing bullets can override the simple
                 # server arc; their displayed positions remain authoritative.
                 if native and buffer and math.dist(native[-1],buffer[-1])>3:self.fallback.add(label)
@@ -92,6 +108,6 @@ class ObservedTrails:
             if not path or math.dist(path[-1],(x,y))>.4:path.append((x,y))
             self.paths[str(key)]=path[-240:];self.seen[str(key)]=now
         for key in list(self.paths):
-            if now-self.seen[key]>2:self.paths.pop(key);self.seen.pop(key);self.measured.pop(key,None);self.fallback.discard(key)
+            if now-self.seen[key]>2:self.paths.pop(key);self.seen.pop(key);self.measured.pop(key,None);self.fallback.discard(key);self.render_stamps.pop(key,None)
         return dict(self.paths)
-    def reset(self):self.paths.clear();self.seen.clear();self.measured.clear();self.fallback.clear()
+    def reset(self):self.paths.clear();self.seen.clear();self.measured.clear();self.fallback.clear();self.render_stamps.clear()
