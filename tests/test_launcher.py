@@ -2,6 +2,7 @@ import pathlib,sys,tempfile,json,unittest,os
 from unittest.mock import patch
 sys.path.insert(0,str(pathlib.Path(__file__).resolve().parents[1]))
 from launcher import installed_version,calibration_revision,fetch_manifest,CloudError,ConsentSwitch,Launcher
+from app_version import LAUNCHER_VERSION
 
 class VersionTests(unittest.TestCase):
     def test_program_version_requires_installation_not_just_metadata(self):
@@ -34,8 +35,47 @@ class LauncherUITests(unittest.TestCase):
         try:
             with patch('launcher.CloudClient',side_effect=CloudError('Not configured')):app=Launcher(root)
             root.update_idletasks();self.assertEqual(app.login_button.cget('state'),'disabled');self.assertFalse(app.consent.enabled)
-            app.consent.toggle();self.assertFalse(app.share.get());self.assertIn('0.12.8',root.title())
+            app.consent.toggle();self.assertFalse(app.share.get());self.assertIn(LAUNCHER_VERSION,root.title())
         finally:root.destroy()
+    def test_login_dashboard_and_logout_are_separate_pages(self):
+        import tkinter as tk
+        from types import SimpleNamespace
+        root=tk.Tk();root.withdraw()
+        with tempfile.TemporaryDirectory() as d:
+            client=SimpleNamespace(directory=pathlib.Path(d),session=None,account=None)
+            try:
+                with patch('launcher.CloudClient',return_value=client):app=Launcher(root)
+                self.assertEqual(app.login_page.winfo_manager(),'pack');self.assertEqual(app.dashboard_page.winfo_manager(),'')
+                app.finish(None,'Credenciales inválidas',app.show_account)
+                self.assertFalse(app.authenticated);self.assertEqual(app.dashboard_page.winfo_manager(),'')
+                account={'active':True,'remaining_seconds':86400,'share_measurements':False}
+                client.session={'user':{'email':'example@example.com'}};client.account=account
+                app.finish(account,None,app.show_account)
+                self.assertEqual(app.login_page.winfo_manager(),'');self.assertEqual(app.dashboard_page.winfo_manager(),'pack')
+                self.assertEqual(app.play_button.cget('state'),'normal')
+                account['active']=False;app.finish(account,None,app.show_account)
+                self.assertEqual(app.play_button.cget('state'),'disabled')
+                def logout():client.session=None
+                client.logout=logout
+                with patch.object(app,'run',side_effect=lambda work,done:app.finish(work(),None,done)):app.logout()
+                self.assertFalse(app.authenticated);self.assertIsNone(client.account)
+                self.assertEqual(app.login_page.winfo_manager(),'pack');self.assertEqual(app.dashboard_page.winfo_manager(),'')
+                self.assertEqual(app.update_button.cget('state'),'disabled')
+            finally:root.destroy()
+    def test_saved_session_waits_for_verification_and_failed_logout_hides_panel(self):
+        import tkinter as tk
+        from types import SimpleNamespace
+        root=tk.Tk();root.withdraw()
+        with tempfile.TemporaryDirectory() as d:
+            client=SimpleNamespace(directory=pathlib.Path(d),session={'user':{}},account={'active':True},require_access=lambda:None)
+            try:
+                with patch('launcher.CloudClient',return_value=client),patch.object(Launcher,'run') as work,patch('launcher.sys.argv',['launcher.py']):app=Launcher(root)
+                work.assert_called_once();self.assertFalse(app.authenticated);self.assertEqual(app.dashboard_page.winfo_manager(),'')
+                app.show_account(client.account);client.session=None
+                app.finish(None,'Servidor no disponible',lambda value:None)
+                self.assertFalse(app.authenticated);self.assertEqual(app.dashboard_page.winfo_manager(),'')
+                self.assertEqual(app.play_button.cget('state'),'disabled')
+            finally:root.destroy()
     def test_consent_switch_calls_handler_once_and_respects_busy_state(self):
         import tkinter as tk
         root=tk.Tk();root.withdraw();calls=[]

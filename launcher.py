@@ -61,43 +61,59 @@ class Launcher:
         tk.Label(header,text='◉',font=('Bahnschrift',28),bg=BG,fg=ACCENT).pack(side='left',padx=(0,12))
         tk.Label(header,text='DragonLab',font=('Bahnschrift',24,'bold'),bg=BG,fg=INK).pack(side='left')
         tk.Label(header,text='Launcher v'+LAUNCHER_VERSION,font=('Bahnschrift',10),bg=BG,fg=MUTED).pack(side='right')
-        panel=RoundedPanel(root,PANEL,radius=30,padding=22);panel.pack(fill='x',padx=26)
+        self.login_page=tk.Frame(root,bg=BG)
+        self.dashboard_page=tk.Frame(root,bg=BG)
+        self.authenticated=False
+        login_panel=RoundedPanel(self.login_page,PANEL,radius=30,padding=28);login_panel.pack(fill='x',padx=26,pady=(8,0))
+        form=login_panel.body
+        tk.Label(form,text='Bienvenido de nuevo.',font=('Bahnschrift',23),bg=PANEL,fg=INK).pack(anchor='w',pady=(4,8))
+        tk.Label(form,text='Inicia sesión para acceder a DragonLab.',font=('Bahnschrift',11),bg=PANEL,fg=MUTED).pack(anchor='w',pady=(0,22))
+        self.login_area=tk.Frame(form,bg=PANEL);self.login_area.pack(fill='x')
+        for title,var,secret in [('Correo',self.email,False),('Contraseña',self.password,True)]:
+            tk.Label(self.login_area,text=title,font=('Bahnschrift',10),bg=PANEL,fg=MUTED).pack(anchor='w',pady=(0,6))
+            entry=RoundedEntry(self.login_area,textvariable=var,show='●' if secret else '',font=('Bahnschrift',12));entry.pack(fill='x',pady=(0,16));entry.entry.bind('<Return>',lambda e:self.login())
+        self.login_button=RoundedButton(form,text='Iniciar sesión  →',command=self.login,bg=ACCENT,fg=BG,activebackground='#94efd1',activeforeground=BG,font=('Bahnschrift',13,'bold'),pady=14)
+        self.login_button.pack(fill='x',pady=(4,6))
+        self.login_status=tk.Label(self.login_page,text='Tu cuenta es personal. Entra con tu correo y contraseña.',wraplength=440,justify='center',bg=BG,fg=MUTED,font=('Bahnschrift',10));self.login_status.pack(fill='x',padx=34,pady=20)
+        panel=RoundedPanel(self.dashboard_page,PANEL,radius=30,padding=22);panel.pack(fill='x',padx=26)
         body=panel.body
-        tk.Label(body,text='Tu próxima partida empieza aquí.',font=('Bahnschrift',21),bg=PANEL,fg=INK).pack(anchor='w',pady=(4,6))
-        self.license_title=tk.Label(body,text='Conecta tu cuenta',font=('Bahnschrift',12,'bold'),bg=PANEL,fg=ACCENT);self.license_title.pack(anchor='w')
-        self.license_detail=tk.Label(body,text='Tu acceso y tiempo restante aparecerán aquí.',font=('Bahnschrift',10),bg=PANEL,fg=MUTED,wraplength=640,justify='left');self.license_detail.pack(anchor='w',pady=(4,14))
-        self.login_area=tk.Frame(body,bg=PANEL);self.login_area.pack(fill='x')
-        for col,(title,var,secret) in enumerate([('Correo',self.email,False),('Contraseña',self.password,True)]):
-            cell=tk.Frame(self.login_area,bg=PANEL);cell.grid(row=0,column=col,sticky='ew',padx=(0,12));self.login_area.columnconfigure(col,weight=1)
-            tk.Label(cell,text=title,font=('Bahnschrift',10),bg=PANEL,fg=MUTED).pack(anchor='w',pady=(0,6))
-            entry=RoundedEntry(cell,textvariable=var,show='●' if secret else '',font=('Bahnschrift',11));entry.pack(fill='x');entry.entry.bind('<Return>',lambda e:self.login())
-        self.login_button=RoundedButton(self.login_area,text='Entrar',command=self.login,bg=ACCENT,fg=BG,activebackground='#94efd1',activeforeground=BG,pady=10)
-        self.login_button.grid(row=0,column=2,sticky='s',pady=(0,2))
-        self.account_row=tk.Frame(body,bg=PANEL)
+        tk.Label(body,text='Todo listo para jugar.',font=('Bahnschrift',23),bg=PANEL,fg=INK).pack(anchor='w',pady=(4,10))
+        self.license_title=tk.Label(body,font=('Bahnschrift',12,'bold'),bg=PANEL,fg=ACCENT);self.license_title.pack(anchor='w')
+        self.license_detail=tk.Label(body,font=('Bahnschrift',10),bg=PANEL,fg=MUTED,wraplength=640,justify='left');self.license_detail.pack(anchor='w',pady=(4,14))
+        self.account_row=tk.Frame(body,bg=PANEL);self.account_row.pack(fill='x')
         RoundedButton(self.account_row,text='Mi cuenta',command=self.open_account,bg=PANEL,fg=INK,pady=5).pack(side='left')
         RoundedButton(self.account_row,text='Cerrar sesión',command=self.logout,bg=PANEL,fg=MUTED,pady=5).pack(side='right')
-        self.play_button=RoundedButton(root,text='Iniciar DragonLab  ↗',command=self.play,bg=ACCENT,fg=BG,activebackground='#94efd1',activeforeground=BG,font=('Bahnschrift',18,'bold'),pady=18,state='disabled')
+        self.play_button=RoundedButton(self.dashboard_page,text='Iniciar DragonLab  ↗',command=self.play,bg=ACCENT,fg=BG,activebackground='#94efd1',activeforeground=BG,font=('Bahnschrift',18,'bold'),pady=18,state='disabled')
         self.play_button.pack(fill='x',padx=54,pady=(20,12))
-        self.status=tk.Label(root,text='Inicia sesión para comprobar tu acceso.',wraplength=680,justify='center',bg=BG,fg=MUTED,font=('Bahnschrift',10));self.status.pack(fill='x',padx=32,pady=(0,12))
-        versions=RoundedPanel(root,PANEL,radius=24,padding=14);versions.pack(fill='x',padx=26)
+        self.dashboard_status=tk.Label(self.dashboard_page,wraplength=680,justify='center',bg=BG,fg=MUTED,font=('Bahnschrift',10));self.dashboard_status.pack(fill='x',padx=32,pady=(0,12))
+        versions=RoundedPanel(self.dashboard_page,PANEL,radius=24,padding=14);versions.pack(fill='x',padx=26)
         row=tk.Frame(versions.body,bg=PANEL);row.pack(fill='x')
         self.program_label=tk.Label(row,text='Programa · por instalar',font=('Bahnschrift',11,'bold'),bg=PANEL,fg=INK);self.program_label.pack(side='left')
-        self.update_button=RoundedButton(row,text='Buscar actualización',command=self.check_update,bg='#263b42',fg=INK,pady=5);self.update_button.pack(side='right')
+        self.update_button=RoundedButton(row,text='Buscar actualización',command=self.check_update,bg='#263b42',fg=INK,pady=5,state='disabled');self.update_button.pack(side='right')
         self.calibration_label=tk.Label(versions.body,text='Calibraciones · sin sincronizar',font=('Bahnschrift',10),bg=PANEL,fg=MUTED);self.calibration_label.pack(anchor='w',pady=(6,0))
         self.update_label=tk.Label(versions.body,text='Actualizaciones · sin comprobar',font=('Bahnschrift',10),bg=PANEL,fg=MUTED);self.update_label.pack(anchor='w',pady=(4,0))
-        privacy=tk.Frame(root,bg=BG);privacy.pack(fill='x',padx=34,pady=(16,0))
+        privacy=tk.Frame(self.dashboard_page,bg=BG);privacy.pack(fill='x',padx=34,pady=(16,0))
         self.consent=ConsentSwitch(privacy,text='Ayudar a mejorar las calibraciones',variable=self.share,command=self.change_consent,state='disabled');self.consent.pack(anchor='w')
         tk.Label(privacy,text='Opcional. Solo mediciones de tiros; sin capturas, chats ni nombres.',font=('Bahnschrift',9),bg=BG,fg=MUTED).pack(anchor='w',pady=(3,0))
-        foot=tk.Frame(root,bg=BG);foot.pack(side='bottom',fill='x',padx=30,pady=18)
+        foot=tk.Frame(self.dashboard_page,bg=BG);foot.pack(side='bottom',fill='x',padx=30,pady=18)
         RoundedButton(foot,text='Cómo usarlo',command=self.help,bg=BG,fg=MUTED,pady=5).pack(side='left')
-        RoundedButton(foot,text='Carros y calibraciones',command=self.calibration_help,bg=BG,fg=MUTED,pady=5).pack(side='left',padx=10)
-        RoundedButton(foot,text='Mi cuenta ↗',command=self.open_account,bg=BG,fg=MUTED,pady=5).pack(side='right')
+        RoundedButton(foot,text='Carros y calibraciones',command=self.calibration_help,bg=BG,fg=MUTED,pady=5).pack(side='right')
+        self.show_login()
         root.protocol('WM_DELETE_WINDOW',self.close)
         try:self.client=CloudClient(BASE/'cloud-desktop.json')
         except CloudError:
-            self.status.config(text='Servidor pendiente de configuración. Consulta la guía de activación.');self.license_detail.config(text='Configura el servidor antes de distribuir el launcher.');self.login_button.config(state='disabled');self.consent.config(state='disabled')
+            self.status.config(text='Servidor pendiente de configuración. Consulta la guía de activación.');self.login_button.config(state='disabled');self.consent.config(state='disabled')
         self.refresh_versions();root.after(50,self.poll)
         if self.client and self.client.session and '--check' not in sys.argv:self.run(self.client.require_access,self.show_account)
+    def show_login(self):
+        self.authenticated=False;self.dashboard_page.pack_forget();self.login_page.pack(fill='both',expand=True)
+        self.status=self.login_status;self.root.geometry('520x570')
+        self.play_button.config(state='disabled');self.update_button.config(state='disabled');self.consent.config(state='disabled')
+    def show_dashboard(self,account):
+        self.authenticated=True;self.login_page.pack_forget();self.dashboard_page.pack(fill='both',expand=True)
+        self.status=self.dashboard_status;self.root.geometry('760x690')
+        self.play_button.config(state='normal' if account.get('active') else 'disabled')
+        self.update_button.config(state='normal');self.consent.config(state='normal')
     def refresh_versions(self):
         directory=self.client.directory if self.client else BASE
         version=installed_version(directory)
@@ -115,19 +131,22 @@ class Launcher:
         while not self.events.empty():self.finish(*self.events.get_nowait())
         self.root.after(100,self.poll)
     def finish(self,value,error,done):
-        self.busy=False;self.login_button.config(state='normal' if self.client else 'disabled');self.update_button.config(state='normal')
+        self.busy=False;self.login_button.config(state='normal' if self.client else 'disabled');self.update_button.config(state='normal' if self.authenticated else 'disabled')
         if error:
+            if self.authenticated and self.client and not self.client.session:
+                self.client.account=None;self.show_login()
             self.status.config(text=error);self.share.set(bool(self.client and self.client.account and self.client.account.get('share_measurements')))
             if self.update_label.cget('text')=='Actualizaciones · comprobando…':self.update_label.config(text='Actualizaciones · no se pudo comprobar')
         else:done(value)
         account=self.client.account if self.client else None
-        self.play_button.config(state='normal' if account and account.get('active') else 'disabled');self.consent.config(state='normal' if account else 'disabled');self.refresh_versions()
+        self.play_button.config(state='normal' if self.authenticated and account and account.get('active') else 'disabled');self.consent.config(state='normal' if self.authenticated and account else 'disabled');self.refresh_versions()
     def login(self):
         if not self.client or self.busy:return
         email=self.email.get().strip();password=self.password.get()
         if not email or not password:self.status.config(text='Escribe tu correo y contraseña.');return
         self.password.set('');self.status.config(text='Comprobando tu cuenta…');self.run(lambda:self.client.login(email,password),self.show_account)
     def show_account(self,account):
+        self.show_dashboard(account)
         seconds=max(0,int(account.get('remaining_seconds',0)));days=seconds//86400;end=account.get('expires_at')
         remaining=f'{days} días completos disponibles' if days else f'{seconds//3600} h {(seconds%3600)//60} min disponibles'
         user=(self.client.session or {}).get('user',{}).get('email') or self.email.get() or 'Tu cuenta'
@@ -136,15 +155,15 @@ class Launcher:
         except (ValueError,TypeError):expires='por comprobar'
         self.license_detail.config(text='Panel de administración disponible.' if account.get('role')=='admin' else remaining+' · vence '+expires)
         if not account.get('active'):self.license_detail.config(text='Acceso vencido o suspendido. Contacta al administrador.')
-        self.login_area.pack_forget();self.account_row.pack(fill='x');self.share.set(bool(account.get('share_measurements')))
+        self.share.set(bool(account.get('share_measurements')))
         self.status.config(text='Tu acceso está comprobado.' if account.get('active') else 'No tienes un acceso activo.')
     def change_consent(self):
-        if not self.client or self.busy:return
+        if not self.client or not self.authenticated or self.busy:return
         enabled=self.share.get();self.run(lambda:(self.client.consent(enabled),self.client.account)[1],self.show_account)
     def logout(self):
         if not self.client or self.busy:return
         def done(value):
-            self.client.account=None;self.account_row.pack_forget();self.login_area.pack(fill='x');self.license_title.config(text='Conecta tu cuenta');self.license_detail.config(text='Tu acceso y tiempo restante aparecerán aquí.');self.share.set(False);self.status.config(text='Sesión cerrada.')
+            self.client.account=None;self.password.set('');self.share.set(False);self.show_login();self.status.config(text='Sesión cerrada. Puedes volver a entrar.')
         self.run(self.client.logout,done)
     def open_account(self):
         url=self.client.config.get('panelUrl','') if self.client else ''
@@ -153,7 +172,7 @@ class Launcher:
     def help(self):messagebox.showinfo('Cómo usar DragonLab','1. Entra con tu cuenta.\n2. Pulsa Iniciar DragonLab.\n3. Abre el juego desde DragonLab.\n\nCtrl cambia el objetivo. Q aplica un tiro en tu turno.\nLos atajos se pueden cambiar en Ajustes.',parent=self.root)
     def calibration_help(self):messagebox.showinfo('Carros y calibraciones','DragonLab distingue carro, tiro 1, tiro 2 y SS.\nEn el juego verás Listo, Aprendiendo o Bloqueado.\n\nCompartir mediciones es opcional. Una revisión compartida no garantiza que todos los carros estén completamente calibrados.',parent=self.root)
     def check_update(self):
-        if self.busy:return
+        if not self.authenticated or self.busy:return
         self.update_label.config(text='Actualizaciones · comprobando…')
         def done(manifest):
             self.manifest=manifest;version=installed_version(self.client.directory) if self.client else None
@@ -161,7 +180,7 @@ class Launcher:
             self.status.config(text='Comprobación de actualizaciones terminada.')
         self.run(fetch_manifest,done)
     def play(self):
-        if not self.client or self.busy:return
+        if not self.client or not self.authenticated or not self.client.account or not self.client.account.get("active") or self.busy:return
         self.status.config(text='Comprobando acceso y preparando el programa…')
         def update():
             self.client.require_access();manifest=fetch_manifest(self.client.config.get('githubRepo',REPO));version=manifest['version'];target=self.client.directory/('DragonLab-Cloud-'+version+'.exe')
