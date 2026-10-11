@@ -10,7 +10,11 @@ class Governor:
         if self.high>=2:self.level=min(2,self.level+1);self.high=0
         if self.low>=4:self.level=max(0,self.level-1);self.low=0
         return self.level
-    def intervals(self,mode):
-        if mode=='Normal':return .25,1.5,2
-        if mode=='Ligero':return .35,3,5
-        level=self.sample();return ((.25,3,3),(.35,4,4),(.5,6,6))[level]
+    def intervals(self,mode,active=True,own_turn=True):
+        if mode=='Normal':base=(.25,1.5,2)
+        elif mode=='Ligero':base=(.35,3,5)
+        else:
+            level=self.sample();base=((.25,3,3),(.35,4,4),(.5,6,6))[level]
+        if not active:return 1,6,8
+        if not own_turn:return max(.5,base[0]),max(4,base[1]),max(5,base[2])
+        return base

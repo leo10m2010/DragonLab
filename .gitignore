@@ -12,3 +12,6 @@ __pycache__/
 *.pyc
 dist/
 .playwright-cli/
+tests/node_modules/
+casos-regresion/
+ultimo-autotiro.json

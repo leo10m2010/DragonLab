@@ -31,7 +31,9 @@ class App:
         self.player_tracker=PlayerTracker();self.compact=False;self.large_text=False;self.path_color='Menta';self.path_width=3
         from shot_review import ShotReview
         self.shot_review=ShotReview(BASE/'revision-tiros.json')
-        self.book=CalibrationBook(BASE/'calibraciones.json');self.trails=ObservedTrails();self.observed_paths={};self.game_visible=False;self.has_position_data=False;self.live_look=None;self.profile_stamp=None;self.live_launch_offset=None
+        from replay_store import ReplayStore
+        self.replays=ReplayStore(BASE/'casos-regresion')
+        self.book=CalibrationBook(BASE/'calibraciones.json');self.trails=ObservedTrails();self.observed_paths={};self.game_visible=False;self.has_position_data=False;self.live_look=None;self.profile_stamp=None;self.live_launch_offset=None;self.terrain_revision=0
         prefs={}
         try:
             prefs=json.loads(self.preferences_path.read_text(encoding='utf-8'));self.clone_id=prefs.get('clone','dragonbound');self.adapter_config=prefs.get('adapter')
@@ -98,10 +100,13 @@ class App:
             self.fire_notice('Espera a detectar el jugador y la ventana del juego');return
         plan={'power':round(self.result['power']),'window':self.game_window,'hero':hero['id'],'target':target['id'],'shot':self.s.selected_shot,'wind':self.s.wind,'windAngle':self.s.wind_angle,'barStart':self.guide_points[0] if self.guide_points else None,'dpr':self.capture_dpr,'screenBox':self.screen_box,'heroState':{k:hero[k] for k in ('x','y','rawAngle','body','look') if k in hero},'targetState':{k:target[k] for k in ('x','y')}}
         self.pending_fire=None;self.fire_busy=True;self.fire_cancel.clear();self.footer.config(text='Aplicando fuerza…')
-        endpoint=self.endpoint.get();target_id=self.browser_target
+        endpoint=self.endpoint.get();target_id=self.browser_target;snapshot=replace(self.s,environment=dict(self.s.environment))
+        if self.book.profile(self.clone_id,self.s.mobile,self.s.selected_shot,self.s.wind):
+            speed=plan['power']*snapshot.power_scale+snapshot.speed_offset
+            plan['expectedSpeed']=math.trunc(speed) if snapshot.quantize_power else speed
         def run():
             from auto_fire import PowerReader,execute
-            reader=None;attempt={'version':'0.12.6','started':time.time(),'requestedPower':plan['power'],'events':[]}
+            reader=None;attempt={'version':'0.12.7','started':time.time(),'requestedPower':plan['power'],'events':[]}
             try:
                 try:reader=PowerReader(endpoint,target_id)
                 except Exception:
@@ -109,7 +114,18 @@ class App:
                     reader=PowerReader('http://127.0.0.1:9223',target_id)
                 result=execute(plan,reader,self.fire_cancel,trace=lambda event:attempt['events'].append(event) if len(attempt['events'])<32 else None)
                 attempt['result']=result
-                message=f'Tiro aplicado · Fuerza {result["power"]:g}'
+                from shot_confirmation import wait_for_shot
+                try:
+                    reader.client.terrain_interval=60;reader.client.terrain_clock=time.monotonic()
+                    confirmation=wait_for_shot(reader,plan,result,self.fire_cancel)
+                except Exception:
+                    confirmation={'status':'unconfirmed','reason':'La lectura se interrumpió después de soltar; no se repite el tiro'}
+                attempt['confirmation']=confirmation
+                outcome=confirmation['status']
+                message=(f"Tiro confirmado · Fuerza {confirmation['actualPower']:g}" if outcome=='confirmed' else f"Revisar tiro · marcaba {plan['power']:g}, barra final {confirmation['actualPower']:g}" if outcome=='mismatch' else 'Proyectil observado · fuerza de barra confirmada' if outcome=='observed' and confirmation.get('observedPower') is not None else 'Tiro enviado · no se pudo confirmar la fuerza final')
+                self.events.put({'status':'fire-confirmed','confirmation':confirmation})
+                try:self.replays.record(snapshot,outcome,confirmation)
+                except (OSError,ValueError,TypeError):pass
             except Exception as error:
                 message=str(error);attempt['error']=message
             finally:
@@ -130,7 +146,7 @@ class App:
         else:self.s.environment.pop('observedAcceleration',None)
         stamp=(self.clone_id,self.s.mobile,self.s.selected_shot,tuple((k,fit.get(k)) for k in ('gravity','power_scale','wind_scale','speed_offset')) if fit else None)
         if stamp==self.profile_stamp:return
-        previous=self.profile_stamp;self.profile_stamp=stamp
+        previous=getattr(self,'last_applied_profile',self.profile_stamp);self.profile_stamp=stamp;self.last_applied_profile=stamp
         if not fit:
             if previous and previous[-1] is not None:
                 name=self.s.mobile;g,w,p,*_=PROFILES[name];custom=self.profiles.get(self.profile_key(),{})
@@ -347,7 +363,7 @@ class App:
         def run():
             from automatic import AutoCapture
             from performance import Governor
-            governor=Governor()
+            governor=Governor();sample={}
             while not stop.is_set():
                 client=None;shot_events=None
                 try:
@@ -361,12 +377,12 @@ class App:
                         shot_events=BrowserShotEvents(client.endpoint,client.target['id'],capture.gesture_owner,lambda:self.fire_key,lambda gesture:self.events.put({'status':'fire-gesture','gesture':gesture}))
                         shot_events.start();self.browser_shot_events=shot_events
                     while not stop.is_set():
-                        interval,capture.capture_interval,client.terrain_interval=governor.intervals(self.performance)
+                        interval,capture.capture_interval,client.terrain_interval=governor.intervals(self.performance,active=sample.get('status')=='live',own_turn=str(sample.get('activePlayer'))==str(sample.get('heroId')))
                         auto=capture.read(capture=self.preview_visible,fire_key=self.fire_key) if clone=='dragonbound' else {}
-                        sample=client.sample()
                         if clone=='dragonbound' and not auto.get('geometry',{}).get('active'):
                             sample={'status':'waiting','reason':'Navegador conectado. La captura aparecerá al empezar la partida.'}
                             client.game=None;client.renderer=None
+                        else:sample=client.sample()
                         sample['_auto']=auto;self.events.put(sample);stop.wait(interval)
                 except Exception as e:
                     if not stop.is_set():self.events.put({'status':'waiting','reason':'Buscando el navegador del juego… '+str(e)})
@@ -536,10 +552,10 @@ class App:
     def tick_once(self):
         pending=[]
         while not self.events.empty():pending.append(self.events.get_nowait())
-        live=[e for e in pending if e.get('status') not in ('calculated','target-shortcut','fire-shortcut','fire-gesture','fire-finished','cancel-shortcut')]
+        live=[e for e in pending if e.get('status') not in ('calculated','target-shortcut','fire-shortcut','fire-gesture','fire-finished','fire-confirmed','cancel-shortcut')]
         # Consume the latest state before results/shortcuts; old frames must not
         # delay the game or allow an obsolete calculation to replace a new one.
-        pending=([live[-1]] if live else [])+[e for e in pending if e.get('status') in ('calculated','target-shortcut','fire-shortcut','fire-gesture','fire-finished','cancel-shortcut')]
+        pending=([live[-1]] if live else [])+[e for e in pending if e.get('status') in ('calculated','target-shortcut','fire-shortcut','fire-gesture','fire-finished','fire-confirmed','cancel-shortcut')]
         for event in pending:
             if event.get('status')=='fire-gesture':
                 if self.consume_fire_gesture(event.get('gesture')):
@@ -551,8 +567,12 @@ class App:
                 self.fire_shortcut_count+=1
                 if event.get('hero')==self.target_hero_id:self.trigger_auto_fire()
                 continue
+            if event.get('status')=='fire-confirmed':
+                confirmation=event['confirmation'];self.last_shot_confirmation=confirmation
+                if confirmation['status']=='confirmed' and confirmation.get('release'):self.book.note_release(confirmation['release'])
+                continue
             if event.get('status')=='fire-finished':
-                self.fire_busy=False;self.last_fire_message=event['message'];self.notice_until=time.monotonic()+4;self.footer.config(text=event['message'],fg=GREEN if event['message'].startswith('Tiro aplicado') else ORANGE);continue
+                self.fire_busy=False;self.last_fire_message=event['message'];self.notice_until=time.monotonic()+4;self.footer.config(text=event['message'],fg=GREEN if event['message'].startswith('Tiro confirmado') else ORANGE);continue
             if event.get('status')=='target-shortcut':
                 if event.get('hero')==self.target_hero_id and self.auto_enabled and self.has_position_data and self.last_live and time.monotonic()-self.last_live<4:self.shortcut_count+=1;self.cycle_target()
                 continue
@@ -560,6 +580,9 @@ class App:
                 self.computing=False
                 if event['generation']==self.compute_generation and not self.dirty:
                     self.result=event['result'];self.result_context=event['context'];self.last_solve_seconds=event.get('solve_seconds');self.show_result(event.get('error'))
+                    if self.result.get('blocked'):
+                        try:self.replays.record(self.s,'blocked',self.result)
+                        except (OSError,ValueError,TypeError):pass
             else:self.apply_live(event)
         if self.last_live and time.monotonic()-self.last_live>4:
             self.status.config(text='●  Esperando datos',fg=MUTED);self.auto_visible=False;self.hide_overlay();self.hide_power_guide()
@@ -591,7 +614,7 @@ class App:
         self.shared['source']='experimental' if self.last_live and time.monotonic()-self.last_live<4 else 'manual'
         if '--diagnostics' in sys.argv and time.monotonic()-getattr(self,'diagnostic_clock',0)>1:
             self.diagnostic_clock=time.monotonic()
-            health={'version':'0.12.6','updated':time.time(),'connected':bool(self.last_live and time.monotonic()-self.last_live<4),'map_detected':bool(self.s.environment.get('terrain')),'camera_detected':bool(self.live_camera and self.live_camera.get('renderWidth')),'weather':[w.get('resolvedTypeId') or w.get('typeId') for w in self.s.environment.get('activeWeathers',[])],'players_detected':len(self.live_players),'overlay_visible':bool(self.overlay and self.overlay.visible),'power':self.result.get('power'),'computing':self.computing,'last_error':getattr(self,'last_error',None),'target':self.auto_target_id,'enemies_detected':len(enemies(self.live_players,self.target_hero_id)),'preview_capture':self.preview_visible,'solve_seconds':getattr(self,'last_solve_seconds',None),'shortcut_events':self.shortcut_count,'fire_shortcut_events':self.fire_shortcut_count,'fire_busy':self.fire_busy,'fire_pending':bool(self.pending_fire),'last_fire_message':self.last_fire_message,'page_shortcuts_active':self.page_shortcuts_active,'shortcut_ready':bool(getattr(self,'shortcuts',None) and self.shortcuts.ready),'shortcut_error':getattr(getattr(self,'shortcuts',None),'error',None)}
+            health={'version':'0.12.7','updated':time.time(),'connected':bool(self.last_live and time.monotonic()-self.last_live<4),'map_detected':bool(self.s.environment.get('terrain')),'camera_detected':bool(self.live_camera and self.live_camera.get('renderWidth')),'weather':[w.get('resolvedTypeId') or w.get('typeId') for w in self.s.environment.get('activeWeathers',[])],'players_detected':len(self.live_players),'overlay_visible':bool(self.overlay and self.overlay.visible),'power':self.result.get('power'),'computing':self.computing,'last_error':getattr(self,'last_error',None),'target':self.auto_target_id,'enemies_detected':len(enemies(self.live_players,self.target_hero_id)),'preview_capture':self.preview_visible,'solve_seconds':getattr(self,'last_solve_seconds',None),'shortcut_events':self.shortcut_count,'fire_shortcut_events':self.fire_shortcut_count,'fire_busy':self.fire_busy,'fire_pending':bool(self.pending_fire),'last_fire_message':self.last_fire_message,'page_shortcuts_active':self.page_shortcuts_active,'shortcut_ready':bool(getattr(self,'shortcuts',None) and self.shortcuts.ready),'shortcut_error':getattr(getattr(self,'shortcuts',None),'error',None)}
             try:(BASE/'estado-live.json').write_text(json.dumps(health,indent=2),encoding='utf-8')
             except OSError:pass
 

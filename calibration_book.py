@@ -9,7 +9,7 @@ def mobile_name(value):
 
 class CalibrationBook:
     def __init__(self,path):
-        self.path=pathlib.Path(path);self.records={};self.seen=set();self.revision=0;self.message='Esperando tiros medibles'
+        self.path=pathlib.Path(path);self.records={};self.seen=set();self.release=None;self.revision=0;self.message='Esperando tiros medibles'
         try:
             saved=json.loads(self.path.read_text(encoding='utf-8'))
             if saved.get('schema')==1:self.records=saved.get('records',{})
@@ -25,28 +25,24 @@ class CalibrationBook:
         record=self.records.get(self.key(clone,mobile,shot),{});fit=self.profile(clone,mobile,shot,wind)
         count=len(record.get('samples',[]))
         if record.get('drift_pending'):return {'label':'Recalibrando','count':count,'level':'low'}
+        if record.get('candidate'):return {'label':'Comprobando mejora','count':count,'level':'learning'}
         if fit:return {'label':'Salida calibrada' if mobile in ('KALSIDDON','NAK','TRICO') else 'Calibrado','count':count,'level':'measured','residual':fit.get('holdout_speed_error')}
         return {'label':'Aproximado' if count else 'Faltan datos','count':count,'level':'low'}
     def provisional(self,clone,mobile,shot,wind,angle):
-        record=self.records.get(self.key(clone,mobile,shot),{})
-        if record.get('drift_pending'):return None
-        matching=[m for m in record.get('samples',[]) if m.get('wind')==wind and (wind==0 or abs((m.get('wind_angle',999)-angle+180)%360-180)<1e-6)]
-        if not matching:return None
-        sample=matching[-1];g,w,p,*_=PROFILES[mobile]
-        return {'gravity':max(1,sample['ay']+math.sin(math.radians(angle))*wind*w),'wind_scale':w,'power_scale':math.hypot(sample['vx'],sample['vy'])/sample['power'],'speed_offset':0,'provisional':True}
+        # A single unvalidated measurement must never override a saved fit.
+        return None
+    def note_release(self,release):
+        self.release={**release,'expires':time.monotonic()+2}
     def underground_gravity(self,clone):
         samples=self.records.get(self.key(clone,'NAK',1),{}).get('underground_samples',[])
         if len(samples)<3:return None
         import statistics
         return statistics.median(s['gravity'] for s in samples)
     def acceleration(self,clone,mobile,shot,wind,angle):
-        record=self.records.get(self.key(clone,mobile,shot),{})
-        if record.get('drift_pending'):return None
-        matching=[m for m in record.get('samples',[]) if abs(m.get('wind',-1)-wind)<1e-6 and (wind==0 or abs((m.get('wind_angle',999)-angle+180)%360-180)<1e-6)]
-        return [matching[-1]['ax'],matching[-1]['ay']] if matching else None
+        return None
     def save(self):
-        self.path.parent.mkdir(parents=True,exist_ok=True);temp=self.path.with_suffix('.tmp')
-        temp.write_text(json.dumps({'schema':1,'records':self.records},indent=2),encoding='utf-8');temp.replace(self.path)
+        from local_storage import atomic_write
+        atomic_write(self.path,json.dumps({'schema':1,'records':self.records},indent=2).encode())
         self.revision+=1
     def observe(self,state,clone='dragonbound'):
         if state.get('status')!='live':return []
@@ -77,7 +73,7 @@ class CalibrationBook:
         name=mobile_name(hero.get('mobile'));shot_type=state.get('selectedShot')
         power=state.get('currentPower');wind=state.get('wind');angle=state.get('windAngle')
         if not name or shot_type not in (0,1,2):return []
-        if not all(isinstance(v,(int,float)) and math.isfinite(v) for v in (power,wind,angle)) or not 1<=power<=400:return []
+        if not all(isinstance(v,(int,float)) and math.isfinite(v) for v in (wind,angle)):return []
         native=[s for s in state.get('shots',[]) if s.get('native') and not s.get('auxiliary') and not s.get('delay',0) and isinstance(s.get('start'),list) and len(s['start'])==6]
         accepted=[]
         # Multiple simultaneous bullets can have different speed offsets. Keep them
@@ -86,73 +82,38 @@ class CalibrationBook:
         if len(starts)!=1 or len({s.get('id') for s in native})!=len(native):return []
         s=native[0];ident=(clone,str(s.get('id'))+':'+','.join(str(v) for v in s['start']))
         if ident in self.seen:return []
-        self.seen.add(ident)
-        if len(self.seen)>4096:self.seen={ident}
         start=s['start'];x,y,launch_angle,speed,ax,ay=start
         if not all(isinstance(v,(int,float)) and math.isfinite(v) for v in start) or speed<=0:return []
         if not isinstance(s.get('elapsed'),(int,float)) or not 0<=s['elapsed']<=600:return []
-        distances=sorted((math.hypot(p['x']-x,p['y']-y),p['id']) for p in players)
-        if distances[0][1]!=hero['id'] or distances[0][0]>90 or (len(distances)>1 and distances[1][0]-distances[0][0]<60):return []
-        # Identical ballistic starts (e.g. Armor's two bullets) share a speed.
-        # Different offsets, delayed secondary projectiles and lightning do not.
-        actual_type=s.get('shotType')
-        if actual_type in (0,1,2):shot_type=actual_type
+        from shot_attribution import attributed_start
+        release=self.release if self.release and time.monotonic()<self.release['expires'] else None
+        attribution=attributed_start(state,s,release)
+        if not attribution or not attribution['learnable']:return []
+        power=attribution['power'];shot_type=attribution['shot'];wind=attribution['wind'];angle=attribution['windAngle']
+        if not all(isinstance(v,(int,float)) and math.isfinite(v) for v in (wind,angle)):return []
+        self.seen.add(ident)
+        if len(self.seen)>4096:self.seen={ident}
         r=math.radians(launch_angle)
         sample={'power':power,'vx':math.cos(r)*speed,'vy':-math.sin(r)*speed,'ax':ax,'ay':ay,'wind':wind,'wind_angle':angle,'source':'native-shot-start'}
         key=self.key(clone,name,shot_type);record=self.records.setdefault(key,{'samples':[]})
         sample['sample_id']=ident[1]
         if any(m.get('sample_id')==ident[1] for m in record.get('samples',[])):return []
-        prior=record.get('fit')
-        if prior:
-            predicted=prior['power_scale']*power+prior['speed_offset']
-            g=ay+(math.sin(math.radians(angle))*wind*prior['wind_scale'] if prior.get('wind_scale') is not None else 0)
-            mismatch=abs(speed-predicted)>max(8,.02*speed) or abs(g-prior['gravity'])>max(12,.05*prior['gravity'])
-            if mismatch:
-                pending=record.setdefault('drift_pending',[]);pending.append(sample)
-                record['status']='Recalibrando: cambiaron las mediciones';self.message=f'{name}: comprobando un cambio de física'
-                if len(pending)<2:self.save();return []
-                archives=record.setdefault('previous_regimes',[])
-                archives.append({'samples':record['samples'],'fit':prior,'reason':'Two incompatible native starts','archived':time.time()})
-                record['previous_regimes']=archives[-8:]
-                record.pop('fit',None);record['samples']=pending[:-1];record.pop('drift_pending',None)
-            else:record.pop('drift_pending',None)
         record['samples']=(record['samples']+[sample])[-48:];record['updated']=time.time()
-        samples=record['samples'];powers=[v['power'] for v in samples]
-        self.message=f'{name}: {len(samples)} tiros medidos'
-        if len(samples)>=4 and len(set(powers))>=3 and max(powers)-min(powers)>=40:
-            try:
-                fit,cut=current_fit(samples)
-                if cut:
-                    archives=record.setdefault('previous_regimes',[])
-                    archives.append({'samples':samples[:cut],'reason':'Recent contiguous observations pass independent validation','archived':time.time()})
-                    record['previous_regimes']=archives[-8:];record['samples']=samples[cut:]
-                record['fit']=fit;record['status']='Ajuste observado';self.message=f'{name}: ajuste guardado con {len(samples)} tiros'
-                accepted.append((key,fit))
-            except ValueError:
-                if prior:
-                    archives=record.setdefault('previous_regimes',[])
-                    cohort=samples[:-1]
-                    ids=[s.get('sample_id') for s in cohort]
-                    if not any([s.get('sample_id') for s in a.get('samples',[])]==ids for a in archives):
-                        archives.append({'samples':cohort,'fit':prior,'reason':'Prior validated fit preserved after a new observation failed validation','archived':time.time()})
-                        record['previous_regimes']=archives[-8:]
-                record.pop('fit',None);record['status']='Faltan datos compatibles o falló la validación independiente'
+        from learning_guard import update
+        activated=update(record,sample)
+        self.message=f"{name}: {record.get('status','Aprendiendo')}"
+        if activated:accepted.append((key,activated))
         self.save();return accepted
     def refit_measured(self):
-        changed=0
+        # Historical observations can prepare a challenger but are not new
+        # independent evidence for replacing a running calibration.
+        from learning_guard import update
+        before=sum(bool(r.get('candidate')) for r in self.records.values())
         for record in self.records.values():
-            if record.get('drift_pending'):continue
             samples=record.get('samples',[])
-            if len(samples)<4:continue
-            try:
-                fit,cut=current_fit(samples)
-                if cut:
-                    record.setdefault('previous_regimes',[]).append({'samples':samples[:cut],'reason':'Recent contiguous observations pass independent validation','archived':time.time()})
-                    record['previous_regimes']=record['previous_regimes'][-8:];record['samples']=samples[cut:]
-                record['fit']=fit;record['status']='Ajuste observado';changed+=1
-            except ValueError:
-                record.pop('fit',None);record['status']='Faltan datos compatibles o falló la validación independiente'
-        self.save();return changed
+            if samples:update(record,samples[-1])
+        self.save()
+        return max(0,sum(bool(r.get('candidate')) for r in self.records.values())-before)
     def rows(self,clone='dragonbound'):
         rows=[]
         for name in PROFILES:
