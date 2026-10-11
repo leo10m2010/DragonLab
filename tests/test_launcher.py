@@ -4,6 +4,10 @@ sys.path.insert(0,str(pathlib.Path(__file__).resolve().parents[1]))
 from launcher import installed_version,calibration_revision,fetch_manifest,CloudError,ConsentSwitch,Launcher,LauncherButton,demo_program,BG
 from app_version import LAUNCHER_VERSION
 
+def destroy_root(root):
+    for job in root.tk.splitlist(root.tk.call('after','info')):root.after_cancel(job)
+    root.update_idletasks();root.destroy()
+
 class VersionTests(unittest.TestCase):
     def test_demo_finds_only_local_companion_and_never_cloud_client(self):
         from app_version import PROGRAM_VERSION
@@ -52,11 +56,53 @@ class LauncherUITests(unittest.TestCase):
                 self.assertEqual(app.login_page.winfo_manager(),'');self.assertEqual(app.privacy.winfo_manager(),'')
                 self.assertEqual(app.update_button.cget('state'),'disabled');self.assertFalse(app.consent.enabled)
                 with patch('launcher.subprocess.Popen') as launch:
+                    launch.return_value.poll.return_value=None
                     app.play();launch.assert_called_once()
                     app.logout();app.play();launch.assert_called_once()
                 self.assertFalse(app.authenticated);app.login();self.assertTrue(app.authenticated)
                 app.check_update();app.change_consent();cloud.assert_not_called();manifest.assert_not_called()
-        finally:root.destroy()
+        finally:destroy_root(root)
+    def test_repeat_play_launches_once_and_failed_spawn_can_retry(self):
+        import tkinter as tk
+        root=tk.Tk();root.withdraw()
+        try:
+            with patch('launcher.demo_program',return_value=pathlib.Path('fixture.exe')):
+                app=Launcher(root,demo=True);app.enter_demo()
+                with patch('launcher.subprocess.Popen',side_effect=OSError('fixture')):app.play()
+                self.assertIsNone(app.child);self.assertIn('No se pudo',app.status.cget('text'))
+                with patch('launcher.subprocess.Popen') as launch:
+                    launch.return_value.poll.return_value=None
+                    app.play();app.play();launch.assert_called_once()
+                    self.assertIn('--open-game',launch.call_args.args[0])
+                    self.assertEqual(app.play_button.cget('state'),'disabled')
+                    launch.return_value.poll.return_value=0;launch.return_value.returncode=0
+                    app.poll();self.assertIsNone(app.child);self.assertEqual(app.play_button.cget('state'),'normal')
+        finally:destroy_root(root)
+    def test_help_opens_only_one_dialog_and_keeps_instructions_in_same_design(self):
+        import tkinter as tk
+        root=tk.Tk();root.withdraw()
+        try:
+            app=Launcher(root,demo=True);root.deiconify();root.update_idletasks();app.help();first=app.dialog
+            app.help();self.assertIs(app.dialog,first)
+            self.assertTrue(first.winfo_exists());self.assertEqual(first.cget('bg'),BG)
+            first.update();first.update_idletasks();confirm=first.winfo_children()[-1]
+            self.assertLessEqual(confirm.winfo_y()+confirm.winfo_height(),first.winfo_height())
+            card=first.winfo_children()[1];self.assertGreaterEqual(card.winfo_height(),card.body.winfo_reqheight())
+            app.close();self.assertTrue(app.closed)
+        finally:
+            if not app.closed:destroy_root(root)
+    @unittest.skipUnless(os.name=='nt','Windows chrome')
+    def test_custom_chrome_removes_native_white_caption(self):
+        import tkinter as tk,ctypes
+        from ctypes import wintypes as w
+        from desktop_shell import style_window
+        root=tk.Tk();root.withdraw()
+        try:
+            root.update_idletasks();style_window(root)
+            u=ctypes.WinDLL('user32');u.GetAncestor.argtypes=[w.HWND,w.UINT];u.GetAncestor.restype=w.HWND
+            u.GetWindowLongPtrW.argtypes=[w.HWND,ctypes.c_int];u.GetWindowLongPtrW.restype=ctypes.c_ssize_t
+            self.assertEqual(u.GetWindowLongPtrW(u.GetAncestor(root.winfo_id(),2),-16)&0x00C00000,0)
+        finally:destroy_root(root)
     def test_disabled_button_has_legible_separate_colors_and_no_hover_action(self):
         import tkinter as tk
         root=tk.Tk();root.withdraw();calls=[]
@@ -66,7 +112,7 @@ class LauncherUITests(unittest.TestCase):
             polygon=button.find_all()[0];label=button.find_all()[-1]
             self.assertEqual(button.itemcget(polygon,'fill'),'#26384c')
             self.assertEqual(button.itemcget(label,'fill'),'#a8b9cf')
-        finally:root.destroy()
+        finally:destroy_root(root)
     def test_missing_server_disables_login_and_sharing_but_shows_version(self):
         import tkinter as tk
         root=tk.Tk();root.withdraw()
@@ -74,7 +120,7 @@ class LauncherUITests(unittest.TestCase):
             with patch('launcher.CloudClient',side_effect=CloudError('Not configured')):app=Launcher(root)
             root.update_idletasks();self.assertEqual(app.login_button.cget('state'),'disabled');self.assertFalse(app.consent.enabled)
             app.consent.toggle();self.assertFalse(app.share.get());self.assertIn(LAUNCHER_VERSION,root.title())
-        finally:root.destroy()
+        finally:destroy_root(root)
     def test_login_dashboard_and_logout_are_separate_pages(self):
         import tkinter as tk
         from types import SimpleNamespace
@@ -99,7 +145,7 @@ class LauncherUITests(unittest.TestCase):
                 self.assertFalse(app.authenticated);self.assertIsNone(client.account)
                 self.assertEqual(app.login_page.winfo_manager(),'pack');self.assertEqual(app.dashboard_page.winfo_manager(),'')
                 self.assertEqual(app.update_button.cget('state'),'disabled')
-            finally:root.destroy()
+            finally:destroy_root(root)
     def test_saved_session_waits_for_verification_and_failed_logout_hides_panel(self):
         import tkinter as tk
         from types import SimpleNamespace
@@ -113,7 +159,7 @@ class LauncherUITests(unittest.TestCase):
                 app.finish(None,'Servidor no disponible',lambda value:None)
                 self.assertFalse(app.authenticated);self.assertEqual(app.dashboard_page.winfo_manager(),'')
                 self.assertEqual(app.play_button.cget('state'),'disabled')
-            finally:root.destroy()
+            finally:destroy_root(root)
     def test_consent_switch_calls_handler_once_and_respects_busy_state(self):
         import tkinter as tk
         root=tk.Tk();root.withdraw();calls=[]
@@ -122,4 +168,4 @@ class LauncherUITests(unittest.TestCase):
             switch.toggle();self.assertEqual(calls,[])
             switch.config(state='normal');switch.toggle();self.assertEqual(calls,[True])
             switch.config(state='disabled');switch.toggle();self.assertEqual(calls,[True])
-        finally:root.destroy()
+        finally:destroy_root(root)

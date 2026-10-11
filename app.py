@@ -346,14 +346,19 @@ class App:
         import subprocess
         candidates=[pathlib.Path(os.environ.get('PROGRAMFILES','C:/Program Files'))/'Google/Chrome/Application/chrome.exe',pathlib.Path(os.environ.get('PROGRAMFILES(X86)','C:/Program Files (x86)'))/'Google/Chrome/Application/chrome.exe',pathlib.Path(os.environ.get('LOCALAPPDATA',''))/'Google/Chrome/Application/chrome.exe',pathlib.Path(os.environ.get('PROGRAMFILES(X86)','C:/Program Files (x86)'))/'Microsoft/Edge/Application/msedge.exe']
         browser=next((p for p in candidates if p.is_file()),None)
-        if browser is None:messagebox.showerror('Navegador','No se encontró Chrome o Edge.');return
+        if browser is None:messagebox.showerror('Navegador','Instala Chrome o Edge para abrir DragonBound.',parent=self.root);self.root.deiconify();return False
         profile=pathlib.Path(os.environ.get('LOCALAPPDATA',str(BASE)))/'DragonLab/Browser'
-        subprocess.Popen([str(browser),'--remote-debugging-port=9223','--user-data-dir='+str(profile),'https://dragonbound.net/'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+        from game_startup import activate_existing_game
+        if not activate_existing_game():
+            try:subprocess.Popen([str(browser),'--remote-debugging-port=9223','--user-data-dir='+str(profile),'https://dragonbound.net/'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+            except OSError:
+                self.root.deiconify();messagebox.showerror('Navegador','No se pudo abrir el navegador. Vuelve a intentarlo.',parent=self.root);return False
         self.endpoint.set('http://127.0.0.1:9223');self.live_stop.set()
         def restart():
             if self.worker and self.worker.is_alive():self.root.after(200,restart)
             else:self.toggle_live()
         self.root.after(200,restart)
+        return True
     def toggle_live(self):
         if self.worker and self.worker.is_alive():
             self.live_stop.set();self.auto_enabled=False;self.auto_visible=False;self.hide_overlay();self.hide_power_guide();self.live_camera=None;self.last_live=0
@@ -653,14 +658,19 @@ class App:
         self.root.destroy()
 
 if __name__=='__main__':
+    from desktop_shell import SingleInstance
+    instance=SingleInstance('DragonLab.LocalCompanion') if '--check' not in sys.argv else None
+    if instance and not instance.primary:instance.close();sys.exit(3)
     root=tk.Tk()
     if '--check' in sys.argv:root.withdraw()
     if '--minimized' in sys.argv:root.iconify()
     app=App(root)
     if '--check' in sys.argv:root.after(500,app.close)
+    elif '--open-game' in sys.argv:root.after(200,app.open_game_browser)
     if '--smoke' in sys.argv:
         root.attributes('-topmost',True);root.lift()
         root.after(700,lambda:ImageGrab.grab(bbox=(root.winfo_rootx(),root.winfo_rooty(),root.winfo_rootx()+root.winfo_width(),root.winfo_rooty()+root.winfo_height())).save(BASE/'vista-previa.png'))
         root.after(1100,app.close)
     root.mainloop()
+    if instance:instance.close()
 

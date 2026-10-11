@@ -7,6 +7,7 @@ from rounded_controls import RoundedEntry,RoundedSwitch
 from cloud_client import CloudClient,CloudError,download_verified
 from local_storage import atomic_write
 from app_version import LAUNCHER_VERSION,PROGRAM_VERSION
+from desktop_shell import style_window,drag_handle,SingleInstance,restore_launcher
 BASE=pathlib.Path(sys.executable).parent if getattr(sys,'frozen',False) else pathlib.Path(__file__).parent
 BG='#0b121c';PANEL='#152232';INK='#f1f6fc';MUTED='#b1c0d2';ACCENT='#54d7ee';REPO='leo10m2010/DragonLab'
 
@@ -66,12 +67,15 @@ def fetch_manifest(repo=REPO):
 class Launcher:
     def __init__(self,root,demo=False):
         self.root=root;root.title('DragonLab · Launcher '+LAUNCHER_VERSION);root.geometry('760x710');root.configure(bg=BG);root.resizable(False,False)
-        self.busy=False;self.client=None;self.closed=False;self.events=queue.Queue();self.manifest=None;self.demo=demo
+        self.busy=False;self.client=None;self.closed=False;self.events=queue.Queue();self.manifest=None;self.demo=demo;self.child=None;self.dialog=None
         self.email=tk.StringVar();self.password=tk.StringVar();self.share=tk.BooleanVar()
         header=tk.Frame(root,bg=BG);header.pack(fill='x',padx=30,pady=(24,18))
-        tk.Label(header,text='◉',font=('Bahnschrift',28),bg=BG,fg=ACCENT).pack(side='left',padx=(0,12))
-        tk.Label(header,text='DragonLab',font=('Bahnschrift',24,'bold'),bg=BG,fg=INK).pack(side='left')
-        tk.Label(header,text='Launcher v'+LAUNCHER_VERSION,font=('Bahnschrift',10),bg=BG,fg=MUTED).pack(side='right')
+        mark=tk.Label(header,text='◉',font=('Bahnschrift',28),bg=BG,fg=ACCENT);mark.pack(side='left',padx=(0,12))
+        brand=tk.Label(header,text='DragonLab',font=('Bahnschrift',24,'bold'),bg=BG,fg=INK);brand.pack(side='left')
+        LauncherButton(header,text='×',command=self.close,bg=BG,fg=MUTED,activebackground='#532c3c',activeforeground=INK,padx=10,pady=4,font=('Bahnschrift',17)).pack(side='right')
+        LauncherButton(header,text='−',command=root.iconify,bg=BG,fg=MUTED,activebackground=PANEL,activeforeground=INK,padx=10,pady=4,font=('Bahnschrift',17)).pack(side='right',padx=(12,4))
+        tk.Label(header,text='v'+LAUNCHER_VERSION,font=('Bahnschrift',10),bg=BG,fg=MUTED).pack(side='right')
+        for handle in (header,mark,brand):drag_handle(handle,root)
         self.login_page=tk.Frame(root,bg=BG)
         self.dashboard_page=tk.Frame(root,bg=BG)
         self.authenticated=False
@@ -88,13 +92,13 @@ class Launcher:
         self.login_status=tk.Label(self.login_page,text='Tu cuenta es personal. Entra con tu correo y contraseña.',wraplength=440,justify='center',bg=BG,fg=MUTED,font=('Bahnschrift',10));self.login_status.pack(fill='x',padx=34,pady=20)
         panel=RoundedPanel(self.dashboard_page,PANEL,radius=30,padding=22);panel.pack(fill='x',padx=26)
         body=panel.body
-        tk.Label(body,text='Todo listo para jugar.',font=('Bahnschrift',23),bg=PANEL,fg=INK).pack(anchor='w',pady=(4,10))
+        self.headline=tk.Label(body,text='Tu próxima partida.',font=('Bahnschrift',25),bg=PANEL,fg=INK);self.headline.pack(anchor='w',pady=(4,10))
         self.license_title=tk.Label(body,font=('Bahnschrift',12,'bold'),bg=PANEL,fg=ACCENT);self.license_title.pack(anchor='w')
         self.license_detail=tk.Label(body,font=('Bahnschrift',10),bg=PANEL,fg=MUTED,wraplength=640,justify='left');self.license_detail.pack(anchor='w',pady=(4,14))
         self.account_row=tk.Frame(body,bg=PANEL);self.account_row.pack(fill='x')
         self.account_button=LauncherButton(self.account_row,text='Mi cuenta',command=self.open_account,bg=PANEL,fg=INK,pady=5);self.account_button.pack(side='left')
         LauncherButton(self.account_row,text='Cerrar sesión',command=self.logout,bg=PANEL,fg=MUTED,pady=5).pack(side='right')
-        self.play_button=LauncherButton(self.dashboard_page,text='Iniciar DragonLab  ↗',command=self.play,bg=ACCENT,fg=BG,activebackground='#89e9f8',activeforeground=BG,font=('Bahnschrift',18,'bold'),pady=18,state='disabled')
+        self.play_button=LauncherButton(self.dashboard_page,text='Jugar DragonBound  →',command=self.play,bg=ACCENT,fg=BG,activebackground='#89e9f8',activeforeground=BG,font=('Bahnschrift',18,'bold'),pady=18,state='disabled')
         self.play_button.pack(fill='x',padx=54,pady=(20,12))
         self.dashboard_status=tk.Label(self.dashboard_page,wraplength=680,justify='center',bg=BG,fg=MUTED,font=('Bahnschrift',10));self.dashboard_status.pack(fill='x',padx=32,pady=(0,12))
         versions=RoundedPanel(self.dashboard_page,PANEL,radius=24,padding=14);versions.pack(fill='x',padx=26)
@@ -127,21 +131,23 @@ class Launcher:
         self.authenticated=False;self.dashboard_page.pack_forget();self.login_page.pack(fill='both',expand=True)
         self.status=self.login_status;self.root.geometry('520x570')
         self.play_button.config(state='disabled');self.update_button.config(state='disabled');self.consent.config(state='disabled')
+        self.root.after_idle(lambda:style_window(self.root) if not self.closed else None)
     def show_dashboard(self,account):
         self.authenticated=True;self.login_page.pack_forget();self.dashboard_page.pack(fill='both',expand=True)
         self.status=self.dashboard_status;self.root.geometry('760x690')
         self.play_button.config(state='normal' if account.get('active') else 'disabled')
         self.update_button.config(state='normal');self.consent.config(state='normal')
+        self.root.after_idle(lambda:style_window(self.root) if not self.closed else None)
     def enter_demo(self):
         if not self.demo or self.closed:return
         self.show_dashboard({'active':True});self.license_title.config(text='VERSIÓN DE PRUEBA · acceso automático')
-        self.license_detail.config(text='Prueba local sin cuenta. El acceso real se verifica en el servidor.')
+        self.license_detail.config(text='Entra al juego en un paso. No necesitas una cuenta para esta prueba.')
         self.root.geometry('760x610');self.account_button.pack_forget()
         self.privacy.pack_forget();self.consent.config(state='disabled');self.share.set(False)
         self.update_button.config(state='disabled');self.update_button.pack_forget();self.update_label.config(text='Prueba local · actualizaciones Cloud desactivadas')
         self.program_label.config(text='Programa local · v'+PROGRAM_VERSION if demo_program() else 'Programa local · no encontrado')
         self.calibration_label.config(text='Calibraciones · se utilizan las del programa local')
-        self.status.config(text='Sesión de prueba iniciada. Puedes abrir DragonLab.')
+        self.status.config(text='El juego y la captura se preparan con un solo clic.')
         self.play_button.config(state='normal' if demo_program() else 'disabled')
     def refresh_versions(self):
         directory=self.client.directory if self.client else BASE
@@ -158,6 +164,10 @@ class Launcher:
     def poll(self):
         if self.closed:return
         while not self.events.empty():self.finish(*self.events.get_nowait())
+        if self.child is not None and self.child.poll() is not None:
+            code=self.child.returncode;self.child=None;self.root.deiconify();style_window(self.root)
+            self.play_button.config(text='Jugar DragonBound  →',state='normal' if self.authenticated and (self.demo or self.client.account.get('active')) else 'disabled')
+            self.status.config(text='DragonLab ya está abierto. Usa el auxiliar de la barra de tareas.' if code==3 else 'El auxiliar se cerró. Puedes volver a jugar.' if code==0 else 'El auxiliar no pudo iniciar. Reintenta o consulta la ayuda.')
         self.root.after(100,self.poll)
     def finish(self,value,error,done):
         self.busy=False;self.login_button.config(state='normal' if self.client else 'disabled');self.update_button.config(state='normal' if self.authenticated else 'disabled')
@@ -168,7 +178,7 @@ class Launcher:
             if self.update_label.cget('text')=='Actualizaciones · comprobando…':self.update_label.config(text='Actualizaciones · no se pudo comprobar')
         else:done(value)
         account=self.client.account if self.client else None
-        self.play_button.config(state='normal' if self.authenticated and account and account.get('active') else 'disabled');self.consent.config(state='normal' if self.authenticated and account else 'disabled');self.refresh_versions()
+        self.play_button.config(state='normal' if self.child is None and self.authenticated and account and account.get('active') else 'disabled');self.consent.config(state='normal' if self.authenticated and account else 'disabled');self.refresh_versions()
     def login(self):
         if self.demo:self.enter_demo();return
         if not self.client or self.busy:return
@@ -204,8 +214,34 @@ class Launcher:
         url=self.client.config.get('panelUrl','') if self.client else ''
         if url.startswith('https://'):webbrowser.open(url)
         else:messagebox.showinfo('Tu cuenta','El panel todavía no está configurado.',parent=self.root)
-    def help(self):messagebox.showinfo('Cómo usar DragonLab','1. Entra con tu cuenta.\n2. Pulsa Iniciar DragonLab.\n3. Abre el juego desde DragonLab.\n\nCtrl cambia el objetivo. Q aplica un tiro en tu turno.\nLos atajos se pueden cambiar en Ajustes.',parent=self.root)
-    def calibration_help(self):messagebox.showinfo('Carros y calibraciones','DragonLab distingue carro, tiro 1, tiro 2 y SS.\nEn el juego verás Listo, Aprendiendo o Bloqueado.\n\nCompartir mediciones es opcional. Una revisión compartida no garantiza que todos los carros estén completamente calibrados.',parent=self.root)
+    def guide(self,title,steps):
+        if self.closed:return
+        if self.dialog and self.dialog.winfo_exists():self.dialog.lift();return
+        win=tk.Toplevel(self.root);self.dialog=win;win.withdraw();win.configure(bg=BG);win.resizable(False,False);win.transient(self.root)
+        heading=tk.Frame(win,bg=BG);heading.pack(fill='x',padx=24,pady=(20,14))
+        label=tk.Label(heading,text=title,font=('Bahnschrift',21),fg=INK,bg=BG);label.pack(side='left');drag_handle(heading,win);drag_handle(label,win)
+        def close():win.grab_release();win.destroy();self.dialog=None
+        LauncherButton(heading,text='×',command=close,bg=BG,fg=MUTED,pady=5).pack(side='right')
+        card=RoundedPanel(win,PANEL,radius=26,padding=20);card.pack(fill='both',expand=True,padx=22,pady=(0,16))
+        for step_title,detail in steps:
+            tk.Label(card.body,text=step_title,font=('Bahnschrift',12,'bold'),fg=ACCENT,bg=PANEL).pack(anchor='w',pady=(8,4))
+            tk.Label(card.body,text=detail,font=('Bahnschrift',11),fg=MUTED,bg=PANEL,wraplength=470,justify='left').pack(anchor='w',pady=(0,12))
+        confirm=LauncherButton(win,text='Entendido',command=close,bg=ACCENT,fg=BG,activebackground='#89e9f8',activeforeground=BG,pady=10);confirm.pack(fill='x',padx=44,pady=(0,22))
+        win.protocol('WM_DELETE_WINDOW',close);win.bind('<Escape>',lambda e:close());win.update_idletasks()
+        width=550;height=heading.winfo_reqheight()+34+card.body.winfo_reqheight()+40+16+confirm.winfo_reqheight()+22;x=self.root.winfo_x()+(self.root.winfo_width()-width)//2;y=max(0,self.root.winfo_y()+40)
+        y=min(y,max(0,win.winfo_screenheight()-height-40))
+        win.geometry(f'{width}x{height}{max(0,x):+d}{y:+d}');style_window(win);win.deiconify();win.grab_set()
+    def help(self):
+        self.guide('Una partida, en un paso.',[
+            ('01 · Pulsa Jugar DragonBound','El auxiliar y el navegador se preparan juntos. El launcher se oculta; no necesitas iniciar el programa otra vez.'),
+            ('02 · Entra al juego y empieza una partida','Inicia sesión en DragonBound. Al empezar tu turno, la captura detecta posiciones, ángulo y fuerza. Si faltan datos, la guía espera; no inventa un tiro.'),
+            ('03 · Elige y comprueba tu tiro','Ctrl cambia de objetivo. Q solicita un tiro en tu turno. Estos son los atajos iniciales; puedes cambiarlos en Ajustes del auxiliar. Comprueba el objetivo y la guía antes de usarlo.'),
+            ('Ajustes y salida','El auxiliar queda en la barra de tareas para cambiar preferencias o detener la captura. Al cerrarlo, vuelve el launcher. Cerrar solo el navegador no cierra el auxiliar.')])
+    def calibration_help(self):
+        self.guide('Cada carro tiene su ritmo.',[
+            ('Carro + modalidad','Tiro 1, tiro 2 y SS usan perfiles distintos. Un ajuste de Armor no valida Nak, Trico o Kalsiddon.'),
+            ('Listo, Aprendiendo o Bloqueado','Revisa el estado en el juego. El viento, terreno y clima pueden cambiar la trayectoria; una guía aproximada necesita más mediciones.'),
+            ('Tu decides si compartes','En el acceso real puedes compartir mediciones para mejorar los perfiles. Es opcional. Esta prueba local no envía datos al servidor.')])
     def check_update(self):
         if self.demo:return
         if not self.authenticated or self.busy:return
@@ -216,29 +252,43 @@ class Launcher:
             self.status.config(text='Comprobación de actualizaciones terminada.')
         self.run(fetch_manifest,done)
     def play(self):
+        if self.child is not None and self.child.poll() is None:return
         if self.demo:
             if not self.authenticated or self.busy:return
             target=demo_program()
             if not target:self.status.config(text='No se encontró el programa local de prueba.');return
-            try:subprocess.Popen([str(target),'--minimized'],cwd=target.parent)
+            try:self.start_companion(target)
             except OSError:self.status.config(text='No se pudo abrir el programa local.');return
-            self.status.config(text='DragonLab local abierto. Sesión de prueba.');return
+            return
         if not self.client or not self.authenticated or not self.client.account or not self.client.account.get("active") or self.busy:return
         self.status.config(text='Comprobando acceso y preparando el programa…')
         def update():
             self.client.require_access();manifest=fetch_manifest(self.client.config.get('githubRepo',REPO));version=manifest['version'];target=self.client.directory/('DragonLab-Cloud-'+version+'.exe')
             if not target.exists() or hashlib.sha256(target.read_bytes()).hexdigest()!=manifest['sha256']:download_verified(manifest['url'],target,manifest['sha256'],REPO)
             atomic_write(self.client.directory/'cloud-desktop.json',json.dumps(self.client.config).encode())
-            subprocess.Popen([str(target),'--minimized'],cwd=self.client.directory)
             atomic_write(self.client.directory/'installed-release.json',json.dumps({'version':version,'sha256':manifest['sha256']}).encode())
-            return self.client.account
-        def done(account):self.show_account(account);self.status.config(text='DragonLab abierto. Las actualizaciones se comprueban al iniciar.');self.update_label.config(text='Versión comprobada al iniciar')
+            return self.client.account,target
+        def done(result):
+            account,target=result;self.show_account(account)
+            try:self.start_companion(target)
+            except OSError:self.status.config(text='No se pudo iniciar el auxiliar. Vuelve a intentarlo.');return
+            self.update_label.config(text='Versión comprobada al iniciar')
         self.run(update,done)
-    def close(self):self.closed=True;self.root.destroy()
+    def start_companion(self,target):
+        self.child=subprocess.Popen([str(target),'--minimized','--open-game'],cwd=target.parent)
+        self.play_button.config(text='Juego abierto',state='disabled');self.status.config(text='Preparando el juego y la captura…');self.root.withdraw()
+    def close(self):
+        self.closed=True
+        for job in self.root.tk.splitlist(self.root.tk.call('after','info')):self.root.after_cancel(job)
+        self.root.destroy()
 
 if __name__=='__main__':
-    root=tk.Tk();app=Launcher(root,demo='--demo' in sys.argv)
+    instance=SingleInstance('DragonLab.Launcher') if '--check' not in sys.argv else None
+    if instance and not instance.primary:restore_launcher();instance.close();sys.exit(0)
+    root=tk.Tk();root.withdraw();app=Launcher(root,demo='--demo' in sys.argv)
     if '--check' in sys.argv:root.withdraw();root.after(600,app.close)
+    else:root.update_idletasks();style_window(root);root.deiconify()
     root.mainloop()
+    if instance:instance.close()
 
 

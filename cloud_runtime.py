@@ -46,11 +46,16 @@ def main():
     import sys
     if '--check' in sys.argv:
         root.after(500,root.destroy);root.mainloop();return
+    from desktop_shell import SingleInstance
+    instance=SingleInstance('DragonLab.CloudCompanion')
+    if not instance.primary:instance.close();root.destroy();sys.exit(3)
     try:
         client=CloudClient(module.BASE/'cloud-desktop.json');client.require_access()
-    except CloudError as e:messagebox.showinfo('DragonLab · cuenta',str(e));root.destroy();return
+    except CloudError as e:messagebox.showinfo('DragonLab · cuenta',str(e));root.destroy();instance.close();return
     application=module.App(root);application.cloud_runtime=CloudRuntime(application,client)
     if '--minimized' in sys.argv:root.iconify()
     else:root.deiconify()
+    if '--open-game' in sys.argv:root.after(200,application.open_game_browser)
     root.mainloop()
+    instance.close()
 if __name__=='__main__':main()
