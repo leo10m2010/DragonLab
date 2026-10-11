@@ -6,6 +6,7 @@ from urllib.parse import urlparse,parse_qs
 from dataclasses import asdict,replace
 from core import Settings,PROFILES,REVERSE,solve,calibrated_profile,launch
 from cdp import CDP
+from app_version import PROGRAM_VERSION
 from adapters import AdapterClient,built_in_profiles
 from PIL import Image,ImageTk,ImageGrab
 from strength_guide import draw_force,PowerGuide,select_game_bar
@@ -106,7 +107,7 @@ class App:
             plan['expectedSpeed']=math.trunc(speed) if snapshot.quantize_power else speed
         def run():
             from auto_fire import PowerReader,execute
-            reader=None;attempt={'version':'0.12.7','started':time.time(),'requestedPower':plan['power'],'events':[]}
+            reader=None;attempt={'version':PROGRAM_VERSION,'started':time.time(),'requestedPower':plan['power'],'events':[]}
             try:
                 try:reader=PowerReader(endpoint,target_id)
                 except Exception:
@@ -614,7 +615,7 @@ class App:
         self.shared['source']='experimental' if self.last_live and time.monotonic()-self.last_live<4 else 'manual'
         if '--diagnostics' in sys.argv and time.monotonic()-getattr(self,'diagnostic_clock',0)>1:
             self.diagnostic_clock=time.monotonic()
-            health={'version':'0.12.7','updated':time.time(),'connected':bool(self.last_live and time.monotonic()-self.last_live<4),'map_detected':bool(self.s.environment.get('terrain')),'camera_detected':bool(self.live_camera and self.live_camera.get('renderWidth')),'weather':[w.get('resolvedTypeId') or w.get('typeId') for w in self.s.environment.get('activeWeathers',[])],'players_detected':len(self.live_players),'overlay_visible':bool(self.overlay and self.overlay.visible),'power':self.result.get('power'),'computing':self.computing,'last_error':getattr(self,'last_error',None),'target':self.auto_target_id,'enemies_detected':len(enemies(self.live_players,self.target_hero_id)),'preview_capture':self.preview_visible,'solve_seconds':getattr(self,'last_solve_seconds',None),'shortcut_events':self.shortcut_count,'fire_shortcut_events':self.fire_shortcut_count,'fire_busy':self.fire_busy,'fire_pending':bool(self.pending_fire),'last_fire_message':self.last_fire_message,'page_shortcuts_active':self.page_shortcuts_active,'shortcut_ready':bool(getattr(self,'shortcuts',None) and self.shortcuts.ready),'shortcut_error':getattr(getattr(self,'shortcuts',None),'error',None)}
+            health={'version':PROGRAM_VERSION,'updated':time.time(),'connected':bool(self.last_live and time.monotonic()-self.last_live<4),'map_detected':bool(self.s.environment.get('terrain')),'camera_detected':bool(self.live_camera and self.live_camera.get('renderWidth')),'weather':[w.get('resolvedTypeId') or w.get('typeId') for w in self.s.environment.get('activeWeathers',[])],'players_detected':len(self.live_players),'overlay_visible':bool(self.overlay and self.overlay.visible),'power':self.result.get('power'),'computing':self.computing,'last_error':getattr(self,'last_error',None),'target':self.auto_target_id,'enemies_detected':len(enemies(self.live_players,self.target_hero_id)),'preview_capture':self.preview_visible,'solve_seconds':getattr(self,'last_solve_seconds',None),'shortcut_events':self.shortcut_count,'fire_shortcut_events':self.fire_shortcut_count,'fire_busy':self.fire_busy,'fire_pending':bool(self.pending_fire),'last_fire_message':self.last_fire_message,'page_shortcuts_active':self.page_shortcuts_active,'shortcut_ready':bool(getattr(self,'shortcuts',None) and self.shortcuts.ready),'shortcut_error':getattr(getattr(self,'shortcuts',None),'error',None)}
             try:(BASE/'estado-live.json').write_text(json.dumps(health,indent=2),encoding='utf-8')
             except OSError:pass
 
@@ -662,3 +663,4 @@ if __name__=='__main__':
         root.after(700,lambda:ImageGrab.grab(bbox=(root.winfo_rootx(),root.winfo_rooty(),root.winfo_rootx()+root.winfo_width(),root.winfo_rooty()+root.winfo_height())).save(BASE/'vista-previa.png'))
         root.after(1100,app.close)
     root.mainloop()
+
