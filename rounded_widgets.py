@@ -40,6 +40,7 @@ class RoundedPanel(tk.Frame):
 class RoundedButton(tk.Canvas):
     def __init__(self,master,text='',command=None,**options):
         self.options={'text':text,'command':command,'bg':'#233b4b','fg':'#edf4f1','activebackground':'#305368','activeforeground':'#72dfba','font':('Bahnschrift',10),'padx':14,'pady':10,'state':'normal','takefocus':True}
+        self.options.update({'disabledbackground':None,'disabledforeground':'#718a91','focuscolor':'#72dfba'})
         self.options.update(options);self.hover=False;self.focused=False
         super().__init__(master,bg=master.cget('bg'),highlightthickness=0,cursor='hand2',takefocus=self.options['takefocus'])
         self.bind('<Configure>',lambda e:self.draw())
@@ -65,12 +66,13 @@ class RoundedButton(tk.Canvas):
     def focus(self,on):self.focused=on;self.draw()
     def draw(self):
         o=self.options;w=max(1,self.winfo_width());h=max(1,self.winfo_height())
-        stamp=(w,h,o['text'],str(o['font']),o['bg'],o['fg'],o['activebackground'],o['activeforeground'],o['state'],self.hover,self.focused)
+        stamp=(w,h,o['text'],str(o['font']),o['bg'],o['fg'],o['activebackground'],o['activeforeground'],o['state'],o['disabledbackground'],o['disabledforeground'],o['focuscolor'],self.hover,self.focused)
         if getattr(self,'draw_stamp',None)==stamp:return
         self.draw_stamp=stamp;self.delete('all')
         bg=o['activebackground'] if self.hover else o['bg'];fg=o['activeforeground'] if self.hover else o['fg']
-        rounded(self,1,1,w-2,h-2,20,fill=bg,outline='#72dfba' if self.focused else '',width=1)
-        self.create_text(w/2,h/2,text=o['text'],font=o['font'],fill=fg if o['state']!='disabled' else '#718a91')
+        if o['state']=='disabled':bg=o['disabledbackground'] or o['bg'];fg=o['disabledforeground']
+        rounded(self,1,1,w-2,h-2,20,fill=bg,outline=o['focuscolor'] if self.focused else '',width=1)
+        self.create_text(w/2,h/2,text=o['text'],font=o['font'],fill=fg)
     def click(self,event):
         if 0<=event.x<self.winfo_width() and 0<=event.y<self.winfo_height():self.invoke()
     def invoke(self):

@@ -1,10 +1,22 @@
 import pathlib,sys,tempfile,json,unittest,os
 from unittest.mock import patch
 sys.path.insert(0,str(pathlib.Path(__file__).resolve().parents[1]))
-from launcher import installed_version,calibration_revision,fetch_manifest,CloudError,ConsentSwitch,Launcher
+from launcher import installed_version,calibration_revision,fetch_manifest,CloudError,ConsentSwitch,Launcher,LauncherButton,demo_program,BG
 from app_version import LAUNCHER_VERSION
 
 class VersionTests(unittest.TestCase):
+    def test_demo_finds_only_local_companion_and_never_cloud_client(self):
+        from app_version import PROGRAM_VERSION
+        with tempfile.TemporaryDirectory() as d:
+            base=pathlib.Path(d);(base/'DragonLab-Cloud.exe').write_bytes(b'fixture')
+            self.assertIsNone(demo_program(base));(base/'companion').mkdir()
+            target=base/'companion'/('DragonLab-'+PROGRAM_VERSION+'.exe');target.write_bytes(b'fixture')
+            self.assertEqual(demo_program(base),target)
+            # Use an isolated distribution layout, not a real user's installation.
+            dist=base/'outputs'/'DragonLabCloud'/'cloud-dist';dist.mkdir(parents=True)
+            local=base/'outputs'/'DragonLab';local.mkdir()
+            installed=local/target.name;installed.write_bytes(b'fixture')
+            self.assertEqual(demo_program(dist),installed)
     def test_program_version_requires_installation_not_just_metadata(self):
         with tempfile.TemporaryDirectory() as d:
             root=pathlib.Path(d);(root/'installed-release.json').write_text(json.dumps({'version':'0.12.7'}))
@@ -29,6 +41,32 @@ class VersionTests(unittest.TestCase):
 
 @unittest.skipUnless(os.name=='nt' or os.environ.get('DISPLAY'),'requires desktop')
 class LauncherUITests(unittest.TestCase):
+    def test_demo_automatic_access_is_local_and_logout_stops_launch(self):
+        import tkinter as tk
+        root=tk.Tk();root.withdraw()
+        try:
+            with patch('launcher.CloudClient') as cloud,patch('launcher.fetch_manifest') as manifest,patch('launcher.demo_program',return_value=pathlib.Path('fixture.exe')),patch.object(root,'after',wraps=root.after) as scheduled:
+                app=Launcher(root,demo=True)
+                self.assertTrue(any(c.args==(150,app.enter_demo) for c in scheduled.call_args_list))
+                app.enter_demo();self.assertTrue(app.authenticated);self.assertIsNone(app.client)
+                self.assertEqual(app.login_page.winfo_manager(),'');self.assertEqual(app.privacy.winfo_manager(),'')
+                self.assertEqual(app.update_button.cget('state'),'disabled');self.assertFalse(app.consent.enabled)
+                with patch('launcher.subprocess.Popen') as launch:
+                    app.play();launch.assert_called_once()
+                    app.logout();app.play();launch.assert_called_once()
+                self.assertFalse(app.authenticated);app.login();self.assertTrue(app.authenticated)
+                app.check_update();app.change_consent();cloud.assert_not_called();manifest.assert_not_called()
+        finally:root.destroy()
+    def test_disabled_button_has_legible_separate_colors_and_no_hover_action(self):
+        import tkinter as tk
+        root=tk.Tk();root.withdraw();calls=[]
+        try:
+            button=LauncherButton(root,text='Entrar',bg='#54d7ee',fg=BG,state='disabled',command=lambda:calls.append(1))
+            button.set_hover(True);button.invoke();self.assertEqual(calls,[])
+            polygon=button.find_all()[0];label=button.find_all()[-1]
+            self.assertEqual(button.itemcget(polygon,'fill'),'#26384c')
+            self.assertEqual(button.itemcget(label,'fill'),'#a8b9cf')
+        finally:root.destroy()
     def test_missing_server_disables_login_and_sharing_but_shows_version(self):
         import tkinter as tk
         root=tk.Tk();root.withdraw()
