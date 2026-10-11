@@ -2,7 +2,7 @@
 import tkinter as tk
 from rounded_controls import RoundedChoice,RoundedSwitch,RoundedEntry,RoundedTabs,RoundedTable,RoundedScroll
 from tkinter import ttk
-from rounded_widgets import RoundedPanel
+from rounded_widgets import RoundedPanel,RoundedButton
 from shortcuts import KEYS,validate_bindings
 from ui_shell import BG,PANEL,TEXT,MUTED,GREEN,refresh,apply_layout
 
