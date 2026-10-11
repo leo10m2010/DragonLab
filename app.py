@@ -89,7 +89,7 @@ class App:
             if self.pending_fire is None:self.pending_fire=(time.monotonic()+.8,self.fire_context())
             self.fire_notice('Esperando el cálculo actual para este tiro…');return
         if not self.display_result().get('reachable'):
-            self.fire_notice('Ese ángulo no tiene una fuerza válida');return
+            self.fire_notice(self.display_result().get('reason') or 'Ese ángulo no tiene una fuerza válida');return
         hero=next((p for p in self.live_players if p['id']==self.target_hero_id),None)
         target=next((p for p in self.live_players if p['id']==self.auto_target_id),None)
         if hero and target and (hero.get('stale') or target.get('stale')):
@@ -101,7 +101,7 @@ class App:
         endpoint=self.endpoint.get();target_id=self.browser_target
         def run():
             from auto_fire import PowerReader,execute
-            reader=None;attempt={'version':'0.12.5','started':time.time(),'requestedPower':plan['power'],'events':[]}
+            reader=None;attempt={'version':'0.12.6','started':time.time(),'requestedPower':plan['power'],'events':[]}
             try:
                 try:reader=PowerReader(endpoint,target_id)
                 except Exception:
@@ -346,13 +346,17 @@ class App:
             from performance import Governor
             governor=Governor()
             while not stop.is_set():
-                client=None
+                client=None;shot_events=None
                 try:
                     try:client=AdapterClient(endpoint,target,clone,config)
                     except Exception:
                         if endpoint=='http://127.0.0.1:9222' and target is None:client=AdapterClient('http://127.0.0.1:9223',target,clone,config)
                         else:raise
                     capture=AutoCapture(client);capture.capture_interval=3 if self.performance=='Ligero' else 1.5;client.terrain_interval=5 if self.performance=='Ligero' else 2
+                    if clone=='dragonbound':
+                        from browser_shortcuts import BrowserShotEvents
+                        shot_events=BrowserShotEvents(client.endpoint,client.target['id'],capture.gesture_owner,lambda:self.fire_key,lambda gesture:self.events.put({'status':'fire-gesture','gesture':gesture}))
+                        shot_events.start();self.browser_shot_events=shot_events
                     while not stop.is_set():
                         interval,capture.capture_interval,client.terrain_interval=governor.intervals(self.performance)
                         auto=capture.read(capture=self.preview_visible,fire_key=self.fire_key) if clone=='dragonbound' else {}
@@ -364,6 +368,7 @@ class App:
                 except Exception as e:
                     if not stop.is_set():self.events.put({'status':'waiting','reason':'Buscando el navegador del juego… '+str(e)})
                 finally:
+                    if shot_events:shot_events.close()
                     if client:
                         try:client.close()
                         except Exception:pass
@@ -372,11 +377,7 @@ class App:
     def apply_auto(self,data):
         auto=data.pop('_auto',{});meta=auto.get('geometry',{})
         gesture=auto.get('fire_gesture');self.page_shortcuts_active=isinstance(gesture,dict)
-        if gesture:
-            stamp=(gesture.get('owner'),gesture.get('key'),gesture.get('count'))
-            previous=self.last_page_gesture;self.last_page_gesture=stamp
-            if previous and stamp[:2]==previous[:2] and stamp[2]>previous[2] and 0<=time.time()-gesture.get('at',0)/1000<.8:
-                self.events.put({'status':'fire-shortcut','hero':data.get('heroId')})
+        if self.consume_fire_gesture(gesture):self.events.put({'status':'fire-shortcut','hero':data.get('heroId')})
         if meta.get('windowHandle'):self.game_window=meta['windowHandle']
         self.capture_dpr=meta.get('dpr',1)
         self.game_visible=bool(self.auto_enabled and meta.get('active') and meta.get('focused') and data.get('status')=='live')
@@ -396,6 +397,12 @@ class App:
         self.guide_points=points
         if not self.power_guide:self.power_guide=PowerGuide(self.root,*points)
         self.draw_force()
+    def consume_fire_gesture(self,gesture):
+        if not isinstance(gesture,dict) or not isinstance(gesture.get('owner'),str) or not isinstance(gesture.get('count'),int) or not isinstance(gesture.get('at'),(int,float)):return False
+        stamp=(gesture['owner'],gesture.get('key'),gesture.get('document'),gesture['count']);previous=self.last_page_gesture
+        if previous and stamp[:3]==previous[:3] and stamp[3]<=previous[3]:return False
+        self.last_page_gesture=stamp
+        return stamp[3]>0 and -.05<=time.time()-gesture['at']/1000<.8
     def apply_live(self,d):
         if d.get('status')=='live':d['players']=self.player_tracker.update(d.get('players',[]))
         else:self.player_tracker.reset()
@@ -449,8 +456,8 @@ class App:
         terrain=d.get('terrain')
         self.s.environment={}
         if isinstance(terrain,dict):
-            if terrain.get('surface'):self.s.environment['terrain']={'heights':terrain['surface'],'height':terrain.get('height',1200),'originX':terrain.get('originX',0),'originY':terrain.get('originY',0)}
-            elif terrain.get('rows'):self.s.environment['terrain']=terrain
+            if terrain.get('rows'):self.s.environment['terrain']=terrain
+            elif terrain.get('surface'):self.s.environment['terrain']={'heights':terrain['surface'],'height':terrain.get('height',1200),'originX':terrain.get('originX',0),'originY':terrain.get('originY',0)}
         self.s.environment['activeWeathers']=d.get('weather',[]) if isinstance(d.get('weather'),list) else []
         self.s.environment['hitTolerance']=18
         self.s.environment['players']=[{k:p[k] for k in ('id','x','y','dead') if k in p} for p in ps if p['id']!=hero['id']]
@@ -522,15 +529,19 @@ class App:
             except OSError:pass
             self.result={};self.computing=False;self.dirty=True
         finally:
-            self.root.after(100,self.tick)
+            self.root.after(40 if self.game_visible else 150,self.tick)
     def tick_once(self):
         pending=[]
         while not self.events.empty():pending.append(self.events.get_nowait())
-        live=[e for e in pending if e.get('status') not in ('calculated','target-shortcut','fire-shortcut','fire-finished','cancel-shortcut')]
+        live=[e for e in pending if e.get('status') not in ('calculated','target-shortcut','fire-shortcut','fire-gesture','fire-finished','cancel-shortcut')]
         # Consume the latest state before results/shortcuts; old frames must not
         # delay the game or allow an obsolete calculation to replace a new one.
-        pending=([live[-1]] if live else [])+[e for e in pending if e.get('status') in ('calculated','target-shortcut','fire-shortcut','fire-finished','cancel-shortcut')]
+        pending=([live[-1]] if live else [])+[e for e in pending if e.get('status') in ('calculated','target-shortcut','fire-shortcut','fire-gesture','fire-finished','cancel-shortcut')]
         for event in pending:
+            if event.get('status')=='fire-gesture':
+                if self.consume_fire_gesture(event.get('gesture')):
+                    self.fire_shortcut_count+=1;self.trigger_auto_fire()
+                continue
             if event.get('status')=='cancel-shortcut':
                 self.pending_fire=None;self.fire_cancel.set();continue
             if event.get('status')=='fire-shortcut':
@@ -561,7 +572,7 @@ class App:
                 def calculate(settings=settings,generation=generation,preview_power=preview_power,context=context):
                     try:
                         started=time.perf_counter();result=solve(settings);solve_seconds=time.perf_counter()-started
-                        if not result.get('reachable') and preview_power:
+                        if not result.get('reachable') and not result.get('blocked') and preview_power:
                             from physics_extensions import trajectory
                             preview=trajectory(settings,preview_power,step=.06,include_deployment=True)
                             result['preview_paths']=[[(p[0],p[1]) for p in path] for path in preview['display_paths']];result['preview_power']=preview_power
@@ -577,7 +588,7 @@ class App:
         self.shared['source']='experimental' if self.last_live and time.monotonic()-self.last_live<4 else 'manual'
         if '--diagnostics' in sys.argv and time.monotonic()-getattr(self,'diagnostic_clock',0)>1:
             self.diagnostic_clock=time.monotonic()
-            health={'version':'0.12.5','updated':time.time(),'connected':bool(self.last_live and time.monotonic()-self.last_live<4),'map_detected':bool(self.s.environment.get('terrain')),'camera_detected':bool(self.live_camera and self.live_camera.get('renderWidth')),'weather':[w.get('resolvedTypeId') or w.get('typeId') for w in self.s.environment.get('activeWeathers',[])],'players_detected':len(self.live_players),'overlay_visible':bool(self.overlay and self.overlay.visible),'power':self.result.get('power'),'computing':self.computing,'last_error':getattr(self,'last_error',None),'target':self.auto_target_id,'enemies_detected':len(enemies(self.live_players,self.target_hero_id)),'preview_capture':self.preview_visible,'solve_seconds':getattr(self,'last_solve_seconds',None),'shortcut_events':self.shortcut_count,'fire_shortcut_events':self.fire_shortcut_count,'fire_busy':self.fire_busy,'fire_pending':bool(self.pending_fire),'last_fire_message':self.last_fire_message,'page_shortcuts_active':self.page_shortcuts_active,'shortcut_ready':bool(getattr(self,'shortcuts',None) and self.shortcuts.ready),'shortcut_error':getattr(getattr(self,'shortcuts',None),'error',None)}
+            health={'version':'0.12.6','updated':time.time(),'connected':bool(self.last_live and time.monotonic()-self.last_live<4),'map_detected':bool(self.s.environment.get('terrain')),'camera_detected':bool(self.live_camera and self.live_camera.get('renderWidth')),'weather':[w.get('resolvedTypeId') or w.get('typeId') for w in self.s.environment.get('activeWeathers',[])],'players_detected':len(self.live_players),'overlay_visible':bool(self.overlay and self.overlay.visible),'power':self.result.get('power'),'computing':self.computing,'last_error':getattr(self,'last_error',None),'target':self.auto_target_id,'enemies_detected':len(enemies(self.live_players,self.target_hero_id)),'preview_capture':self.preview_visible,'solve_seconds':getattr(self,'last_solve_seconds',None),'shortcut_events':self.shortcut_count,'fire_shortcut_events':self.fire_shortcut_count,'fire_busy':self.fire_busy,'fire_pending':bool(self.pending_fire),'last_fire_message':self.last_fire_message,'page_shortcuts_active':self.page_shortcuts_active,'shortcut_ready':bool(getattr(self,'shortcuts',None) and self.shortcuts.ready),'shortcut_error':getattr(getattr(self,'shortcuts',None),'error',None)}
             try:(BASE/'estado-live.json').write_text(json.dumps(health,indent=2),encoding='utf-8')
             except OSError:pass
 
@@ -597,8 +608,10 @@ class App:
                 cluster=f' · {r.get("cluster_hits",0)}/{r.get("projectile_count",3)} bolas próximas' if self.s.mobile=="TRICO" and self.s.selected_shot==1 else ""
                 self.details.config(text=f'{"Fuerza aproximada" if r["approximate"] else "Fuerza recomendada"}\n{self.s.mobile} · Tiro {self.s.selected_shot+1 if self.s.selected_shot<2 else "SS"}{cluster}')
             else:
-                self.power.config(text='—');text='Ajusta el ángulo para alcanzar el objetivo'
-                if self.result.get('preview_power'):text+=f'\nVista de trayectoria a fuerza {self.result["preview_power"]:g}'
+                blocked=self.result.get('blocked');reference=self.result.get('guide_power')
+                self.power.config(text=str(reference) if reference is not None else '—',fg=ORANGE)
+                text='Terreno bloquea el tiro · ajusta el ángulo' if blocked else 'Ajusta el ángulo para alcanzar el objetivo'
+                if self.result.get('preview_power'):text+=f'\nReferencia a fuerza {self.result["preview_power"]:g}'
                 self.details.config(text=text)
             if self.server:self.shared={'settings':asdict(self.s),'result':self.result,'camera':self.live_camera,'viewport':self.viewport,'clone':self.clone_id,'updated':time.time()}
         from ui_shell import refresh

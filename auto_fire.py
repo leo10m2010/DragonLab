@@ -51,7 +51,7 @@ def validate(plan,state):
             if player.get(key)!=value:raise RuntimeError('Cambió la posición o el ángulo; vuelve a calcular')
 
 def execute(plan,reader,cancel,backend=None,trace=None):
-    backend=backend or WindowsInput();held=False;method=None;restore=None
+    backend=backend or WindowsInput();held=False;method=None
     def report(stage,**data):
         if trace:
             try:trace({'stage':stage,**data})
@@ -71,7 +71,7 @@ def execute(plan,reader,cancel,backend=None,trace=None):
     try:
         if method=='space':backend.key(True);held=True
         else:
-            x,y=reader.drag_start(plan['window']);restore=backend.cursor();check();backend.move(x,y);last_cursor=(x,y)
+            x,y=reader.drag_start(plan['window']);check();backend.move(x,y);last_cursor=(x,y)
             if not backend.point_in_window(x,y,plan['window']):raise RuntimeError('Otra ventana cubre la zona de arrastre')
             backend.mouse(True);held=True
             # UIDragStart assigns a fresh sensitivity. Never reuse a previous
@@ -101,7 +101,8 @@ def execute(plan,reader,cancel,backend=None,trace=None):
             state=reader.read();check();power=state.get('power')
             # At full charge the native controller can already have released
             # and advanced the turn before our final reading arrives.
-            if plan['power']>=399 and last_power>=380 and power==400 and state.get('turn')!=plan['hero']:
+            full_drag_confirmed=(method=='drag' and state.get('dragStartX')==drag_origin and state.get('dragSens')==sensitivity and isinstance(state.get('dragUpdates'),int) and state['dragUpdates']>move_revision and isinstance(state.get('dragPointX'),(int,float)) and abs(state['dragPointX']-expected_drag_x)<=1)
+            if plan['power']==400 and power==400 and state.get('turn')!=plan['hero'] and (full_drag_confirmed or method=='space' and last_power>=380):
                 return {'power':400,'method':method}
             validate(plan,state)
             if state['mode']!=method:raise RuntimeError('Cambió Slice / Drag; vuelve a pulsar el atajo')
@@ -126,10 +127,10 @@ def execute(plan,reader,cancel,backend=None,trace=None):
             if method=='space':
                 if power>=plan['power']-1:return {'power':power,'method':method}
             else:
-                if abs(power-plan['power'])<=1:
+                if power==plan['power']:
                     report('release',power=power);return {'power':power,'method':method}
                 if power>0:
-                    gain=dx/power;dx+=max(-80,min(80,(plan['power']-power)*gain))
+                    dx+=max(-80,min(80,(plan['power']-power)*sensitivity*dpr))
                 else:dx+=8*plan.get('dpr',1)
                 px=round(x+dx)
                 if not getattr(reader,'drag_box',plan['screenBox'])[0]+5<px<getattr(reader,'drag_box',plan['screenBox'])[2]-5:raise RuntimeError('El arrastre no cabe en la ventana; usa Slice')
@@ -138,9 +139,8 @@ def execute(plan,reader,cancel,backend=None,trace=None):
             if now-start>5 or now-last_change>.7:raise RuntimeError('La carga no responde; entrada liberada')
             time.sleep(.004 if method=='space' else .015)
     finally:
-        try:
-            if held:
-                if method=='space':backend.key(False)
-                else:backend.mouse(False)
-        finally:
-            if restore and backend.foreground()[0]==plan['window'] and last_cursor and math.dist(backend.cursor(),last_cursor)<=3:backend.move(*restore)
+        # SendInput queues the release. Restoring through SetCursorPos before
+        # Chrome consumes mouseup can reset the shot to minimum force.
+        if held:
+            if method=='space':backend.key(False)
+            else:backend.mouse(False)

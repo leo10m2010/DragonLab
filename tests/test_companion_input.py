@@ -57,12 +57,12 @@ class InputTests(unittest.TestCase):
         self.assertEqual(b.actions[:2],[('move',16,130),('mouse',True)])
         self.assertEqual(b.actions[2],('move',round(16+150*1.37),130))
         self.assertEqual(sum(a==('mouse',True) for a in b.actions),1)
-        self.assertFalse(b.held);self.assertEqual(b.point,(450,400))
+        self.assertFalse(b.held);self.assertEqual(b.point,(222,130))
     def test_missing_fresh_sensitivity_releases_without_probe_or_retry(self):
         b=Backend();r=Reader(b)
         r.mutate=lambda s,n:s.update(dragSens=None) if n>=2 else None
         with self.assertRaisesRegex(RuntimeError,'sensibilidad'):self.run_shot(b,r)
-        self.assertEqual(b.actions,[('move',16,130),('mouse',True),('mouse',False),('move',450,400)])
+        self.assertEqual(b.actions,[('move',16,130),('mouse',True),('mouse',False)])
     def test_previous_force_equal_to_target_does_not_release_before_move_ack(self):
         b=Backend();r=Reader(b);events=[]
         def delayed(s,n):
@@ -78,13 +78,18 @@ class InputTests(unittest.TestCase):
         b=Backend();r=Reader(b)
         r.mutate=lambda s,n:s.update(power=350,dragPointX=16,dragUpdates=0) if n==3 else None
         self.run_shot(b,r)
-        self.assertEqual([a for a in b.actions if a[0]=='move'],[('move',16,130),('move',222,130),('move',450,400)])
+        self.assertEqual([a for a in b.actions if a[0]=='move'],[('move',16,130),('move',222,130)])
     def test_charge_does_not_start_never_moves_to_estimate_force(self):
         b=Backend();r=Reader(b)
         r.mutate=lambda s,n:s.update(busy=False) if n>=2 else None
         with patch('auto_fire.time.monotonic',side_effect=[0,0,1]),patch('auto_fire.time.sleep'):
             with self.assertRaisesRegex(RuntimeError,'inició'):execute(plan(),r,threading.Event(),b)
-        self.assertEqual(sum(a[0]=='move' for a in b.actions),2)
+        self.assertEqual(sum(a[0]=='move' for a in b.actions),1)
+    def test_mouseup_is_last_input_no_restore_can_reset_queued_shot(self):
+        b=Backend();r=Reader(b);out=self.run_shot(b,r)
+        self.assertEqual(out['power'],150)
+        self.assertEqual(b.actions[-1],('mouse',False))
+        self.assertEqual(round((b.point[0]-16)/1.37),150)
     def test_slice_waits_for_new_charge_not_previous_force(self):
         b=Backend();r=Reader(b,'space');r.stale=True
         out=self.run_shot(b,r)

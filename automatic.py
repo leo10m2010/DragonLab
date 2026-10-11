@@ -12,11 +12,11 @@ GEOMETRY_JS = r'''(()=>{
 
 # Only this configured action is counted. No key text, chat or storage is read.
 GESTURE_JS = r'''(()=>{
- const owner=__OWNER__,key=__KEY__;
+ const owner=__OWNER__,key=__KEY__,binding=__BINDING__;
  let s=window.__dragonlabShotGesture;
  if(!s||s.owner!==owner||s.key!==key){
   if(s?.handler)window.removeEventListener('keydown',s.handler,true);
-  s={owner,key,count:0,at:0};
+  s={owner,key,count:0,at:0,document:performance.timeOrigin};
   s.handler=e=>{
    if(!e.isTrusted||e.repeat||e.keyCode!==s.key||e.ctrlKey||e.shiftKey||e.altKey||e.metaKey)return;
    const g=document.getElementById('gameScreen');
@@ -24,10 +24,14 @@ GESTURE_JS = r'''(()=>{
    const f=document.activeElement;
    if(['INPUT','TEXTAREA','SELECT'].includes(f?.tagName)||f?.isContentEditable||!document.hasFocus()||document.visibilityState!=='visible')return;
    s.count++;s.at=Date.now();
+   if(s.binding&&typeof window[s.binding]==='function'){
+    try{window[s.binding](JSON.stringify({owner:s.owner,key:s.key,count:s.count,at:s.at,document:s.document}));}catch{}
+   }
   };
   window.addEventListener('keydown',s.handler,true);window.__dragonlabShotGesture=s;
  }
- return {owner:s.owner,key:s.key,count:s.count,at:s.at};
+ if(binding)s.binding=binding;
+ return {owner:s.owner,key:s.key,count:s.count,at:s.at,document:s.document};
 })()'''
 
 def content_origin(meta):
@@ -84,7 +88,7 @@ class AutoCapture:
         out={'geometry':meta,'screen_box':area,'guide_points':points}
         if meta.get('active'):
             from shortcuts import KEYS
-            script=GESTURE_JS.replace('__OWNER__',json.dumps(self.gesture_owner)).replace('__KEY__',str(KEYS[fire_key]))
+            script=GESTURE_JS.replace('__OWNER__',json.dumps(self.gesture_owner)).replace('__KEY__',str(KEYS[fire_key])).replace('__BINDING__','null')
             gesture=self.client.call('Runtime.evaluate',{'expression':script,'returnByValue':True}).get('result',{}).get('value')
             if isinstance(gesture,dict):out['fire_gesture']=gesture
         now=self.clock()
