@@ -48,6 +48,8 @@ def open_settings(app):
     RoundedSwitch(keys,text='Habilitar tiro por atajo',variable=auto,bg=PANEL,fg=TEXT,activebackground=PANEL,activeforeground=TEXT,selectcolor=BG,font=('Bahnschrift',11)).pack(anchor='w',padx=12,pady=(6,0))
     tk.Label(keys,text='Pulsa y suelta el atajo una vez, sin mover ni ajustar ángulo.\nFunciona en tu turno con el juego en primer plano.\nEsc libera la entrada; una carga iniciada puede lanzar parcialmente.',justify='left',bg=PANEL,fg=MUTED,font=('Bahnschrift',10)).pack(anchor='w',padx=16,pady=(5,6))
     speed=section('RENDIMIENTO')
+    from diagnostics_ui import open_diagnostics
+    RoundedButton(speed,text='Ver diagnóstico',command=lambda:open_diagnostics(app)).pack(anchor='w',padx=16,pady=(0,6))
     row=tk.Frame(speed,bg=PANEL);row.pack(fill='x',padx=16)
     tk.Label(row,text='Modo',bg=PANEL,fg=TEXT,font=('Bahnschrift',12)).pack(side='left')
     RoundedChoice(row,textvariable=performance,values=['Auto','Ligero','Normal'],state='readonly',width=10).pack(side='right')

@@ -1,9 +1,9 @@
 name: Companion input checks
 on:
   push:
-    paths: ['app.py','automatic.py','auto_fire.py','firing.py','shortcuts.py','strength_guide.py','trajectories.py','tests/**','.github/workflows/companion-checks.yml']
+    paths: ['*.py','tests/**','.github/workflows/companion-checks.yml']
   pull_request:
-    paths: ['app.py','automatic.py','auto_fire.py','firing.py','shortcuts.py','strength_guide.py','trajectories.py','tests/**','.github/workflows/companion-checks.yml']
+    paths: ['*.py','tests/**','.github/workflows/companion-checks.yml']
 permissions:
   contents: read
 jobs:

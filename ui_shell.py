@@ -3,7 +3,7 @@ import tkinter as tk
 from rounded_controls import RoundedChoice,RoundedSwitch,RoundedEntry,RoundedTabs,RoundedTable,RoundedScroll
 from tkinter import ttk
 from rounded_widgets import RoundedPanel,RoundedButton
-BG='#11191c';PANEL='#1a262b';TEXT='#edf4f1';MUTED='#a4b6b2';GREEN='#72dfba';LINE='#2d4147'
+BG='#11191c';PANEL='#1a262b';TEXT='#edf4f1';MUTED='#a4b6b2';GREEN='#72dfba';ORANGE='#ffb86c';LINE='#2d4147'
 
 def build(app,prefs):
     root=app.root
@@ -49,12 +49,14 @@ def build(app,prefs):
 def refresh(app):
     if hasattr(app,'book'):
         c=app.book.confidence(app.clone_id,app.s.mobile,app.s.selected_shot,app.s.wind)
-        text=c['label']+(f" · {c['count']} tiros" if c['count'] else '')
-        deployment=app.result.get('deployment')
-        if deployment:text+=f"\n{deployment['missiles']} misiles · "+('Apertura estimada' if deployment['complete'] else 'Vuelo corto · apertura estimada')
-        review=getattr(app,'shot_review',None);latest=review.latest if review else None
-        if latest and latest['mobile']==app.s.mobile and latest.get('shot')==app.s.selected_shot:text+=f"\nÚltimo tiro: diferencia {latest['endpoint_error']:g} px"
-        app.confidence.config(text=text,fg=GREEN if c['level']=='measured' else MUTED)
+        result=app.display_result()
+        if not app.has_position_data:text='Aprendiendo · esperando posiciones';color=MUTED
+        elif result.get('blocked'):text='Bloqueado · la roca corta el recorrido';color=ORANGE
+        elif not result.get('reachable'):text='Bloqueado · cambia el ángulo';color=ORANGE
+        elif c['level']=='measured' and not result.get('interactions') and not result.get('deployment') and app.s.mobile not in ('NAK','KALSIDDON','TRICO'):
+            text='Listo · salida calibrada';color=GREEN
+        else:text='Aprendiendo · guía estimada';color=MUTED
+        app.confidence.config(text=text,fg=color)
     app.target_hint.config(text=app.target_key)
     app.fire_hint.config(text=app.fire_key if app.auto_shot_enabled else 'OFF',fg=TEXT if app.auto_shot_enabled else MUTED)
 

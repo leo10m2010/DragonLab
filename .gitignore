@@ -1,3 +1,5 @@
 __pycache__/
 *.pyc
 tests/node_modules/
+casos-regresion/
+ultimo-autotiro.json

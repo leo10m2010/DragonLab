@@ -3,6 +3,9 @@ import math
 from physics_extensions import fit_calibration
 
 def validated_fit(samples):
+    for s in samples:
+        if not isinstance(s,dict) or not all(isinstance(s.get(k),(int,float)) and math.isfinite(s[k]) for k in ('power','vx','vy','ax','ay','wind','wind_angle')):raise ValueError('Muestra incompleta o no finita')
+        if not 1<=s['power']<=400 or not 0<=s['wind']<=100:raise ValueError('Fuerza o viento fuera de rango')
     powers=[s['power'] for s in samples]
     if len(samples)<4 or len(set(powers))<3 or max(powers)-min(powers)<40:raise ValueError('Faltan tiros con fuerzas suficientemente distintas')
     fit=fit_calibration(samples);speeds=[];accelerations=[]
