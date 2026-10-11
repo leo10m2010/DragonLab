@@ -22,7 +22,7 @@ class CDP:
         expected=base64.b64encode(hashlib.sha1((key+'258EAFA5-E914-47DA-95CA-C5AB0DC85B11').encode()).digest())
         if b' 101 ' not in header.split(b'\r\n')[0] or expected not in header:
             self.sock.close();raise RuntimeError('El navegador rechazó la conexión')
-        self.counter=0;self.game=None;self.renderer=None;self.terrain_cache=None;self.terrain_clock=0;self.terrain_turn=None;self.terrain_inflight=False
+        self.counter=0;self.game=None;self.renderer=None;self.terrain_cache=None;self.terrain_clock=0;self.terrain_turn=None;self.terrain_inflight=False;self.endpoint=endpoint;self.event_handler=None
         self.call('Runtime.enable')
 
     def close(self):self.sock.close()
@@ -56,7 +56,9 @@ class CDP:
         self.send(json.dumps({'id':ident,'method':method,'params':params or {}}).encode())
         while True:
             r=self.message()
-            if r.get('id')!=ident:continue
+            if r.get('id')!=ident:
+                if self.event_handler:self.event_handler(r)
+                continue
             if 'error' in r:raise RuntimeError(r['error'].get('message','Error CDP'))
             return r.get('result',{})
     def props(self,oid):return self.call('Runtime.getProperties',{'objectId':oid,'ownProperties':True})
@@ -167,7 +169,7 @@ class CDP:
           let ground=pick(this,["terrain","ground"]),surface=pick(ground,["heights","heightmap","surface"]);
           let terrain=null;
           if(readTerrain&&ground){let image=pick(ground,["imageData"]),pixels=image?.data,w=num(pick(ground,["w","width"]))??image?.width,h=num(pick(ground,["h","height"]))??image?.height;
-            if(pixels&&w>0&&h>0&&w*h<=12000000){let rows=[];for(let y=0;y<h;y++){let row=[],inside=false;for(let x=0;x<w;x++){let opaque=pixels[(y*w+x)*4+3]>0;if(opaque!==inside){row.push(x);inside=opaque;}}if(inside)row.push(w);rows.push(row);}terrain={width:w,height:h,originX:0,originY:0,rows};}
+            if(pixels&&w>0&&h>0&&w*h<=12000000){let rows=[];for(let y=0;y<h;y++){let row=[],inside=false;for(let x=0;x<w;x++){let opaque=pixels[(y*w+x)*4+3]>0;if(opaque!==inside){row.push(x);inside=opaque;}}if(inside)row.push(w);rows.push(row);}terrain={width:w,height:h,originX:0,originY:0,rows,rowsSorted:true};}
             else if(Array.isArray(surface))terrain={surface:surface.slice(0,4096).map(num),originX:num(pick(ground,["originX"]))??0,originY:num(pick(ground,["originY"]))??0};}
           return {status:pick(this,["destructed"])===true?"waiting":"live",players,shots,weather:weatherData,terrain,selectedShot:num(pick(this,["selectedShot","selected_shot"])),currentPower:num(pick(this,["curUIPower","power"])),wind:num(pick(this,["windPower","wind_power","wind"]))??num(pick(meter,["value","power"])),
             windAngle:num(pick(this,["windAngle","wind_angle"]))??num(pick(renderer,["wind_angle"]))??num(pick(meter,["angle","ang"])),

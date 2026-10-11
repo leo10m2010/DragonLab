@@ -6,6 +6,7 @@ the particular server. Unsupported projectile behaviors remain flagged.
 """
 import math
 import statistics
+from bisect import bisect_right
 from dataclasses import replace
 
 EPS=1e-7
@@ -130,6 +131,7 @@ def solid(terrain,x,y):
     rows=terrain.get('rows',terrain.get('runs'))
     if rows is None:return False
     row=rows[iy]
+    if terrain.get('rowsSorted'):return bisect_right(row,ix)%2==1
     return any(lo<=ix<hi for lo,hi in zip(row[::2],row[1::2]))
 
 def variants(s):
@@ -292,13 +294,32 @@ def solve_extended(s):
             cache[power]=(score(candidates) if candidates else (math.inf,),best)
         return cache[power][0]
     tornado,mirror=weather_records(s.environment)
+    fast_power=None
+    if not tornado and not mirror and s.selected_shot==0 and s.mobile not in ('NAK','KALSIDDON') and not s.is_backshot and variants(s)==[{}]:
+        from core import launch,acceleration
+        x,y,side=launch(s);dx=s.target_x-x;dy=s.target_y-y
+        a=math.radians(s.angle+s.angle_offset);c,sn=math.cos(a),math.sin(a);ax,ay=acceleration(s)
+        numerator=2*(dy*c+side*dx*sn);denominator=ay*c+side*ax*sn
+        if abs(denominator)>EPS and numerator/denominator>0:
+            t=math.sqrt(numerator/denominator)
+            speed=side*(dx/t-.5*ax*t)*c-(dy/t-.5*ay*t)*sn
+            exact=(speed-s.speed_offset)/s.power_scale
+            if 1<=exact<=s.max_power and t<=s.max_time:
+                seed=round(exact)
+                candidates=list(range(max(1,seed-2),min(int(s.max_power),seed+2)+1))
+                for candidate in candidates:evaluate(candidate)
+                candidate=min(candidates,key=evaluate)
+                fine=trajectory(s,candidate,step=.02)
+                verified=min((closest(p,s.target_x,s.target_y)[0] for p in fine.get('damage_paths',fine['projectile_paths'])),default=math.inf)
+                if verified<=min(tolerance,max(1,tolerance*.15)):fast_power=candidate
     # Weather creates narrow discontinuities; evaluate every available integer.
-    grid=list(range(1,int(s.max_power)+1,1 if tornado or mirror or cluster or s.mobile=='NAK' and s.selected_shot==2 and s.environment.get('players') else 8));grid.append(int(s.max_power))
+    grid=[] if fast_power is not None else list(range(1,int(s.max_power)+1,1 if tornado or mirror or cluster or s.mobile=='NAK' and s.selected_shot==2 and s.environment.get('players') else 8))
+    if fast_power is None:grid.append(int(s.max_power))
     for p in grid:evaluate(p)
     minima=[p for i,p in enumerate(grid) if (i==0 or evaluate(p)<=evaluate(grid[i-1])) and (i==len(grid)-1 or evaluate(p)<=evaluate(grid[i+1]))]
     for p in minima:
         for fine in range(max(1,p-8),min(int(s.max_power),p+8)+1):evaluate(fine)
-    power=min(cache,key=evaluate);error,end=cache[power][1]
+    power=fast_power if fast_power is not None else min(cache,key=evaluate);error,end=cache[power][1]
     if cluster:
         refined=[]
         for candidate in sorted(cache,key=evaluate)[:12]:
@@ -320,7 +341,7 @@ def solve_extended(s):
     origin=launch(s)
     approximate=s.mobile in SPECIAL or s.selected_shot>0 or bool(s.environment.get('terrain')) or bool(traces['interactions']) or s.weather!='Normal'
     reachable=hit_target or error<=s.environment.get('hitTolerance',35)
-    return {'reachable':reachable,'reason':'' if reachable else 'Ninguna potencia alcanza el objetivo con este ángulo.',
+    result={'reachable':reachable,'reason':'' if reachable else 'Ninguna potencia alcanza el objetivo con este ángulo.',
             'power':power,'exact_power':float(power),'required':power,'time':round(end[2],3),'error':round(error,2),
             'path':[(p[0],p[1]) for p in traces.get('damage_paths',traces['projectile_paths'])[0]],
             'projectile_paths':[[(p[0],p[1]) for p in path] for path in traces['projectile_paths']],
@@ -330,7 +351,14 @@ def solve_extended(s):
             'cluster_hits':sum(c[0]<=tolerance for c in candidates),'projectile_count':len(candidates),
             'distance':round(math.hypot(s.target_x-origin[0],s.target_y-origin[1])),
             'quality':'Modelo de proyectil/clima: requiere validación con el servidor' if approximate else 'Modelo por segmentos',
-            'approximate':approximate,'end':end[:2]}
+            'approximate':approximate,'end':end[:2],'solver':'analytic-verified' if fast_power is not None else 'search'}
+    if not reachable and s.environment.get('terrain') and any(traces['impacts']) and not (s.mobile=='NAK' and s.selected_shot in (1,2)):
+        free_environment={k:v for k,v in s.environment.items() if k!='terrain'}
+        reference=solve_extended(replace(s,environment=free_environment))
+        if reference.get('reachable'):
+            blocked_trace=trajectory(s,reference['power'],step=.02,include_deployment=True)
+            result.update(blocked=True,guide_power=reference['power'],preview_power=reference['power'],preview_paths=[[(p[0],p[1]) for p in path] for path in blocked_trace['display_paths']],reason='El terreno bloquea la salida o el recorrido; ajusta el ángulo.')
+    return result
 
 def fit_calibration(samples):
     """Fit speed scale/offset, gravity and wind coupling from measured starts.

@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import assert from 'node:assert/strict';
 const source=await fs.readFile(new URL('../automatic.py',import.meta.url),'utf8');
 const template=source.match(/GESTURE_JS = r'''([\s\S]*?)'''/)[1];
-const script=template.replace('__OWNER__','"fixture"').replace('__KEY__','81');
+const script=template.replace('__OWNER__','"fixture"').replace('__KEY__','81').replace('__BINDING__','null');
 const browser=await chromium.launch({headless:true,...process.env.CHROME_PATH?{executablePath:process.env.CHROME_PATH}:{}});
 try {
  const page=await browser.newPage();

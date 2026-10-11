@@ -4,18 +4,23 @@ import ctypes,os,math
 
 GREEN='#72dfba';ORANGE='#ffb86c';BG='#101c26';MUTED='#96acb9'
 
+def guide_power(result):
+    value=result.get('power') if result.get('reachable') else result.get('guide_power') if result.get('blocked') else None
+    return value if isinstance(value,(int,float)) and math.isfinite(value) and 0<value<=400 else None
+
 def draw_force(canvas,result,maximum=400,current=None,updating=False):
     canvas.delete('all');w=max(120,canvas.winfo_width());left,right=18,w-18;y=28
     canvas.create_line(left,y,right,y,fill='#294353',width=11,capstyle='round')
     for i in range(5):
         x=left+(right-left)*i/4;canvas.create_line(x,y-8,x,y+8,fill='#708591')
         canvas.create_text(x,y+21,text=f'{maximum*i/4:g}',fill=MUTED,font=('Consolas',9))
-    if result.get('reachable'):
-        power=result['power'];fraction=max(0,min(1,power/maximum));x=left+(right-left)*fraction
+    power=guide_power(result)
+    if power is not None:
+        fraction=max(0,min(1,power/maximum));x=left+(right-left)*fraction
         canvas.create_line(left,y,x,y,fill=GREEN,width=9,capstyle='round')
         canvas.create_line(x,y-15,x,y+13,fill=ORANGE,width=3)
         canvas.create_polygon(x-5,y-17,x+5,y-17,x,y-10,fill=ORANGE)
-        label=f'{"ACTUALIZANDO" if updating else "SUELTA AQUÍ"} · {power:g} / {maximum:g} · {fraction*100:.1f}%'
+        label=f'{"ACTUALIZANDO" if updating else "BLOQUEADO" if result.get("blocked") else "SUELTA AQUÍ"} · {power:g} / {maximum:g} · {fraction*100:.1f}%'
         label_x=max(150,min(w-150,x));canvas.create_text(label_x,9,text=label,fill=ORANGE,font=('Consolas',10,'bold'))
     else:canvas.create_text(w/2,9,text='SIN POTENCIA VÁLIDA',fill=MUTED,font=('Consolas',10))
     if current is not None and isinstance(current,(int,float)) and math.isfinite(current) and 0<=current<=maximum:
@@ -49,8 +54,8 @@ class PowerGuide:
         width=max(320,abs(end[0]-start[0])+32);height=max(65,abs(end[1]-start[1])+65)
         self.win.geometry(f'{width}x{height}{self.x:+d}{self.y:+d}');self.last_draw=None
     def draw(self,result,maximum,updating=False):
-        power=result.get('power') if result.get('reachable') else None
-        key=(power,maximum,self.points,updating)
+        power=guide_power(result)
+        key=(power,maximum,self.points,updating,bool(result.get('blocked')))
         if key==self.last_draw:return
         self.last_draw=key;c=self.canvas
         if power is None:
@@ -63,7 +68,7 @@ class PowerGuide:
         c.coords(self.items[0],*a,*b);c.coords(self.items[1],px,py-22,px,py+12)
         c.coords(self.items[2],px-7,py-24,px+7,py-24,px,py-15)
         c.coords(self.items[3],(a[0]+b[0])/2,min(a[1],b[1])-35)
-        c.itemconfigure(self.items[3],text=f'{"ACTUALIZANDO" if updating else "SUELTA EN"} {power:g} / {maximum:g} · {fraction*100:.1f}%')
+        c.itemconfigure(self.items[3],text=f'{"ACTUALIZANDO" if updating else "TERRENO BLOQUEA" if result.get("blocked") else "SUELTA EN"} {power:g} / {maximum:g} · {fraction*100:.1f}%')
     def close(self):self.win.destroy()
 
 def select_game_bar(app):
