@@ -142,7 +142,13 @@ class App:
         if not fit and getattr(self,'cloud_profiles',None):
             from cloud_profiles import compatible_fit
             fit=compatible_fit(self.cloud_profiles,self.book,self.clone_id,self.s.mobile,self.s.selected_shot,self.s.wind)
+        if fit and self.clone_id=='gunbound-world' and fit.get('native_euler_step') and self.s.wind>fit.get('wind_range',[0,100])[1]:fit=None
+        if not fit and self.clone_id=='gunbound-world' and not self.book.records.get(self.book.key(self.clone_id,self.s.mobile,self.s.selected_shot),{}).get('drift_pending'):
+            from gunbound_profiles import measured_profile
+            fit=measured_profile(self.s.mobile,self.s.selected_shot,self.s.wind)
         self.profile_required=self.clone_id=='gunbound-world' and not fit
+        if fit and fit.get('native_euler_step'):self.s.environment['nativeEulerStep']=fit['native_euler_step']
+        else:self.s.environment.pop('nativeEulerStep',None)
         if not fit:fit=self.book.provisional(self.clone_id,self.s.mobile,self.s.selected_shot,self.s.wind,self.s.wind_angle)
         observed=self.book.acceleration(self.clone_id,self.s.mobile,self.s.selected_shot,self.s.wind,self.s.wind_angle)
         if observed:self.s.environment['observedAcceleration']=observed
@@ -309,7 +315,7 @@ class App:
     def draw_force(self):
         r=self.display_result();updating=self.dirty or self.computing
         if hasattr(self,'force_canvas'):draw_force(self.force_canvas,r,self.s.max_power,self.current_game_power,updating)
-        if self.clone_id=='gunbound-world' and not r.get('reachable') and not r.get('blocked') and not updating:r={**r,'guide_message':'GunBound World · falta calibrar fuerza'}
+        if self.clone_id=='gunbound-world' and getattr(self,'profile_required',True) and not r.get('reachable') and not r.get('blocked') and not updating:r={**r,'guide_message':'GunBound World · falta calibrar fuerza'}
         if self.power_guide:self.power_guide.draw(r,self.s.max_power,updating)
     def hide_power_guide(self):
         if self.power_guide:self.power_guide.close();self.power_guide=None
@@ -643,7 +649,7 @@ class App:
             self.last_computed=time.monotonic()
             if self.result.get('reachable'):
                 r=self.result
-                if self.clone_id=='gunbound-world' and self.profile_key() not in self.profiles:r['quality']='GunBound World: perfil sin calibrar · '+r['quality'];r['approximate']=True
+                if self.clone_id=='gunbound-world':r['quality']='Salida medida · viento aproximado' if not getattr(self,'profile_required',True) else 'GunBound World: perfil sin calibrar';r['approximate']=True
                 self.power.config(text=str(r['power']),fg=ORANGE if r['approximate'] else GREEN)
                 cluster=f' · {r.get("cluster_hits",0)}/{r.get("projectile_count",3)} bolas próximas' if self.s.mobile=="TRICO" and self.s.selected_shot==1 else ""
                 self.details.config(text=f'{"Fuerza aproximada" if r["approximate"] else "Fuerza recomendada"}\n{self.s.mobile} · Tiro {self.s.selected_shot+1 if self.s.selected_shot<2 else "SS"}{cluster}')

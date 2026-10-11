@@ -111,7 +111,7 @@ class AdapterClient(CDP):
             self.call('Debugger.disable')
 
     def _controller_state(self, cid):
-        result=self.call('Runtime.callFunctionOn',{'objectId':cid,'functionDeclaration':'function(){return this.room?.state??this.room?.serializer?.state??this.room?.serializer?.decoder?.state??null}', 'objectGroup':'dragonlab-discovery'})
+        result=self.call('Runtime.callFunctionOn',{'objectId':cid,'functionDeclaration':'function(){if(this.destroyed===true||this.renderSurface&&this.renderSurface!=="live")return null;return this.room?.state??this.room?.serializer?.state??this.room?.serializer?.decoder?.state??null}', 'objectGroup':'dragonlab-discovery'})
         sid=result.get('result',{}).get('objectId')
         if sid and 'players' in {p['name'] for p in self.props(sid).get('result',[])}:
             self.controller=cid
@@ -152,6 +152,8 @@ class AdapterClient(CDP):
                                     if not prototype:continue
                                     instances=self.call('Runtime.queryObjects',{'prototypeObjectId':prototype,'objectGroup':'dragonlab-discovery'}).get('objects',{}).get('objectId')
                                     if not instances:continue
+                                    instances=self.call('Runtime.callFunctionOn',{'objectId':instances,'functionDeclaration':'function(){return this.filter(v=>v&&v.destroyed!==true&&v.renderSurface==="live").slice(0,8)}','objectGroup':'dragonlab-discovery'}).get('result',{}).get('objectId')
+                                    if not instances:continue
                                     for item in self.props(instances).get('result',[])[:8]:
                                         if not item['name'].isdigit():continue
                                         cid=item.get('value',{}).get('objectId')
@@ -177,7 +179,7 @@ class AdapterClient(CDP):
         else:
             result = self._generic_sample()
         result['adapter'] = self.profile['id']
-        if self.profile['id']=='gunbound-world' and result.get('windAngle') is not None:result['windAngle']=(90-result['windAngle'])%360
+        # Measured projectile acceleration uses the game's angle directly.
         result['compatibility'] = self.profile.get('compatibility', 'Experimental')
         return result
 
@@ -215,12 +217,13 @@ class AdapterClient(CDP):
             return {'status': 'waiting', 'reason': 'El estado cambió; esperando una estructura compatible'}
         sample=result.get('result', {}).get('value', {'status': 'waiting'})
         if self.profile['id']=='gunbound-world' and self.controller:
-            info=self.call('Runtime.callFunctionOn',{'objectId':self.controller,'functionDeclaration':'''function(){const s=this.room?.state,p=s?.players?.get(this.myId),m=this.world?.worldTransform,z=this.stageSize;return {heroId:this.myId,activePlayer:s?.activePlayerId,currentPower:this.power,localAngle:this.angle,selectedShot:({shot1:0,shot2:1,ss:2})[p?.selectedShot],camera:m&&z?{matrix:{a:m.a,b:m.b,c:m.c,d:m.d,tx:m.tx,ty:m.ty},renderWidth:z.width,renderHeight:z.height}:null}}''','returnByValue':True}).get('result',{}).get('value',{})
+            info=self.call('Runtime.callFunctionOn',{'objectId':self.controller,'functionDeclaration':'''function(){const s=this.room?.state,p=s?.players?.get(this.myId),m=this.world?.worldTransform,z=this.stageSize,rear=['nak','aduka'].includes(p?.mobileId),right=(p?.facing==='right')!==rear,world=(right?this.angle:180-this.angle)-(p?.bodyTilt??0);return {heroId:this.myId,activePlayer:s?.activePlayerId,currentPower:this.power,localAngle:right?world:180-world,muzzles:p?.mobileId==='armor'?[{angle:52,radius:33}]:[],selectedShot:({shot1:0,shot2:1,ss:2})[p?.selectedShot],camera:m&&z?{matrix:{a:m.a,b:m.b,c:m.c,d:m.d,tx:m.tx,ty:m.ty},renderWidth:z.width,renderHeight:z.height}:null}}''','returnByValue':True}).get('result',{}).get('value',{})
             sample.update(info)
             hero=next((p for p in sample.get('players',[]) if p.get('id')==info.get('heroId')),None)
             if hero and isinstance(info.get('localAngle'),(int,float)):
                 hero['angle']=info['localAngle']
                 hero['isHero']=True
+                hero['muzzles']=info.get('muzzles',[])
             if sample.get('phase') not in ('TURN','RESOLVING'):
                 sample['status']='waiting'
                 sample['reason']='Esperando una partida activa de GunBound World'

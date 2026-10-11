@@ -45,6 +45,9 @@ def segments(s,power):
     if s.quantize_power:speed=math.trunc(speed)
     vx=side*math.cos(angle)*speed;vy=-math.sin(angle)*speed
     ax,ay=acceleration(s);base=(ax,ay)
+    native_step=s.environment.get('nativeEulerStep',0)
+    if native_step:
+        vx-=ax*native_step/2;vy-=ay*native_step/2
     tornado,mirrors=weather_records(s.environment)
     entered=set();active=None;clock=0;result=[];events=[]
     for _ in range(max(8,len(tornado)*5+4,64 if mirrors else 0)):
@@ -295,7 +298,7 @@ def solve_extended(s):
         return cache[power][0]
     tornado,mirror=weather_records(s.environment)
     fast_power=None
-    if not tornado and not mirror and s.selected_shot==0 and s.mobile not in ('NAK','KALSIDDON') and not s.is_backshot and variants(s)==[{}]:
+    if not s.environment.get('nativeEulerStep') and not tornado and not mirror and s.selected_shot==0 and s.mobile not in ('NAK','KALSIDDON') and not s.is_backshot and variants(s)==[{}]:
         from core import launch,acceleration
         x,y,side=launch(s);dx=s.target_x-x;dy=s.target_y-y
         a=math.radians(s.angle+s.angle_offset);c,sn=math.cos(a),math.sin(a);ax,ay=acceleration(s)

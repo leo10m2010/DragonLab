@@ -9,7 +9,7 @@ def capture_status(app):
     if not app.has_position_data:return 'Identificando jugadores','Esperando identificar tu jugador y un enemigo vivo.'
     if app.dirty or app.computing:return 'Calculando','Actualizando la fuerza con el ángulo y el objetivo actuales.'
     if guide_power(app.result) is None:
-        if app.clone_id=='gunbound-world':return 'Sin calibración','GunBound World necesita un perfil de fuerza propio. No hay potencia validada para este tiro.'
+        if app.clone_id=='gunbound-world' and getattr(app,'profile_required',True):return 'Sin calibración','GunBound World necesita un perfil de fuerza propio. No hay potencia validada para este tiro.'
         return 'Sin potencia válida',app.result.get('reason') or 'Este tiro necesita otro ángulo u objetivo.'
     if not app.game_visible:return 'Guía preparada','Vuelve al juego para ver la guía sobre la barra.'
     if not app.guide_points:return 'Buscando barra','Los jugadores están detectados; esperando ubicar la barra de fuerza.'
