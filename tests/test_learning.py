@@ -1,4 +1,4 @@
-import sys,pathlib,tempfile,unittest,math,json,threading
+import sys,pathlib,tempfile,unittest,math,json,threading,os
 from unittest.mock import patch
 sys.path.insert(0,str(pathlib.Path(__file__).resolve().parents[1]))
 from learning_guard import update
@@ -25,6 +25,19 @@ def shot(index=1,owner=None,power=None):
 def state(projectiles=None):return {'status':'live','heroId':0,'activePlayer':0,'selectedShot':0,'currentPower':150,'wind':0,'windAngle':90,'players':[{'id':0,'x':10,'y':20,'mobile':0,'isHero':True},{'id':1,'x':500,'y':20,'mobile':0}],'shots':projectiles or []}
 
 class LearningTests(unittest.TestCase):
+    def test_book_observation_keeps_modes_separate_and_persists_validation(self):
+        with tempfile.TemporaryDirectory() as d:
+            path=pathlib.Path(d)/'book.json';book=CalibrationBook(path)
+            for mode in (0,1,2):
+                for index,power in enumerate((100,180,260,340,120,220,320)):
+                    projectile=shot(index=mode*10+index,owner=0,power=power)
+                    projectile['start']=[10,20,0,power*2,0,400];projectile['shotType']=mode
+                    live=state([projectile]);live['selectedShot']=(mode+1)%3;live['currentPower']=0
+                    book.observe(live)
+                self.assertIsNotNone(book.profile('dragonbound','ARMOR',mode,0))
+            restored=CalibrationBook(path)
+            self.assertEqual(len(restored.records),3)
+            self.assertTrue(all(len(r['accepted_validation'])==3 for r in restored.records.values()))
     def test_disabling_drifted_fit_resets_previously_applied_values(self):
         class Var:
             def __init__(self,v):self.v=str(v)
@@ -177,6 +190,19 @@ class GovernorTests(unittest.TestCase):
         self.assertEqual(g.intervals('Normal')[0],.25)
 
 class UIAndDataTests(unittest.TestCase):
+    @unittest.skipUnless(os.name=='nt' or os.environ.get('DISPLAY'),'requires desktop display')
+    def test_settings_and_diagnostics_open(self):
+        import tkinter as tk
+        from simple_settings import open_settings
+        from diagnostics_ui import open_diagnostics
+        root=tk.Tk();root.withdraw();app=None
+        try:
+            with patch.object(sys,'argv',['test','--no-auto']):app=App(root)
+            open_settings(app);open_diagnostics(app);root.update_idletasks()
+            self.assertGreaterEqual(sum(isinstance(w,tk.Toplevel) for w in root.winfo_children()),2)
+        finally:
+            if app:app.close()
+            else:root.destroy()
     def test_three_simple_states_and_special_vehicle_stays_learning(self):
         class Widget:
             def config(self,**values):self.values=values
