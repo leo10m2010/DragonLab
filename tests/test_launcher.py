@@ -1,7 +1,7 @@
 import pathlib,sys,tempfile,json,unittest,os
 from unittest.mock import patch
 sys.path.insert(0,str(pathlib.Path(__file__).resolve().parents[1]))
-from launcher import installed_version,calibration_revision,fetch_manifest,CloudError,ConsentSwitch,Launcher,LauncherButton,demo_program,BG
+from launcher import installed_version,calibration_revision,fetch_manifest,CloudError,ConsentSwitch,Launcher,LauncherButton,BG
 from app_version import LAUNCHER_VERSION
 
 def destroy_root(root):
@@ -9,18 +9,6 @@ def destroy_root(root):
     root.update_idletasks();root.destroy()
 
 class VersionTests(unittest.TestCase):
-    def test_demo_finds_only_local_companion_and_never_cloud_client(self):
-        from app_version import PROGRAM_VERSION
-        with tempfile.TemporaryDirectory() as d:
-            base=pathlib.Path(d);(base/'DragonLab-Cloud.exe').write_bytes(b'fixture')
-            self.assertIsNone(demo_program(base));(base/'companion').mkdir()
-            target=base/'companion'/('DragonLab-'+PROGRAM_VERSION+'.exe');target.write_bytes(b'fixture')
-            self.assertEqual(demo_program(base),target)
-            # Use an isolated distribution layout, not a real user's installation.
-            dist=base/'outputs'/'DragonLabCloud'/'cloud-dist';dist.mkdir(parents=True)
-            local=base/'outputs'/'DragonLab';local.mkdir()
-            installed=local/target.name;installed.write_bytes(b'fixture')
-            self.assertEqual(demo_program(dist),installed)
     def test_program_version_requires_installation_not_just_metadata(self):
         with tempfile.TemporaryDirectory() as d:
             root=pathlib.Path(d);(root/'installed-release.json').write_text(json.dumps({'version':'0.12.7'}))
@@ -45,38 +33,53 @@ class VersionTests(unittest.TestCase):
 
 @unittest.skipUnless(os.name=='nt' or os.environ.get('DISPLAY'),'requires desktop')
 class LauncherUITests(unittest.TestCase):
-    def test_demo_automatic_access_is_local_and_logout_stops_launch(self):
+    def test_production_build_does_not_allow_demo_flag_to_skip_login(self):
         import tkinter as tk
         root=tk.Tk();root.withdraw()
         try:
-            with patch('launcher.CloudClient') as cloud,patch('launcher.fetch_manifest') as manifest,patch('launcher.demo_program',return_value=pathlib.Path('fixture.exe')),patch.object(root,'after',wraps=root.after) as scheduled:
-                app=Launcher(root,demo=True)
-                self.assertTrue(any(c.args==(150,app.enter_demo) for c in scheduled.call_args_list))
-                app.enter_demo();self.assertTrue(app.authenticated);self.assertIsNone(app.client)
-                self.assertEqual(app.login_page.winfo_manager(),'');self.assertEqual(app.privacy.winfo_manager(),'')
-                self.assertEqual(app.update_button.cget('state'),'disabled');self.assertFalse(app.consent.enabled)
-                with patch('launcher.subprocess.Popen') as launch:
-                    launch.return_value.poll.return_value=None
-                    app.play();launch.assert_called_once()
-                    app.logout();app.play();launch.assert_called_once()
-                self.assertFalse(app.authenticated);app.login();self.assertTrue(app.authenticated)
+            with patch('launcher.DEMO_ALLOWED',False),patch('launcher.CloudClient',side_effect=CloudError('No configuration')),patch('launcher.EngineHost') as engine:
+                app=Launcher(root,demo=True);app.enter_demo();app.play()
+                self.assertFalse(app.demo);self.assertFalse(app.authenticated);engine.assert_not_called()
+        finally:destroy_root(root)
+    def test_older_cloud_release_cannot_reopen_legacy_companion_or_downgrade(self):
+        import tkinter as tk
+        from types import SimpleNamespace
+        root=tk.Tk();root.withdraw()
+        with tempfile.TemporaryDirectory() as d:
+            account={'active':True};client=SimpleNamespace(session=None,account=account,directory=pathlib.Path(d),config={'githubRepo':'leo10m2010/DragonLab'},require_access=lambda:account)
+            try:
+                with patch('launcher.CloudClient',return_value=client),patch('launcher.EngineHost') as engine,patch('launcher.fetch_manifest',return_value={'version':'0.12.11'}),patch('launcher.subprocess.Popen') as process:
+                    app=Launcher(root);app.show_account(account)
+                    with patch.object(app,'run',side_effect=lambda work,done:app.finish(work(),None,done)):app.play()
+                    engine.assert_called_once();engine.return_value.start.assert_called_once_with('dragonbound');process.assert_not_called()
+            finally:destroy_root(root)
+    def test_demo_automatic_access_runs_one_embedded_engine_and_logout_stops_it(self):
+        import tkinter as tk
+        root=tk.Tk();root.withdraw()
+        try:
+            with patch('launcher.CloudClient') as cloud,patch('launcher.fetch_manifest') as manifest,patch('launcher.EngineHost') as engine:
+                engine.return_value.start.return_value=True
+                app=Launcher(root,demo=True);app.enter_demo()
+                self.assertTrue(app.authenticated);self.assertIsNone(app.client)
+                with patch('launcher.subprocess.Popen') as process:
+                    app.play();app.play();engine.assert_called_once();engine.return_value.start.assert_called_once_with('dragonbound');process.assert_not_called()
+                    self.assertNotEqual(root.state(),'normal') # Test root stays withdrawn; play never creates/shows another panel.
+                    app.logout();engine.return_value.stop.assert_called_once();app.play();engine.assert_called_once()
                 app.check_update();app.change_consent();cloud.assert_not_called();manifest.assert_not_called()
         finally:destroy_root(root)
-    def test_repeat_play_launches_once_and_failed_spawn_can_retry(self):
+    def test_failed_engine_can_retry_and_game_switch_stops_previous_capture(self):
         import tkinter as tk
         root=tk.Tk();root.withdraw()
         try:
-            with patch('launcher.demo_program',return_value=pathlib.Path('fixture.exe')):
+            with patch('launcher.EngineHost') as host:
                 app=Launcher(root,demo=True);app.enter_demo()
-                with patch('launcher.subprocess.Popen',side_effect=OSError('fixture')):app.play()
-                self.assertIsNone(app.child);self.assertIn('No se pudo',app.status.cget('text'))
-                with patch('launcher.subprocess.Popen') as launch:
-                    launch.return_value.poll.return_value=None
-                    app.play();app.play();launch.assert_called_once()
-                    self.assertIn('--open-game',launch.call_args.args[0])
-                    self.assertEqual(app.play_button.cget('state'),'disabled')
-                    launch.return_value.poll.return_value=0;launch.return_value.returncode=0
-                    app.poll();self.assertIsNone(app.child);self.assertEqual(app.play_button.cget('state'),'normal')
+                host.side_effect=OSError('fixture');app.play();self.assertIsNone(app.engine)
+                self.assertIn('No se pudo',app.status.cget('text'))
+                host.side_effect=None;host.return_value.start.return_value=True;host.return_value.app.clone_id='dragonbound'
+                app.play();self.assertIsNotNone(app.engine)
+                app.game.set('GunBound World');host.return_value.stop.assert_called_once();self.assertIsNone(app.engine)
+                app.play();host.return_value.start.assert_called_with('gunbound-world')
+                self.assertIn('Q desactivado',app.game_note.cget('text'))
         finally:destroy_root(root)
     def test_help_opens_only_one_dialog_and_keeps_instructions_in_same_design(self):
         import tkinter as tk

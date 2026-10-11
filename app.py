@@ -21,7 +21,7 @@ ASSETS=pathlib.Path(getattr(sys,'_MEIPASS',BASE))
 BG='#11191c'; PANEL='#1a262b'; TEXT='#edf4f1'; MUTED='#a4b6b2'; GREEN='#72dfba'; ORANGE='#ffb86c'
 
 class App:
-    def __init__(self,root):
+    def __init__(self,root,embedded=False):
         self.root=root;root.title('DragonLab');root.geometry('760x620');root.minsize(680,620);root.configure(bg=BG)
         self.s=Settings();self.vars={};self.image=None;self.photo=None;self.mode='target';self.result={};self.overlay=None
         self.screen_box=None;self.events=queue.Queue();self.live_stop=threading.Event();self.worker=None;self.live_players=[];self.last_live=0;self.live_camera=None
@@ -60,8 +60,9 @@ class App:
         self.profile_path=BASE/'perfiles.json'
         try:self.profiles=json.loads(self.profile_path.read_text(encoding='utf-8'))
         except (OSError,ValueError):pass
-        self.game_window=None;self.shortcut_count=0;self.preview_visible=False;self.terrain_revision=0;self.last_terrain=None;self.change_mobile();self.tick();self.start_target_shortcut()
-        if '--smoke' not in sys.argv and '--no-auto' not in sys.argv and '--check' not in sys.argv:root.after(300,self.toggle_live)
+        self.game_window=None;self.shortcut_count=0;self.preview_visible=False;self.terrain_revision=0;self.last_terrain=None;self.change_mobile();self.tick()
+        if not (embedded and '--check' in sys.argv):self.start_target_shortcut()
+        if not embedded and '--smoke' not in sys.argv and '--no-auto' not in sys.argv and '--check' not in sys.argv:root.after(300,self.toggle_live)
 
     def open_settings(self):
         from simple_settings import open_settings
@@ -346,13 +347,17 @@ class App:
         import subprocess
         candidates=[pathlib.Path(os.environ.get('PROGRAMFILES','C:/Program Files'))/'Google/Chrome/Application/chrome.exe',pathlib.Path(os.environ.get('PROGRAMFILES(X86)','C:/Program Files (x86)'))/'Google/Chrome/Application/chrome.exe',pathlib.Path(os.environ.get('LOCALAPPDATA',''))/'Google/Chrome/Application/chrome.exe',pathlib.Path(os.environ.get('PROGRAMFILES(X86)','C:/Program Files (x86)'))/'Microsoft/Edge/Application/msedge.exe']
         browser=next((p for p in candidates if p.is_file()),None)
-        if browser is None:messagebox.showerror('Navegador','Instala Chrome o Edge para abrir DragonBound.',parent=self.root);self.root.deiconify();return False
+        parent=getattr(self,'ui_parent',self.root)
+        if browser is None:messagebox.showerror('Navegador','Instala Chrome o Edge para abrir el juego.',parent=parent);return False
         profile=pathlib.Path(os.environ.get('LOCALAPPDATA',str(BASE)))/'DragonLab/Browser'
         from game_startup import activate_existing_game
-        if not activate_existing_game():
-            try:subprocess.Popen([str(browser),'--remote-debugging-port=9223','--user-data-dir='+str(profile),'https://dragonbound.net/'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+        from game_catalog import game_by_id
+        game=game_by_id(self.clone_id)
+        if not game:messagebox.showerror('Juego','Selecciona un juego disponible.',parent=parent);return False
+        if not activate_existing_game(host=game['host']):
+            try:subprocess.Popen([str(browser),'--remote-debugging-port=9223','--user-data-dir='+str(profile),game['url']],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
             except OSError:
-                self.root.deiconify();messagebox.showerror('Navegador','No se pudo abrir el navegador. Vuelve a intentarlo.',parent=self.root);return False
+                messagebox.showerror('Navegador','No se pudo abrir el navegador. Vuelve a intentarlo.',parent=parent);return False
         self.endpoint.set('http://127.0.0.1:9223');self.live_stop.set()
         def restart():
             if self.worker and self.worker.is_alive():self.root.after(200,restart)

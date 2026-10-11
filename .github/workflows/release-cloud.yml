@@ -21,7 +21,9 @@ jobs:
           CLOUD_VERSION: ${{ inputs.version }}
         run: python cloud/stamp_version.py
       - name: Build launcher
-        run: python -m PyInstaller --noconfirm --onefile --windowed --name DragonLab-Launcher --distpath cloud-dist --workpath cloud-build/launcher --specpath cloud-build launcher.py
+        run: |
+          $launcherViewerAsset=(Resolve-Path viewer.html).Path
+          python -m PyInstaller --noconfirm --onefile --windowed --exclude-module numpy --add-data "$launcherViewerAsset;." --name DragonLab-Launcher --distpath cloud-dist --workpath cloud-build/launcher --specpath cloud-build launcher.py
       - name: Build licensed client
         run: |
           $cloudViewerAsset=(Resolve-Path viewer.html).Path

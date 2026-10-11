@@ -9,7 +9,7 @@ from ui_shell import BG,PANEL,TEXT,MUTED,GREEN,refresh,apply_layout
 def open_settings(app):
     existing=getattr(app,'settings_window',None)
     if existing and existing.winfo_exists():existing.lift();return existing
-    win=tk.Toplevel(app.root);app.settings_window=win;win.title('DragonLab · Ajustes');height=min(720,max(540,win.winfo_screenheight()-100));win.geometry(f'620x{height}');win.minsize(620,min(640,height));win.configure(bg=BG)
+    win=tk.Toplevel(getattr(app,'ui_parent',app.root));app.settings_window=win;win.title('DragonLab · Ajustes');height=min(720,max(540,win.winfo_screenheight()-100));win.geometry(f'620x{height}');win.minsize(620,min(640,height));win.configure(bg=BG)
     tk.Label(win,text='Ajustes',bg=BG,fg=TEXT,font=('Bahnschrift',25,'bold')).pack(anchor='w',padx=26,pady=(18,4))
     tk.Label(win,text='Guía y controles',bg=BG,fg=MUTED,font=('Bahnschrift',11)).pack(anchor='w',padx=26,pady=(0,14))
     feedback=tk.Label(win,text='',bg=BG,fg='#ffb86c',font=('Bahnschrift',10),wraplength=440);feedback.pack(fill='x',padx=26)
@@ -30,7 +30,9 @@ def open_settings(app):
     display=section('EN EL JUEGO')
     paths=tk.BooleanVar(value=app.trajectory_enabled.get());guide=tk.BooleanVar(value=app.guide_enabled.get());auto=tk.BooleanVar(value=app.auto_shot_enabled)
     compact=tk.BooleanVar(value=app.compact);large=tk.BooleanVar(value=app.large_text)
-    for text,var in [('Trayectorias de las balas',paths),('Marca de fuerza recomendada',guide),('Ventana compacta',compact),('Texto grande',large)]:
+    options=[('Trayectorias de las balas',paths),('Marca de fuerza recomendada',guide)]
+    if not getattr(app,'embedded',False):options += [('Ventana compacta',compact),('Texto grande',large)]
+    for text,var in options:
         RoundedSwitch(display,text=text,variable=var,bg=PANEL,fg=TEXT,activebackground=PANEL,activeforeground=TEXT,selectcolor=BG,font=('Bahnschrift',12),padx=3,pady=2).pack(anchor='w',padx=12)
     tk.Frame(display,bg=PANEL,height=4).pack()
     colors=tk.StringVar(value=app.path_color);width=tk.StringVar(value=str(app.path_width))
@@ -49,7 +51,7 @@ def open_settings(app):
     tk.Label(keys,text='Pulsa y suelta el atajo una vez, sin mover ni ajustar ángulo.\nFunciona en tu turno con el juego en primer plano.\nEsc libera la entrada; una carga iniciada puede lanzar parcialmente.',justify='left',bg=PANEL,fg=MUTED,font=('Bahnschrift',10)).pack(anchor='w',padx=16,pady=(5,6))
     speed=section('RENDIMIENTO')
     from diagnostics_ui import open_diagnostics
-    RoundedButton(speed,text='Ver diagnóstico',command=lambda:open_diagnostics(app)).pack(anchor='w',padx=16,pady=(0,6))
+    if not getattr(app,'embedded',False):RoundedButton(speed,text='Ver diagnóstico',command=lambda:open_diagnostics(app)).pack(anchor='w',padx=16,pady=(0,6))
     row=tk.Frame(speed,bg=PANEL);row.pack(fill='x',padx=16)
     tk.Label(row,text='Modo',bg=PANEL,fg=TEXT,font=('Bahnschrift',12)).pack(side='left')
     RoundedChoice(row,textvariable=performance,values=['Auto','Ligero','Normal'],state='readonly',width=10).pack(side='right')
@@ -65,6 +67,6 @@ def open_settings(app):
     def advanced():
         from settings_panel import open_settings as tools
         win.destroy();tools(app)
-    app.button(actions,'Opciones avanzadas',advanced).pack(side='left')
+    if not getattr(app,'embedded',False):app.button(actions,'Opciones avanzadas',advanced).pack(side='left')
     save_button=app.button(actions,'Guardar cambios',save);save_button.configure(bg=GREEN,fg=BG,activebackground='#9beacd',activeforeground=BG);save_button.pack(side='right')
     win.bind('<Escape>',lambda e:win.destroy());return win

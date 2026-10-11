@@ -17,6 +17,13 @@ class StartupTests(unittest.TestCase):
     def test_wrong_hostname_is_not_a_reusable_game(self):
         with patch('game_startup.urllib.request.urlopen',return_value=self.response([{'type':'page','url':'https://dragonbound.net.evil.example/','id':'wrong'}])) as read:
             self.assertFalse(activate_existing_game());self.assertEqual(read.call_count,1)
+    def test_gunbound_selection_reuses_only_the_gunbound_tab(self):
+        targets=[{'type':'page','url':'https://dragonbound.net/','id':'dragon'}, {'type':'page','url':'https://play.gunbound.world/','id':'gunbound'}]
+        with patch('game_startup.urllib.request.urlopen',side_effect=[self.response(targets),self.response({})]) as read:
+            self.assertTrue(activate_existing_game(host='play.gunbound.world'))
+            self.assertTrue(read.call_args.args[0].endswith('/gunbound'))
+    def test_unknown_game_host_is_rejected(self):
+        with self.assertRaises(ValueError):activate_existing_game(host='evil.example')
     def test_unavailable_browser_falls_back_to_normal_startup(self):
         with patch('game_startup.urllib.request.urlopen',side_effect=OSError()):self.assertFalse(activate_existing_game())
     @unittest.skipUnless(os.name=='nt','Windows mutex')

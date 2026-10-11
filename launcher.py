@@ -1,12 +1,14 @@
 """Native launcher: explicit license, installed versions and verified updates."""
-import json,pathlib,subprocess,sys,threading,queue,urllib.request,webbrowser,tkinter as tk,re,hashlib
+import json,pathlib,subprocess,sys,threading,queue,urllib.request,webbrowser,tkinter as tk,re,hashlib,time
 from tkinter import messagebox
 from datetime import datetime
 from rounded_widgets import RoundedButton,RoundedPanel
-from rounded_controls import RoundedEntry,RoundedSwitch
+from rounded_controls import RoundedEntry,RoundedSwitch,RoundedChoice
 from cloud_client import CloudClient,CloudError,download_verified
 from local_storage import atomic_write
-from app_version import LAUNCHER_VERSION,PROGRAM_VERSION
+from app_version import LAUNCHER_VERSION,PROGRAM_VERSION,DEMO_ALLOWED
+from engine_host import EngineHost
+from game_catalog import GAMES
 from desktop_shell import style_window,drag_handle,SingleInstance,restore_launcher
 BASE=pathlib.Path(sys.executable).parent if getattr(sys,'frozen',False) else pathlib.Path(__file__).parent
 BG='#0b121c';PANEL='#152232';INK='#f1f6fc';MUTED='#b1c0d2';ACCENT='#54d7ee';REPO='leo10m2010/DragonLab'
@@ -15,12 +17,6 @@ class LauncherButton(RoundedButton):
     def __init__(self,master,**options):
         defaults={'disabledbackground':'#26384c','disabledforeground':'#a8b9cf','focuscolor':ACCENT}
         defaults.update(options);super().__init__(master,**defaults)
-
-def demo_program(base=BASE):
-    name='DragonLab-'+PROGRAM_VERSION+'.exe'
-    candidates=[base/'companion'/name,base.parent/'DragonLab'/name]
-    if base.name=='cloud-dist':candidates.append(base.parent.parent/'DragonLab'/name)
-    return next((p for p in candidates if p.is_file()),None)
 
 class ConsentSwitch(RoundedSwitch):
     def __init__(self,master,command=None,state='normal',**options):
@@ -66,9 +62,12 @@ def fetch_manifest(repo=REPO):
 
 class Launcher:
     def __init__(self,root,demo=False):
+        demo=bool(demo and DEMO_ALLOWED)
         self.root=root;root.title('DragonLab · Launcher '+LAUNCHER_VERSION);root.geometry('760x710');root.configure(bg=BG);root.resizable(False,False)
-        self.busy=False;self.client=None;self.closed=False;self.events=queue.Queue();self.manifest=None;self.demo=demo;self.child=None;self.dialog=None
-        self.email=tk.StringVar();self.password=tk.StringVar();self.share=tk.BooleanVar()
+        self.busy=False;self.client=None;self.closed=False;self.events=queue.Queue();self.manifest=None;self.demo=demo;self.engine=None;self.dialog=None;self.opening_until=0
+        self.email=tk.StringVar();self.password=tk.StringVar();self.share=tk.BooleanVar();self.game=tk.StringVar(value='DragonBound')
+        requested=next((a.split('=',1)[1] for a in sys.argv if a.startswith('--clone=')),None)
+        if requested:self.game.set(next((name for name,g in GAMES.items() if g['id']==requested),'DragonBound'))
         header=tk.Frame(root,bg=BG);header.pack(fill='x',padx=30,pady=(24,18))
         mark=tk.Label(header,text='◉',font=('Bahnschrift',28),bg=BG,fg=ACCENT);mark.pack(side='left',padx=(0,12))
         brand=tk.Label(header,text='DragonLab',font=('Bahnschrift',24,'bold'),bg=BG,fg=INK);brand.pack(side='left')
@@ -98,10 +97,15 @@ class Launcher:
         self.account_row=tk.Frame(body,bg=PANEL);self.account_row.pack(fill='x')
         self.account_button=LauncherButton(self.account_row,text='Mi cuenta',command=self.open_account,bg=PANEL,fg=INK,pady=5);self.account_button.pack(side='left')
         LauncherButton(self.account_row,text='Cerrar sesión',command=self.logout,bg=PANEL,fg=MUTED,pady=5).pack(side='right')
-        self.play_button=LauncherButton(self.dashboard_page,text='Jugar DragonBound  →',command=self.play,bg=ACCENT,fg=BG,activebackground='#89e9f8',activeforeground=BG,font=('Bahnschrift',18,'bold'),pady=18,state='disabled')
+        selection=tk.Frame(self.dashboard_page,bg=BG);selection.pack(fill='x',padx=54,pady=(20,0))
+        tk.Label(selection,text='JUEGO',font=('Bahnschrift',10,'bold'),bg=BG,fg=MUTED).pack(anchor='w',pady=(0,6))
+        self.game_choice=RoundedChoice(selection,textvariable=self.game,values=list(GAMES),width=26,font=('Bahnschrift',13));self.game_choice.pack(fill='x')
+        self.game_note=tk.Label(selection,bg=BG,fg=MUTED,font=('Bahnschrift',10),wraplength=620,justify='left');self.game_note.pack(anchor='w',pady=(8,0))
+        self.game.trace_add('write',lambda *args:self.game_changed())
+        self.play_button=LauncherButton(self.dashboard_page,text='Jugar  →',command=self.play,bg=ACCENT,fg=BG,activebackground='#89e9f8',activeforeground=BG,font=('Bahnschrift',18,'bold'),pady=18,state='disabled')
         self.play_button.pack(fill='x',padx=54,pady=(20,12))
         self.dashboard_status=tk.Label(self.dashboard_page,wraplength=680,justify='center',bg=BG,fg=MUTED,font=('Bahnschrift',10));self.dashboard_status.pack(fill='x',padx=32,pady=(0,12))
-        versions=RoundedPanel(self.dashboard_page,PANEL,radius=24,padding=14);versions.pack(fill='x',padx=26)
+        versions=RoundedPanel(self.dashboard_page,PANEL,radius=24,padding=14);self.versions_panel=versions
         row=tk.Frame(versions.body,bg=PANEL);row.pack(fill='x')
         self.program_label=tk.Label(row,text='Programa · por instalar',font=('Bahnschrift',11,'bold'),bg=PANEL,fg=INK);self.program_label.pack(side='left')
         self.update_button=LauncherButton(row,text='Buscar actualización',command=self.check_update,bg='#263b54',fg=INK,pady=5,state='disabled');self.update_button.pack(side='right')
@@ -112,8 +116,8 @@ class Launcher:
         tk.Label(privacy,text='Opcional. Solo mediciones de tiros; sin capturas, chats ni nombres.',font=('Bahnschrift',9),bg=BG,fg=MUTED).pack(anchor='w',pady=(3,0))
         foot=tk.Frame(self.dashboard_page,bg=BG);foot.pack(side='bottom',fill='x',padx=30,pady=18)
         LauncherButton(foot,text='Cómo usarlo',command=self.help,bg=BG,fg=MUTED,pady=5).pack(side='left')
-        LauncherButton(foot,text='Carros y calibraciones',command=self.calibration_help,bg=BG,fg=MUTED,pady=5).pack(side='right')
-        self.show_login()
+        LauncherButton(foot,text='Ajustes',command=self.open_settings,bg=BG,fg=MUTED,pady=5).pack(side='right')
+        self.game_changed();self.show_login()
         root.protocol('WM_DELETE_WINDOW',self.close)
         root.after(50,self.poll)
         if self.demo:
@@ -141,14 +145,15 @@ class Launcher:
     def enter_demo(self):
         if not self.demo or self.closed:return
         self.show_dashboard({'active':True});self.license_title.config(text='VERSIÓN DE PRUEBA · acceso automático')
-        self.license_detail.config(text='Entra al juego en un paso. No necesitas una cuenta para esta prueba.')
+        self.headline.config(text='Elige tu juego.')
+        self.license_detail.config(text='La guía aparece dentro del juego al empezar una partida.')
         self.root.geometry('760x610');self.account_button.pack_forget()
         self.privacy.pack_forget();self.consent.config(state='disabled');self.share.set(False)
         self.update_button.config(state='disabled');self.update_button.pack_forget();self.update_label.config(text='Prueba local · actualizaciones Cloud desactivadas')
-        self.program_label.config(text='Programa local · v'+PROGRAM_VERSION if demo_program() else 'Programa local · no encontrado')
+        self.program_label.config(text='Motor integrado · v'+PROGRAM_VERSION)
         self.calibration_label.config(text='Calibraciones · se utilizan las del programa local')
         self.status.config(text='El juego y la captura se preparan con un solo clic.')
-        self.play_button.config(state='normal' if demo_program() else 'disabled')
+        self.play_button.config(state='normal')
     def refresh_versions(self):
         directory=self.client.directory if self.client else BASE
         version=installed_version(directory)
@@ -164,10 +169,9 @@ class Launcher:
     def poll(self):
         if self.closed:return
         while not self.events.empty():self.finish(*self.events.get_nowait())
-        if self.child is not None and self.child.poll() is not None:
-            code=self.child.returncode;self.child=None;self.root.deiconify();style_window(self.root)
-            self.play_button.config(text='Jugar DragonBound  →',state='normal' if self.authenticated and (self.demo or self.client.account.get('active')) else 'disabled')
-            self.status.config(text='DragonLab ya está abierto. Usa el auxiliar de la barra de tareas.' if code==3 else 'El auxiliar se cerró. Puedes volver a jugar.' if code==0 else 'El auxiliar no pudo iniciar. Reintenta o consulta la ayuda.')
+        if self.engine and not self.engine.window.winfo_exists():
+            self.engine=None;self.play_button.config(state='normal' if self.authenticated else 'disabled')
+            self.status.config(text='La guía se detuvo. Pulsa Jugar para volver a conectarte.')
         self.root.after(100,self.poll)
     def finish(self,value,error,done):
         self.busy=False;self.login_button.config(state='normal' if self.client else 'disabled');self.update_button.config(state='normal' if self.authenticated else 'disabled')
@@ -177,8 +181,9 @@ class Launcher:
             self.status.config(text=error);self.share.set(bool(self.client and self.client.account and self.client.account.get('share_measurements')))
             if self.update_label.cget('text')=='Actualizaciones · comprobando…':self.update_label.config(text='Actualizaciones · no se pudo comprobar')
         else:done(value)
+        if self.closed:return
         account=self.client.account if self.client else None
-        self.play_button.config(state='normal' if self.child is None and self.authenticated and account and account.get('active') else 'disabled');self.consent.config(state='normal' if self.authenticated and account else 'disabled');self.refresh_versions()
+        self.play_button.config(state='normal' if self.authenticated and account and account.get('active') else 'disabled');self.consent.config(state='normal' if self.authenticated and account else 'disabled');self.refresh_versions()
     def login(self):
         if self.demo:self.enter_demo();return
         if not self.client or self.busy:return
@@ -197,11 +202,15 @@ class Launcher:
         if not account.get('active'):self.license_detail.config(text='Acceso vencido o suspendido. Contacta al administrador.')
         self.share.set(bool(account.get('share_measurements')))
         self.status.config(text='Tu acceso está comprobado.' if account.get('active') else 'No tienes un acceso activo.')
+        if account.get('active') and '--auto-game' in sys.argv:
+            sys.argv.remove('--auto-game');self.root.after(100,self.play)
     def change_consent(self):
         if self.demo:return
         if not self.client or not self.authenticated or self.busy:return
         enabled=self.share.get();self.run(lambda:(self.client.consent(enabled),self.client.account)[1],self.show_account)
     def logout(self):
+        if self.busy:return
+        self.stop_engine()
         if self.demo:
             self.show_login();self.status.config(text='Prueba cerrada. Pulsa Entrar para volver.');return
         if not self.client or self.busy:return
@@ -233,10 +242,10 @@ class Launcher:
         win.geometry(f'{width}x{height}{max(0,x):+d}{y:+d}');style_window(win);win.deiconify();win.grab_set()
     def help(self):
         self.guide('Una partida, en un paso.',[
-            ('01 · Pulsa Jugar DragonBound','El auxiliar y el navegador se preparan juntos. El launcher se oculta; no necesitas iniciar el programa otra vez.'),
-            ('02 · Entra al juego y empieza una partida','Inicia sesión en DragonBound. Al empezar tu turno, la captura detecta posiciones, ángulo y fuerza. Si faltan datos, la guía espera; no inventa un tiro.'),
+            ('01 · Elige un juego y pulsa Jugar','Esta es la única pantalla principal. La captura trabaja internamente; no se abre otro panel de DragonLab.'),
+            ('02 · Entra al juego y empieza una partida','Usa tu cuenta del juego. La guía se muestra dentro de la partida cuando hay datos suficientes. GunBound World es experimental y necesita validar sus propias calibraciones.'),
             ('03 · Elige y comprueba tu tiro','Ctrl cambia de objetivo. Q solicita un tiro en tu turno. Estos son los atajos iniciales; puedes cambiarlos en Ajustes del auxiliar. Comprueba el objetivo y la guía antes de usarlo.'),
-            ('Ajustes y salida','El auxiliar queda en la barra de tareas para cambiar preferencias o detener la captura. Al cerrarlo, vuelve el launcher. Cerrar solo el navegador no cierra el auxiliar.')])
+            ('Ajustes y salida','Ajustes cambia los controles y la apariencia de la guía. Cerrar DragonLab detiene la captura; el navegador queda abierto. En GunBound World Q está desactivado hasta validar la entrada de tiro.')])
     def calibration_help(self):
         self.guide('Cada carro tiene su ritmo.',[
             ('Carro + modalidad','Tiro 1, tiro 2 y SS usan perfiles distintos. Un ajuste de Armor no valida Nak, Trico o Kalsiddon.'),
@@ -251,44 +260,78 @@ class Launcher:
             self.update_label.config(text='Actualizado · v'+manifest['version'] if version==manifest['version'] else 'Disponible · v'+manifest['version']+' · se instalará al iniciar')
             self.status.config(text='Comprobación de actualizaciones terminada.')
         self.run(fetch_manifest,done)
+    def game_changed(self):
+        if self.game.get() not in GAMES:self.game.set('DragonBound');return
+        if self.engine and self.engine.app.clone_id!=GAMES[self.game.get()]['id']:self.stop_engine()
+        self.game_note.config(text='GunBound World · experimental. Guía sin calibración validada; Q desactivado.' if self.game.get()=='GunBound World' else 'DragonBound · guía y controles automáticos dentro de la partida.')
+    def engine_directory(self):
+        if self.client:return self.client.directory
+        for directory in (BASE.parent/'DragonLab',BASE.parent.parent/'DragonLab'):
+            if (directory/'calibraciones.json').is_file():return directory
+        return BASE/'datos'
+    def stop_engine(self):
+        if self.engine:self.engine.stop();self.engine=None
+        self.opening_until=0
+    def get_engine(self):
+        if not self.engine:self.engine=EngineHost(self.root,self.engine_directory(),None if self.demo else self.client)
+        return self.engine
+    def open_settings(self):
+        if not self.authenticated or self.busy:return
+        if not self.demo and (not self.client or not self.client.account or not self.client.account.get('active')):return
+        try:self.get_engine().settings()
+        except Exception:self.status.config(text='No se pudieron abrir los ajustes. Vuelve a intentarlo.')
+    def start_engine(self):
+        if time.monotonic()<self.opening_until:return
+        self.busy=True;self.play_button.config(state='disabled');self.status.config(text='Conectando el juego…');self.root.update_idletasks()
+        try:
+            ok=self.get_engine().start(GAMES[self.game.get()]['id'])
+            if ok:self.opening_until=time.monotonic()+2
+            self.status.config(text='Abriendo el juego. La guía espera una partida.' if ok else 'No se pudo abrir el juego. Revisa Chrome o Edge y vuelve a intentar.')
+        except Exception:
+            self.stop_engine();self.status.config(text='No se pudo iniciar la captura. Vuelve a intentarlo.')
+        finally:self.busy=False;self.play_button.config(state='normal')
     def play(self):
-        if self.child is not None and self.child.poll() is None:return
-        if self.demo:
-            if not self.authenticated or self.busy:return
-            target=demo_program()
-            if not target:self.status.config(text='No se encontró el programa local de prueba.');return
-            try:self.start_companion(target)
-            except OSError:self.status.config(text='No se pudo abrir el programa local.');return
-            return
-        if not self.client or not self.authenticated or not self.client.account or not self.client.account.get("active") or self.busy:return
-        self.status.config(text='Comprobando acceso y preparando el programa…')
+        if not self.authenticated or self.busy:return
+        if self.demo:self.start_engine();return
+        if not self.client or not self.client.account or not self.client.account.get('active'):return
+        if self.engine and getattr(self.engine.app,'last_live',0):
+            self.run(self.client.require_access,lambda account:self.start_engine());return
+        self.status.config(text='Comprobando acceso y actualización…')
         def update():
-            self.client.require_access();manifest=fetch_manifest(self.client.config.get('githubRepo',REPO));version=manifest['version'];target=self.client.directory/('DragonLab-Cloud-'+version+'.exe')
+            account=self.client.require_access();manifest=fetch_manifest(self.client.config.get('githubRepo',REPO))
+            if tuple(map(int,manifest['version'].split('.'))) <= tuple(map(int,PROGRAM_VERSION.split('.'))):return account,None
+            target=self.client.directory/('DragonLab-Cloud-'+manifest['version']+'.exe')
             if not target.exists() or hashlib.sha256(target.read_bytes()).hexdigest()!=manifest['sha256']:download_verified(manifest['url'],target,manifest['sha256'],REPO)
             atomic_write(self.client.directory/'cloud-desktop.json',json.dumps(self.client.config).encode())
-            atomic_write(self.client.directory/'installed-release.json',json.dumps({'version':version,'sha256':manifest['sha256']}).encode())
-            return self.client.account,target
+            atomic_write(self.client.directory/'installed-release.json',json.dumps({'version':manifest['version'],'sha256':manifest['sha256']}).encode())
+            return account,target
         def done(result):
-            account,target=result;self.show_account(account)
-            try:self.start_companion(target)
-            except OSError:self.status.config(text='No se pudo iniciar el auxiliar. Vuelve a intentarlo.');return
-            self.update_label.config(text='Versión comprobada al iniciar')
+            account,target=result
+            if target:
+                try:subprocess.Popen([str(target),'--handoff','--auto-game','--clone='+GAMES[self.game.get()]['id']],cwd=target.parent)
+                except OSError:self.status.config(text='No se pudo aplicar la actualización. Vuelve a intentarlo.');return
+                self.close();return
+            self.start_engine()
         self.run(update,done)
-    def start_companion(self,target):
-        self.child=subprocess.Popen([str(target),'--minimized','--open-game'],cwd=target.parent)
-        self.play_button.config(text='Juego abierto',state='disabled');self.status.config(text='Preparando el juego y la captura…');self.root.withdraw()
     def close(self):
-        self.closed=True
+        self.closed=True;self.stop_engine()
         for job in self.root.tk.splitlist(self.root.tk.call('after','info')):self.root.after_cancel(job)
         self.root.destroy()
 
-if __name__=='__main__':
+def main():
+    import time
     instance=SingleInstance('DragonLab.Launcher') if '--check' not in sys.argv else None
-    if instance and not instance.primary:restore_launcher();instance.close();sys.exit(0)
-    root=tk.Tk();root.withdraw();app=Launcher(root,demo='--demo' in sys.argv)
-    if '--check' in sys.argv:root.withdraw();root.after(600,app.close)
+    if instance and not instance.primary and '--handoff' in sys.argv:
+        for attempt in range(60):
+            instance.close();time.sleep(.05);instance=SingleInstance('DragonLab.Launcher')
+            if instance.primary:break
+    if instance and not instance.primary:restore_launcher();instance.close();return
+    root=tk.Tk();root.withdraw();app=Launcher(root,demo='--demo' in sys.argv or (getattr(sys,'frozen',False) and pathlib.Path(sys.executable).stem=='DragonLab-Prueba'))
+    if '--check' in sys.argv:
+        if '--engine-check' in sys.argv and app.demo:app.get_engine()
+        root.withdraw();root.after(600,app.close)
     else:root.update_idletasks();style_window(root);root.deiconify()
     root.mainloop()
     if instance:instance.close()
 
-
+if __name__=='__main__':main()
