@@ -9,3 +9,5 @@ Dos trayectorias reales se reprodujeron con máximos de 0.80 y 4.43 píxeles de 
 Se corrigieron: viento girado 90° incorrectamente, ángulo local sin compensar inclinación y selección de un controlador destruido que aún conservaba datos. Armor utiliza la salida observada del cliente, ángulo 52° y radio 33, girada con el cuerpo y la orientación.
 
 Alcance: Armor tiro 1, viento observado 0–18. Tiro 2, SS, otros vehículos, terreno, climas y autotiro todavía no están calibrados ni validados para este clon. El perfil de salida queda incorporado al programa; no implica precisión perfecta ni certificación de cada impacto.
+
+Comprobación posterior en una partida nueva con 0.12.15: dos jugadores y barra detectados, guía realmente visible, fuerza calculada 54 en el estado de diagnóstico y 59 en la captura posterior mientras cambiaban los datos de la partida. No hubo errores del motor.
