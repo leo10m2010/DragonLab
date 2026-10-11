@@ -12,7 +12,7 @@ PROFILES = [
     {'id': 'gunbound-world', 'name': 'GunBound World', 'hosts': ['play.gunbound.world'],
      'mode': 'generic', 'state_paths': ['game', 'g_game', 'currentGame', 'game_state'],
      'fields': {'wind':'windPower','windAngle':'windAngleDeg','turn':'turnNumber','heroId':'activePlayerId'},
-     'compatibility': 'Experimental: requiere estado accesible; no validado en partida'},
+     'compatibility': 'Experimental: posiciones observadas; física pendiente de calibración'},
     {'id': 'generic', 'name': 'Clon configurable', 'hosts': [], 'mode': 'generic',
      'state_paths': ['game', 'g_game', 'currentGame', 'game_state'],
      'compatibility': 'Requiere configurar rutas y física de este clon'},
@@ -100,6 +100,25 @@ class AdapterClient(CDP):
         return self.game
 
     def _discover_controller(self):
+        # CDP omits listener handles unless the debugger domain is enabled.
+        # No pause, breakpoint, game event or input is issued.
+        self.call('Debugger.enable')
+        try:
+            sid=self._discover_listener_controller()
+            if not sid:self.call('Runtime.releaseObjectGroup',{'objectGroup':'dragonlab-discovery'})
+            return sid
+        finally:
+            self.call('Debugger.disable')
+
+    def _controller_state(self, cid):
+        result=self.call('Runtime.callFunctionOn',{'objectId':cid,'functionDeclaration':'function(){return this.room?.state??this.room?.serializer?.state??this.room?.serializer?.decoder?.state??null}', 'objectGroup':'dragonlab-discovery'})
+        sid=result.get('result',{}).get('objectId')
+        if sid and 'players' in {p['name'] for p in self.props(sid).get('result',[])}:
+            self.controller=cid
+            return sid
+        return None
+
+    def _discover_listener_controller(self):
         """Inspect keyboard-listener closures for the observed game's controller.
 
         Follows a bounded set of local object descriptors, never account storage.
@@ -120,17 +139,34 @@ class AdapterClient(CDP):
                         value=scope.get('value',{})
                         if 'Global' in value.get('description','') or not value.get('objectId'):continue
                         local=self.props(value['objectId']).get('result',[])
-                        if len(local)>80:continue
+                        if len(local)>80:
+                            # Class-field arrows do not expose their lexical this.
+                            # Match the observed battle class signature, then inspect
+                            # only its instances; never traverse account objects.
+                            if value.get('description')=='Module' and 'onKeyDown' in handler.get('description',''):
+                                for prop in local:
+                                    ctor=prop.get('value',{})
+                                    desc=ctor.get('description','')
+                                    if ctor.get('type')!='function' or not desc.startswith('class') or 'room;myId;hud;' not in desc[:120]:continue
+                                    prototype=next((p.get('value',{}).get('objectId') for p in self.props(ctor['objectId']).get('result',[]) if p['name']=='prototype'),None)
+                                    if not prototype:continue
+                                    instances=self.call('Runtime.queryObjects',{'prototypeObjectId':prototype,'objectGroup':'dragonlab-discovery'}).get('objects',{}).get('objectId')
+                                    if not instances:continue
+                                    for item in self.props(instances).get('result',[])[:8]:
+                                        if not item['name'].isdigit():continue
+                                        cid=item.get('value',{}).get('objectId')
+                                        if cid:
+                                            sid=self._controller_state(cid)
+                                            if sid:return sid
+                            continue
                         candidates.extend(p.get('value',{}) for p in local if p.get('value',{}).get('type')=='object')
             for candidate in candidates[:40]:
                 cid=candidate.get('objectId')
                 if not cid:continue
                 names={p['name'] for p in self.props(cid).get('result',[])}
                 if 'room' not in names or not names.intersection({'stageSize','power','geometry','cameraX','keydown'}):continue
-                result=self.call('Runtime.callFunctionOn',{'objectId':cid,'functionDeclaration':'function(){return this.room?.serializer?.state??this.room?.serializer?.decoder?.state??null}', 'objectGroup':'dragonlab-discovery'})
-                state=result.get('result',{});sid=state.get('objectId')
-                if sid and 'players' in {p['name'] for p in self.props(sid).get('result',[])}:
-                    self.controller=cid;return sid
+                sid=self._controller_state(cid)
+                if sid:return sid
         return None
 
     def sample(self):
@@ -158,13 +194,14 @@ class AdapterClient(CDP):
           const n=v=>typeof v==='number'&&Number.isFinite(v)?v:null,id=v=>typeof v==='string'?v.slice(0,80):n(v);
           const values=o=>Array.isArray(o)?o:(gunbound&&o&&o.$items instanceof Map?[...o.$items.values()]:o instanceof Map?[...o.values()]:o&&typeof o==='object'?Object.getOwnPropertyNames(o).slice(0,64).map(k=>own(o,k)):[]);
           const limited=(o,keys)=>Object.fromEntries(keys.map(k=>[k,n(own(o,k))]).filter(x=>x[1]!==null));
-          const players=values(path(this,fields.players)).slice(0,16).filter(p=>p&&typeof p==='object').map((p,i)=>({
-            id:id(own(p,'userId'))??id(own(p,'id'))??n(own(p,'n'))??i,x:n(own(p,'x')),y:n(own(p,'y')),
+          const collection=path(this,fields.players), entries=gunbound&&collection?.$items instanceof Map?[...collection.$items.entries()]:values(collection).map((p,i)=>[i,p]);
+          const players=entries.slice(0,16).filter(([k,p])=>p&&typeof p==='object').map(([key,p],i)=>({
+            id:id(own(p,'actorId'))??id(own(p,'userId'))??id(own(p,'id'))??n(own(p,'n'))??id(key)??i,x:n(own(p,'x')),y:n(own(p,'y')),
             name:typeof (own(p,'username')??own(p,'name'))==='string'?(own(p,'username')??own(p,'name')).slice(0,60):'Jugador '+(i+1),
             angle:n(own(p,'aimAngle'))??n(own(p,'angle'))??n(own(p,'ang')),mobile:id(own(p,'mobileId'))??n(own(p,'mobile')),look:n(own(p,'look'))??(own(p,'facing')==='right'?1:own(p,'facing')==='left'?0:null),
-            body:n(own(p,'bodyAngle'))??n(own(p,'body_angle')),team:id(own(p,'team')),isHero:own(p,'isMe')===true}));
+            dead:own(p,'alive')===false||n(own(p,'hp'))===0,body:n(own(p,'bodyTilt'))??n(own(p,'bodyAngle'))??n(own(p,'body_angle')),team:id(own(p,'team')),isHero:own(p,'isMe')===true}));
           const camera=path(this,fields.camera),terrain=path(this,fields.terrain),surface=own(terrain,'heights');
-          return {status:players.length?'live':'waiting',players,heroId:gunbound?null:id(path(this,fields.heroId)),
+          return {status:players.length?'live':'waiting',phase:gunbound?own(this,'phase'):null,players,heroId:gunbound?null:id(path(this,fields.heroId)),
             wind:n(path(this,fields.wind)),windAngle:n(path(this,fields.windAngle)),turn:n(path(this,fields.turn)),
             camera:camera?limited(camera,['x','y','scale']):null,
             shots:values(path(this,fields.shots)).slice(0,64).map(s=>limited(s,['id','x','y','vx','vy','ax','ay','time','power','angle'])),
@@ -176,4 +213,15 @@ class AdapterClient(CDP):
         if result.get('exceptionDetails'):
             self.game = None
             return {'status': 'waiting', 'reason': 'El estado cambió; esperando una estructura compatible'}
-        return result.get('result', {}).get('value', {'status': 'waiting'})
+        sample=result.get('result', {}).get('value', {'status': 'waiting'})
+        if self.profile['id']=='gunbound-world' and self.controller:
+            info=self.call('Runtime.callFunctionOn',{'objectId':self.controller,'functionDeclaration':'''function(){const s=this.room?.state,p=s?.players?.get(this.myId),m=this.world?.worldTransform,z=this.stageSize;return {heroId:this.myId,activePlayer:s?.activePlayerId,currentPower:this.power,localAngle:this.angle,selectedShot:({shot1:0,shot2:1,ss:2})[p?.selectedShot],camera:m&&z?{matrix:{a:m.a,b:m.b,c:m.c,d:m.d,tx:m.tx,ty:m.ty},renderWidth:z.width,renderHeight:z.height}:null}}''','returnByValue':True}).get('result',{}).get('value',{})
+            sample.update(info)
+            hero=next((p for p in sample.get('players',[]) if p.get('id')==info.get('heroId')),None)
+            if hero and isinstance(info.get('localAngle'),(int,float)):
+                hero['angle']=info['localAngle']
+                hero['isHero']=True
+            if sample.get('phase') not in ('TURN','RESOLVING'):
+                sample['status']='waiting'
+                sample['reason']='Esperando una partida activa de GunBound World'
+        return sample

@@ -7,7 +7,7 @@ El motor de captura funciona dentro del mismo proceso y no muestra su interfaz t
 ## Juegos
 
 - **DragonBound**: abre su navegador gestionado y activa la captura existente.
-- **GunBound World**: abre `https://play.gunbound.world/`, utiliza su adaptador y reutiliza únicamente su pestaña. Compatibilidad experimental: necesita validación dentro de una partida y calibraciones propias. Q permanece desactivado para este juego. No se promete precisión equivalente a DragonBound.
+- **GunBound World**: abre `https://play.gunbound.world/`, utiliza su adaptador y reutiliza únicamente su pestaña. Compatibilidad experimental: se observaron posiciones, identidad, ángulo, viento y cámara en una partida real. Los tiros, terreno y climas necesitan validación y calibraciones propias. Q permanece desactivado para este juego. No se promete precisión equivalente a DragonBound.
 
 ## Prueba
 
@@ -21,4 +21,4 @@ El flujo de GitHub genera `DragonLab-Launcher.zip`, `DragonLab-Cloud.exe` y `dra
 
 Configura primero Supabase y el panel HTTPS siguiendo `cloud/GUIA-ACTIVACION.md`. El ZIP de preparación conserva solo una configuración de ejemplo. No contiene claves privadas. Las compilaciones de publicación desactivan el acceso de prueba, incluso si alguien cambia el nombre del archivo o utiliza --demo.
 
-Validación local: pruebas de motor oculto, cierre de tareas, selección de URL, reutilización de pestañas, sesión, atajos y cálculos; revisión visual y arranque de los ejecutables sin abrir un juego ni disparar. La API Cloud de producción y la guía en una partida real de GunBound World siguen pendientes de comprobación.
+Validación local: pruebas de motor oculto, cierre de tareas, selección de URL, reutilización de pestañas, sesión, atajos y cálculos; revisión visual y arranque de los ejecutables sin abrir un juego ni disparar. La API Cloud de producción y la precisión de la guía de GunBound World siguen pendientes de comprobación.
