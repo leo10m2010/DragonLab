@@ -14,4 +14,15 @@ def capture_status(app):
     if not app.game_visible:return 'Guía preparada','Vuelve al juego para ver la guía sobre la barra.'
     if not app.guide_points:return 'Buscando barra','Los jugadores están detectados; esperando ubicar la barra de fuerza.'
     if not app.power_guide or not app.power_guide.win.winfo_viewable():return 'Guía oculta','La guía aún no está visible sobre el juego.'
-    return 'Guía activa','Fuerza '+str(app.result.get('power') or app.result.get('guide_power'))+' · captura activa.'
+    label,state=calibration_label(app)
+    return 'Guía activa',(label+' · ' if label else '')+'Fuerza '+str(app.result.get('power') or app.result.get('guide_power'))+' · captura activa.'
+
+
+def calibration_label(app):
+    settings=getattr(app,'s',None)
+    if settings is None:return '', 'approximate'
+    mobile=settings.mobile.title();shot=('1','2','SS')[settings.selected_shot]
+    mode=mobile+' · Tiro '+shot
+    if getattr(app,'clone_id',None)=='gunbound-world' and getattr(app,'profile_required',True):return mode+' · PENDIENTE','pending'
+    if getattr(app,'active_measured_profile',False):return mode+' · SALIDA MEDIDA','measured'
+    return mode+' · APROXIMADO','approximate'

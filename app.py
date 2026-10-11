@@ -146,6 +146,7 @@ class App:
         if not fit and self.clone_id=='gunbound-world' and not self.book.records.get(self.book.key(self.clone_id,self.s.mobile,self.s.selected_shot),{}).get('drift_pending'):
             from gunbound_profiles import measured_profile
             fit=measured_profile(self.s.mobile,self.s.selected_shot,self.s.wind)
+        self.active_measured_profile=bool(fit)
         self.profile_required=self.clone_id=='gunbound-world' and not fit
         if fit and fit.get('native_euler_step'):self.s.environment['nativeEulerStep']=fit['native_euler_step']
         else:self.s.environment.pop('nativeEulerStep',None)
@@ -313,9 +314,11 @@ class App:
     def copy_power(self):
         if self.result.get('reachable'):self.root.clipboard_clear();self.root.clipboard_append(str(self.result['power']))
     def draw_force(self):
-        r=self.display_result();updating=self.dirty or self.computing
+        from product_status import calibration_label
+        label,state=calibration_label(self)
+        r={**self.display_result(),'guide_label':label,'guide_state':state};updating=self.dirty or self.computing
         if hasattr(self,'force_canvas'):draw_force(self.force_canvas,r,self.s.max_power,self.current_game_power,updating)
-        if self.clone_id=='gunbound-world' and getattr(self,'profile_required',True) and not r.get('reachable') and not r.get('blocked') and not updating:r={**r,'guide_message':'GunBound World · falta calibrar fuerza'}
+        if self.clone_id=='gunbound-world' and getattr(self,'profile_required',True) and not r.get('reachable') and not r.get('blocked') and not updating:r={**r,'guide_message':label+' · pendiente de calibración'}
         if self.power_guide:self.power_guide.draw(r,self.s.max_power,updating)
     def hide_power_guide(self):
         if self.power_guide:self.power_guide.close();self.power_guide=None

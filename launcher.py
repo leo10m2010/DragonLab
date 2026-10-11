@@ -147,7 +147,7 @@ class Launcher:
         self.show_dashboard({'active':True});self.license_title.config(text='VERSIÓN DE PRUEBA · acceso automático')
         self.headline.config(text='Elige tu juego.')
         self.license_detail.config(text='La guía aparece dentro del juego al empezar una partida.')
-        self.root.geometry('760x610');self.account_button.pack_forget()
+        self.root.geometry('760x630');self.account_button.pack_forget()
         self.privacy.pack_forget();self.consent.config(state='disabled');self.share.set(False)
         self.update_button.config(state='disabled');self.update_button.pack_forget();self.update_label.config(text='Prueba local · actualizaciones Cloud desactivadas')
         self.program_label.config(text='Motor integrado · v'+PROGRAM_VERSION)
@@ -253,6 +253,7 @@ class Launcher:
         self.guide('Una partida, en un paso.',[
             ('01 · Elige un juego y pulsa Jugar','Esta es la única pantalla principal. La captura trabaja internamente; no se abre otro panel de DragonLab.'),
             ('02 · Entra al juego y empieza una partida','Usa tu cuenta del juego. La guía se muestra dentro de la partida cuando hay datos suficientes. GunBound World es experimental y necesita validar sus propias calibraciones.'),
+            ('Colores y calibración','Verde: salida medida. Naranja: aproximado o terreno bloqueado. Pendiente: aún no hay perfil válido para ese carro, tiro o viento. El nombre del carro y el tiro aparecen sobre la barra.'),
             ('03 · Elige y comprueba tu tiro','Ctrl cambia de objetivo. Q solicita un tiro en tu turno. Estos son los atajos iniciales; puedes cambiarlos en Ajustes del auxiliar. Comprueba el objetivo y la guía antes de usarlo.'),
             ('Ajustes y salida','Ajustes cambia los controles y la apariencia de la guía. Cerrar DragonLab detiene la captura; el navegador queda abierto. En GunBound World Q está desactivado hasta validar la entrada de tiro.')])
     def calibration_help(self):
@@ -272,7 +273,7 @@ class Launcher:
     def game_changed(self):
         if self.game.get() not in GAMES:self.game.set('DragonBound');return
         if self.engine and self.engine.app.clone_id!=GAMES[self.game.get()]['id']:self.stop_engine()
-        self.game_note.config(text='GunBound World · experimental. Guía sin calibración validada; Q desactivado.' if self.game.get()=='GunBound World' else 'DragonBound · guía y controles automáticos dentro de la partida.')
+        self.game_note.config(text='Medido: Armor tiro 1 · viento 0–18.\nPendientes: tiro 2, SS y demás carros · Q desactivado.' if self.game.get()=='GunBound World' else 'DragonBound · guía y controles automáticos dentro de la partida.')
     def engine_directory(self):
         if self.client:return self.client.directory
         for directory in (BASE/'DragonLab',BASE.parent/'DragonLab',BASE.parent.parent/'DragonLab'):

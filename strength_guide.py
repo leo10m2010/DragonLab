@@ -55,7 +55,7 @@ class PowerGuide:
         self.win.geometry(f'{width}x{height}{self.x:+d}{self.y:+d}');self.last_draw=None
     def draw(self,result,maximum,updating=False):
         power=guide_power(result)
-        key=(power,maximum,self.points,updating,bool(result.get('blocked')),result.get('guide_message'))
+        key=(power,maximum,self.points,updating,bool(result.get('blocked')),result.get('guide_message'),result.get('guide_label'),result.get('guide_state'))
         if key==self.last_draw:return
         self.last_draw=key;c=self.canvas
         if power is None:
@@ -68,11 +68,12 @@ class PowerGuide:
         a=[self.start[0]-self.x,self.start[1]-self.y];b=[self.end[0]-self.x,self.end[1]-self.y]
         fraction=max(0,min(1,power/maximum));px=a[0]+(b[0]-a[0])*fraction;py=a[1]+(b[1]-a[1])*fraction
         for item in self.items:c.itemconfigure(item,state='normal')
-        for item in self.items[1:]:c.itemconfigure(item,fill=MUTED if updating else ORANGE)
+        for item in self.items[1:]:c.itemconfigure(item,fill=MUTED if updating else GREEN if result.get('guide_state')=='measured' and not result.get('blocked') else ORANGE)
         c.coords(self.items[0],*a,*b);c.coords(self.items[1],px,py-22,px,py+12)
         c.coords(self.items[2],px-7,py-24,px+7,py-24,px,py-15)
         c.coords(self.items[3],(a[0]+b[0])/2,min(a[1],b[1])-35)
-        c.itemconfigure(self.items[3],text=f'{"ACTUALIZANDO" if updating else "TERRENO BLOQUEA" if result.get("blocked") else "SUELTA EN"} {power:g} / {maximum:g} · {fraction*100:.1f}%')
+        prefix=(result.get('guide_label','')+' · ') if result.get('guide_label') else ''
+        c.itemconfigure(self.items[3],text=prefix+f'{"ACTUALIZANDO" if updating else "TERRENO BLOQUEA" if result.get("blocked") else "SUELTA EN"} {power:g} / {maximum:g} · {fraction*100:.1f}%')
     def close(self):self.win.destroy()
 
 def select_game_bar(app):
