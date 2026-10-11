@@ -6,6 +6,7 @@ from urllib.parse import urlparse,parse_qs
 from dataclasses import asdict,replace
 from core import Settings,PROFILES,REVERSE,solve,calibrated_profile,launch
 from cdp import CDP
+from app_version import PROGRAM_VERSION
 from adapters import AdapterClient,built_in_profiles
 from PIL import Image,ImageTk,ImageGrab
 from strength_guide import draw_force,PowerGuide,select_game_bar
@@ -106,7 +107,7 @@ class App:
             plan['expectedSpeed']=math.trunc(speed) if snapshot.quantize_power else speed
         def run():
             from auto_fire import PowerReader,execute
-            reader=None;attempt={'version':'0.12.7','started':time.time(),'requestedPower':plan['power'],'events':[]}
+            reader=None;attempt={'version':PROGRAM_VERSION,'started':time.time(),'requestedPower':plan['power'],'events':[]}
             try:
                 try:reader=PowerReader(endpoint,target_id)
                 except Exception:
@@ -342,14 +343,19 @@ class App:
         import subprocess
         candidates=[pathlib.Path(os.environ.get('PROGRAMFILES','C:/Program Files'))/'Google/Chrome/Application/chrome.exe',pathlib.Path(os.environ.get('PROGRAMFILES(X86)','C:/Program Files (x86)'))/'Google/Chrome/Application/chrome.exe',pathlib.Path(os.environ.get('LOCALAPPDATA',''))/'Google/Chrome/Application/chrome.exe',pathlib.Path(os.environ.get('PROGRAMFILES(X86)','C:/Program Files (x86)'))/'Microsoft/Edge/Application/msedge.exe']
         browser=next((p for p in candidates if p.is_file()),None)
-        if browser is None:messagebox.showerror('Navegador','No se encontró Chrome o Edge.');return
+        if browser is None:messagebox.showerror('Navegador','Instala Chrome o Edge para abrir DragonBound.',parent=self.root);self.root.deiconify();return False
         profile=pathlib.Path(os.environ.get('LOCALAPPDATA',str(BASE)))/'DragonLab/Browser'
-        subprocess.Popen([str(browser),'--remote-debugging-port=9223','--user-data-dir='+str(profile),'https://dragonbound.net/'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+        from game_startup import activate_existing_game
+        if not activate_existing_game():
+            try:subprocess.Popen([str(browser),'--remote-debugging-port=9223','--user-data-dir='+str(profile),'https://dragonbound.net/'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+            except OSError:
+                self.root.deiconify();messagebox.showerror('Navegador','No se pudo abrir el navegador. Vuelve a intentarlo.',parent=self.root);return False
         self.endpoint.set('http://127.0.0.1:9223');self.live_stop.set()
         def restart():
             if self.worker and self.worker.is_alive():self.root.after(200,restart)
             else:self.toggle_live()
         self.root.after(200,restart)
+        return True
     def toggle_live(self):
         if self.worker and self.worker.is_alive():
             self.live_stop.set();self.auto_enabled=False;self.auto_visible=False;self.hide_overlay();self.hide_power_guide();self.live_camera=None;self.last_live=0
@@ -611,7 +617,7 @@ class App:
         self.shared['source']='experimental' if self.last_live and time.monotonic()-self.last_live<4 else 'manual'
         if '--diagnostics' in sys.argv and time.monotonic()-getattr(self,'diagnostic_clock',0)>1:
             self.diagnostic_clock=time.monotonic()
-            health={'version':'0.12.7','updated':time.time(),'connected':bool(self.last_live and time.monotonic()-self.last_live<4),'map_detected':bool(self.s.environment.get('terrain')),'camera_detected':bool(self.live_camera and self.live_camera.get('renderWidth')),'weather':[w.get('resolvedTypeId') or w.get('typeId') for w in self.s.environment.get('activeWeathers',[])],'players_detected':len(self.live_players),'overlay_visible':bool(self.overlay and self.overlay.visible),'power':self.result.get('power'),'computing':self.computing,'last_error':getattr(self,'last_error',None),'target':self.auto_target_id,'enemies_detected':len(enemies(self.live_players,self.target_hero_id)),'preview_capture':self.preview_visible,'solve_seconds':getattr(self,'last_solve_seconds',None),'shortcut_events':self.shortcut_count,'fire_shortcut_events':self.fire_shortcut_count,'fire_busy':self.fire_busy,'fire_pending':bool(self.pending_fire),'last_fire_message':self.last_fire_message,'page_shortcuts_active':self.page_shortcuts_active,'shortcut_ready':bool(getattr(self,'shortcuts',None) and self.shortcuts.ready),'shortcut_error':getattr(getattr(self,'shortcuts',None),'error',None)}
+            health={'version':PROGRAM_VERSION,'updated':time.time(),'connected':bool(self.last_live and time.monotonic()-self.last_live<4),'map_detected':bool(self.s.environment.get('terrain')),'camera_detected':bool(self.live_camera and self.live_camera.get('renderWidth')),'weather':[w.get('resolvedTypeId') or w.get('typeId') for w in self.s.environment.get('activeWeathers',[])],'players_detected':len(self.live_players),'overlay_visible':bool(self.overlay and self.overlay.visible),'power':self.result.get('power'),'computing':self.computing,'last_error':getattr(self,'last_error',None),'target':self.auto_target_id,'enemies_detected':len(enemies(self.live_players,self.target_hero_id)),'preview_capture':self.preview_visible,'solve_seconds':getattr(self,'last_solve_seconds',None),'shortcut_events':self.shortcut_count,'fire_shortcut_events':self.fire_shortcut_count,'fire_busy':self.fire_busy,'fire_pending':bool(self.pending_fire),'last_fire_message':self.last_fire_message,'page_shortcuts_active':self.page_shortcuts_active,'shortcut_ready':bool(getattr(self,'shortcuts',None) and self.shortcuts.ready),'shortcut_error':getattr(getattr(self,'shortcuts',None),'error',None)}
             try:(BASE/'estado-live.json').write_text(json.dumps(health,indent=2),encoding='utf-8')
             except OSError:pass
 
@@ -648,13 +654,18 @@ class App:
         self.root.destroy()
 
 if __name__=='__main__':
+    from desktop_shell import SingleInstance
+    instance=SingleInstance('DragonLab.LocalCompanion') if '--check' not in sys.argv else None
+    if instance and not instance.primary:instance.close();sys.exit(3)
     root=tk.Tk()
     if '--check' in sys.argv:root.withdraw()
     if '--minimized' in sys.argv:root.iconify()
     app=App(root)
     if '--check' in sys.argv:root.after(500,app.close)
+    elif '--open-game' in sys.argv:root.after(200,app.open_game_browser)
     if '--smoke' in sys.argv:
         root.attributes('-topmost',True);root.lift()
         root.after(700,lambda:ImageGrab.grab(bbox=(root.winfo_rootx(),root.winfo_rooty(),root.winfo_rootx()+root.winfo_width(),root.winfo_rooty()+root.winfo_height())).save(BASE/'vista-previa.png'))
         root.after(1100,app.close)
     root.mainloop()
+    if instance:instance.close()
