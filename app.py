@@ -389,7 +389,7 @@ class App:
                         shot_events.start();self.browser_shot_events=shot_events
                     while not stop.is_set():
                         interval,capture.capture_interval,client.terrain_interval=governor.intervals(self.performance,active=sample.get('status')=='live',own_turn=str(sample.get('activePlayer'))==str(sample.get('heroId')))
-                        auto=capture.read(capture=self.preview_visible,fire_key=self.fire_key) if clone=='dragonbound' else {}
+                        auto=capture.read(capture=self.preview_visible,fire_key=self.fire_key) if clone in ('dragonbound','gunbound-world') else {}
                         if clone=='dragonbound' and not auto.get('geometry',{}).get('active'):
                             sample={'status':'waiting','reason':'Navegador conectado. La captura aparecerá al empezar la partida.'}
                             client.game=None;client.renderer=None

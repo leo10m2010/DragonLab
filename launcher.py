@@ -154,6 +154,8 @@ class Launcher:
         self.calibration_label.config(text='Calibraciones · se utilizan las del programa local')
         self.status.config(text='El juego y la captura se preparan con un solo clic.')
         self.play_button.config(state='normal')
+        if '--auto-game' in sys.argv and '--check' not in sys.argv:
+            sys.argv.remove('--auto-game');self.root.after(100,self.play)
     def refresh_versions(self):
         directory=self.client.directory if self.client else BASE
         version=installed_version(directory)

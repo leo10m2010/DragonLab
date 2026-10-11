@@ -4,10 +4,11 @@ from PIL import Image
 
 GEOMETRY_JS = r'''(()=>{
  const box=e=>{if(!e)return null;let r=e.getBoundingClientRect();return r.width>1&&r.height>1?[r.x,r.y,r.width,r.height]:null};
- let game=document.getElementById('gameScreen'),bar=document.getElementById('powerMarkArea');
+ const gunbound=location.hostname==='play.gunbound.world';
+ let game=gunbound?document.querySelector('canvas.gb-battle-canvas'):document.getElementById('gameScreen'),bar=gunbound?document.querySelector('.powerrow .pgauge'):document.getElementById('powerMarkArea');
  let rect=box(game),power=box(bar),fill=document.getElementById('powerBar')?.getBoundingClientRect();if(power&&fill?.height>1){power[1]=fill.y;power[3]=fill.height;}let canvas=[...document.querySelectorAll('canvas')].map(box).filter(Boolean).sort((a,b)=>b[2]*b[3]-a[2]*a[3])[0];
  return {game:rect,bar:power,canvas,active:!!rect&&getComputedStyle(game).visibility!=='hidden',focused:document.hasFocus()&&document.visibilityState==='visible',dpr:devicePixelRatio,
- screen:[screenX,screenY],outer:[outerWidth,outerHeight],inner:[innerWidth,innerHeight],title:document.title,scroll:[scrollX,scrollY]};
+ screen:[screenX,screenY],outer:[outerWidth,outerHeight],inner:[innerWidth,innerHeight],clone:gunbound?'gunbound-world':'dragonbound',title:document.title,scroll:[scrollX,scrollY]};
 })()'''
 
 # Only this configured action is counted. No key text, chat or storage is read.
@@ -44,7 +45,9 @@ def content_origin(meta):
     u.GetWindowRect.argtypes=[w.HWND,ctypes.POINTER(w.RECT)]
     u.GetClassNameW.argtypes=[w.HWND,w.LPWSTR,ctypes.c_int]
     u.GetWindowTextW.argtypes=[w.HWND,w.LPWSTR,ctypes.c_int]
-    found=[];parent=[None];dpr=meta.get('dpr',1);expected=meta['inner']
+    u.GetClientRect.argtypes=[w.HWND,ctypes.POINTER(w.RECT)]
+    u.ClientToScreen.argtypes=[w.HWND,ctypes.POINTER(w.POINT)]
+    found=[];fallback=[];parent=[None];dpr=meta.get('dpr',1);expected=meta['inner']
     def child(hwnd,_):
         name=ctypes.create_unicode_buffer(256);u.GetClassNameW(hwnd,name,256)
         if name.value=='Chrome_RenderWidgetHostHWND' and u.IsWindowVisible(hwnd):
@@ -58,9 +61,18 @@ def content_origin(meta):
         if name.value.startswith('Chrome_WidgetWin') and meta.get('title') and meta['title'] in title.value:
             parent[0]=int(hwnd)
             u.EnumChildWindows(hwnd,child_cb,0)
+            # Chrome can composite the page without a visible render-widget child.
+            # Use its client bounds only for a full-width, undocked viewport.
+            r=w.RECT();point=w.POINT(0,0)
+            if u.IsWindowVisible(hwnd) and u.GetClientRect(hwnd,ctypes.byref(r)) and u.ClientToScreen(hwnd,ctypes.byref(point)):
+                iw,ih=(round(v*dpr) for v in expected)
+                outer=meta.get('outer',[0,0])
+                if abs(r.right-iw)<8 and r.bottom>=ih and abs(r.bottom-outer[1]*dpr)<32:
+                    fallback.append((point.x,point.y+r.bottom-ih,int(hwnd)))
         return True
     window_cb=cb(window);u.EnumWindows(window_cb,0)
     u.GetForegroundWindow.restype=w.HWND
+    if not found:found=fallback
     focused=[entry for entry in found if entry[2]==u.GetForegroundWindow()]
     selected=focused[0] if len(focused)==1 else found[0] if len(found)==1 else None
     if selected:meta['windowHandle']=selected[2];return selected[:2]
@@ -86,7 +98,7 @@ class AutoCapture:
         origin=content_origin(meta) if meta.get('active') else None
         area,points=screen_geometry(meta,origin)
         out={'geometry':meta,'screen_box':area,'guide_points':points}
-        if meta.get('active'):
+        if meta.get('active') and meta.get('clone')!='gunbound-world':
             from shortcuts import KEYS
             script=GESTURE_JS.replace('__OWNER__',json.dumps(self.gesture_owner)).replace('__KEY__',str(KEYS[fire_key])).replace('__BINDING__','null')
             gesture=self.client.call('Runtime.evaluate',{'expression':script,'returnByValue':True}).get('result',{}).get('value')
