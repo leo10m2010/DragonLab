@@ -8,13 +8,13 @@ class GunBoundAdapterTests(unittest.TestCase):
         c.game='state';c.controller='battle'
         c.profile={'id':'gunbound-world','fields':{}}
         state={'status':'live','phase':phase,'players':[{'id':'self','angle':-1}], 'wind':16}
-        c.call=Mock(side_effect=[{'result':{'value':state}}, {'result':{'value':{'heroId':'self','localAngle':45,'selectedShot':2}}}])
+        c.call=Mock(side_effect=[{'result':{'value':state}}, {'result':{'value':{'heroId':'self','localAngle':45,'selectedShot':2}}}, {}])
         return c
 
     def test_lobby_and_placement_do_not_activate_guidance(self):
         for phase in ('LOBBY','PLACEMENT','GAME_OVER'):
             with self.subTest(phase=phase):
-                self.assertEqual(self.client(phase)._generic_sample()['status'],'waiting')
+                c=self.client(phase);self.assertEqual(c._generic_sample()['status'],'waiting');self.assertIsNone(c.game);self.assertIsNone(c.controller)
 
     def test_live_turn_identifies_local_player_and_angle(self):
         c=self.client('TURN');state=c._generic_sample()

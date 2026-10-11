@@ -142,6 +142,7 @@ class App:
         if not fit and getattr(self,'cloud_profiles',None):
             from cloud_profiles import compatible_fit
             fit=compatible_fit(self.cloud_profiles,self.book,self.clone_id,self.s.mobile,self.s.selected_shot,self.s.wind)
+        self.profile_required=self.clone_id=='gunbound-world' and not fit
         if not fit:fit=self.book.provisional(self.clone_id,self.s.mobile,self.s.selected_shot,self.s.wind,self.s.wind_angle)
         observed=self.book.acceleration(self.clone_id,self.s.mobile,self.s.selected_shot,self.s.wind,self.s.wind_angle)
         if observed:self.s.environment['observedAcceleration']=observed
@@ -298,7 +299,7 @@ class App:
         if not visible:
             if self.overlay:self.overlay.update(self.screen_box,self.viewport,self.projected,[],{},False)
             return
-        if not self.overlay:self.overlay=TrajectoryOverlay(self.root)
+        if not self.overlay:self.overlay=TrajectoryOverlay(getattr(self,'ui_parent',self.root))
         planned=self.planned_paths()
         self.overlay.update(self.screen_box,self.viewport,self.projected,planned,self.observed_paths,True,players=self.live_players,target_id=self.auto_target_id,hero_id=self.target_hero_id,weather=self.s.environment.get('activeWeathers',[]),style={'color':MUTED if self.dirty or self.computing else '#80cfff' if self.path_color=='Azul' else GREEN,'width':self.path_width,'font_size':13 if self.large_text else 11,'target_key':self.target_key,'events':self.display_result().get('interactions',[])})
     def hide_overlay(self):
@@ -308,6 +309,7 @@ class App:
     def draw_force(self):
         r=self.display_result();updating=self.dirty or self.computing
         if hasattr(self,'force_canvas'):draw_force(self.force_canvas,r,self.s.max_power,self.current_game_power,updating)
+        if self.clone_id=='gunbound-world' and not r.get('reachable') and not r.get('blocked') and not updating:r={**r,'guide_message':'GunBound World · falta calibrar fuerza'}
         if self.power_guide:self.power_guide.draw(r,self.s.max_power,updating)
     def hide_power_guide(self):
         if self.power_guide:self.power_guide.close();self.power_guide=None
@@ -318,7 +320,7 @@ class App:
             return
         if self.power_guide:self.hide_power_guide();return
         if not self.guide_points:select_game_bar(self);return
-        self.power_guide=PowerGuide(self.root,*self.guide_points);self.draw_force()
+        self.power_guide=PowerGuide(getattr(self,'ui_parent',self.root),*self.guide_points);self.draw_force()
     def save_profile(self):
         try:
             self.read();solve(self.s);self.profiles[self.profile_key()]={k:getattr(self.s,k) for k in ('gravity','wind_scale','power_scale','speed_offset','angle_offset','quantize_power','launch_offset')};self.profile_path.write_text(json.dumps(self.profiles,indent=2),encoding='utf-8');self.footer.config(text='Perfil guardado para '+self.clone_id+' / '+self.s.mobile)
@@ -425,7 +427,7 @@ class App:
             if self.power_guide:self.power_guide.update_position(*points)
             self.auto_points=points
         self.guide_points=points
-        if not self.power_guide:self.power_guide=PowerGuide(self.root,*points)
+        if not self.power_guide:self.power_guide=PowerGuide(getattr(self,'ui_parent',self.root),*points)
         self.draw_force()
     def consume_fire_gesture(self,gesture):
         if not isinstance(gesture,dict) or not isinstance(gesture.get('owner'),str) or not isinstance(gesture.get('count'),int) or not isinstance(gesture.get('at'),(int,float)):return False
@@ -434,6 +436,7 @@ class App:
         self.last_page_gesture=stamp
         return stamp[3]>0 and -.05<=time.time()-gesture['at']/1000<.8
     def apply_live(self,d):
+        self.reader_status=d.get("status");self.reader_reason=d.get("reason","")
         if d.get('status')=='live':d['players']=self.player_tracker.update(d.get('players',[]))
         else:self.player_tracker.reset()
         try:self.shot_review.observe(d,replace(self.s,environment=dict(self.s.environment)))
@@ -601,14 +604,14 @@ class App:
         if self.dirty and not self.computing:
             self.dirty=False;self.compute_generation+=1
             try:
-                settings=replace(self.read(),environment=dict(self.s.environment));generation=self.compute_generation;context=self.visual_context();self.computing=True
+                settings=replace(self.read(),environment=dict(self.s.environment));profile_required=getattr(self,'profile_required',False);generation=self.compute_generation;context=self.visual_context();self.computing=True
                 self.power.config(text='…')
                 self.draw_force()
                 if self.overlay:self.draw_overlay()
                 preview_power=self.current_game_power if isinstance(self.current_game_power,(int,float)) and 1<=self.current_game_power<=settings.max_power else None
-                def calculate(settings=settings,generation=generation,preview_power=preview_power,context=context):
+                def calculate(settings=settings,generation=generation,preview_power=preview_power,context=context,profile_required=profile_required):
                     try:
-                        started=time.perf_counter();result=solve(settings);solve_seconds=time.perf_counter()-started
+                        started=time.perf_counter();result={'reachable':False,'reason':'GunBound World: falta calibrar fuerza para este vehículo, tiro y viento.'} if profile_required else solve(settings);solve_seconds=time.perf_counter()-started
                         if not result.get('reachable') and not result.get('blocked') and preview_power:
                             from physics_extensions import trajectory
                             preview=trajectory(settings,preview_power,step=.06,include_deployment=True)
@@ -625,7 +628,7 @@ class App:
         self.shared['source']='experimental' if self.last_live and time.monotonic()-self.last_live<4 else 'manual'
         if '--diagnostics' in sys.argv and time.monotonic()-getattr(self,'diagnostic_clock',0)>1:
             self.diagnostic_clock=time.monotonic()
-            health={'version':PROGRAM_VERSION,'updated':time.time(),'connected':bool(self.last_live and time.monotonic()-self.last_live<4),'map_detected':bool(self.s.environment.get('terrain')),'camera_detected':bool(self.live_camera and self.live_camera.get('renderWidth')),'weather':[w.get('resolvedTypeId') or w.get('typeId') for w in self.s.environment.get('activeWeathers',[])],'players_detected':len(self.live_players),'overlay_visible':bool(self.overlay and self.overlay.visible),'power':self.result.get('power'),'computing':self.computing,'last_error':getattr(self,'last_error',None),'target':self.auto_target_id,'enemies_detected':len(enemies(self.live_players,self.target_hero_id)),'preview_capture':self.preview_visible,'solve_seconds':getattr(self,'last_solve_seconds',None),'shortcut_events':self.shortcut_count,'fire_shortcut_events':self.fire_shortcut_count,'fire_busy':self.fire_busy,'fire_pending':bool(self.pending_fire),'last_fire_message':self.last_fire_message,'page_shortcuts_active':self.page_shortcuts_active,'shortcut_ready':bool(getattr(self,'shortcuts',None) and self.shortcuts.ready),'shortcut_error':getattr(getattr(self,'shortcuts',None),'error',None)}
+            health={'version':PROGRAM_VERSION,'reader_status':getattr(self,'reader_status',None),'reader_reason':getattr(self,'reader_reason',''),'result_reason':self.result.get('reason'),'guide_visible':bool(self.power_guide and self.power_guide.win.winfo_viewable()),'game_visible':self.game_visible,'bar_detected':bool(self.guide_points),'updated':time.time(),'connected':bool(self.last_live and time.monotonic()-self.last_live<4),'map_detected':bool(self.s.environment.get('terrain')),'camera_detected':bool(self.live_camera and self.live_camera.get('renderWidth')),'weather':[w.get('resolvedTypeId') or w.get('typeId') for w in self.s.environment.get('activeWeathers',[])],'players_detected':len(self.live_players),'overlay_visible':bool(self.overlay and self.overlay.visible),'power':self.result.get('power'),'computing':self.computing,'last_error':getattr(self,'last_error',None),'target':self.auto_target_id,'enemies_detected':len(enemies(self.live_players,self.target_hero_id)),'preview_capture':self.preview_visible,'solve_seconds':getattr(self,'last_solve_seconds',None),'shortcut_events':self.shortcut_count,'fire_shortcut_events':self.fire_shortcut_count,'fire_busy':self.fire_busy,'fire_pending':bool(self.pending_fire),'last_fire_message':self.last_fire_message,'page_shortcuts_active':self.page_shortcuts_active,'shortcut_ready':bool(getattr(self,'shortcuts',None) and self.shortcuts.ready),'shortcut_error':getattr(getattr(self,'shortcuts',None),'error',None)}
             try:(BASE/'estado-live.json').write_text(json.dumps(health,indent=2),encoding='utf-8')
             except OSError:pass
 

@@ -224,4 +224,6 @@ class AdapterClient(CDP):
             if sample.get('phase') not in ('TURN','RESOLVING'):
                 sample['status']='waiting'
                 sample['reason']='Esperando una partida activa de GunBound World'
+                self.game=None;self.controller=None
+                self.call('Runtime.releaseObjectGroup',{'objectGroup':'dragonlab-discovery'})
         return sample

@@ -55,11 +55,15 @@ class PowerGuide:
         self.win.geometry(f'{width}x{height}{self.x:+d}{self.y:+d}');self.last_draw=None
     def draw(self,result,maximum,updating=False):
         power=guide_power(result)
-        key=(power,maximum,self.points,updating,bool(result.get('blocked')))
+        key=(power,maximum,self.points,updating,bool(result.get('blocked')),result.get('guide_message'))
         if key==self.last_draw:return
         self.last_draw=key;c=self.canvas
         if power is None:
             for item in self.items:c.itemconfigure(item,state='hidden')
+            # Show an honest state instead of disappearing without explanation.
+            a=[self.start[0]-self.x,self.start[1]-self.y];b=[self.end[0]-self.x,self.end[1]-self.y]
+            c.itemconfigure(self.items[3],state='normal',text=result.get('guide_message') or ('Calculando fuerza…' if updating else 'Sin potencia válida · revisa DragonLab'),fill=MUTED)
+            c.coords(self.items[3],(a[0]+b[0])/2,min(a[1],b[1])-35)
             return
         a=[self.start[0]-self.x,self.start[1]-self.y];b=[self.end[0]-self.x,self.end[1]-self.y]
         fraction=max(0,min(1,power/maximum));px=a[0]+(b[0]-a[0])*fraction;py=a[1]+(b[1]-a[1])*fraction

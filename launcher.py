@@ -102,7 +102,7 @@ class Launcher:
         self.game_choice=RoundedChoice(selection,textvariable=self.game,values=list(GAMES),width=26,font=('Bahnschrift',13));self.game_choice.pack(fill='x')
         self.game_note=tk.Label(selection,bg=BG,fg=MUTED,font=('Bahnschrift',10),wraplength=620,justify='left');self.game_note.pack(anchor='w',pady=(8,0))
         self.game.trace_add('write',lambda *args:self.game_changed())
-        self.play_button=LauncherButton(self.dashboard_page,text='Jugar  →',command=self.play,bg=ACCENT,fg=BG,activebackground='#89e9f8',activeforeground=BG,font=('Bahnschrift',18,'bold'),pady=18,state='disabled')
+        self.play_button=LauncherButton(self.dashboard_page,text='Jugar  →',command=self.toggle_game,bg=ACCENT,fg=BG,activebackground='#89e9f8',activeforeground=BG,font=('Bahnschrift',18,'bold'),pady=18,state='disabled')
         self.play_button.pack(fill='x',padx=54,pady=(20,12))
         self.dashboard_status=tk.Label(self.dashboard_page,wraplength=680,justify='center',bg=BG,fg=MUTED,font=('Bahnschrift',10));self.dashboard_status.pack(fill='x',padx=32,pady=(0,12))
         versions=RoundedPanel(self.dashboard_page,PANEL,radius=24,padding=14);self.versions_panel=versions
@@ -174,6 +174,13 @@ class Launcher:
         if self.engine and not self.engine.window.winfo_exists():
             self.engine=None;self.play_button.config(state='normal' if self.authenticated else 'disabled')
             self.status.config(text='La guía se detuvo. Pulsa Jugar para volver a conectarte.')
+        if self.engine and not self.busy:
+            from product_status import capture_status
+            app=self.engine.app;worker=getattr(app,'worker',None)
+            if worker and worker.is_alive():
+                label,message=capture_status(app)
+                self.play_button.config(text=label+' · Pausar')
+                self.status.config(text=message)
         self.root.after(100,self.poll)
     def finish(self,value,error,done):
         self.busy=False;self.login_button.config(state='normal' if self.client else 'disabled');self.update_button.config(state='normal' if self.authenticated else 'disabled')
@@ -268,7 +275,7 @@ class Launcher:
         self.game_note.config(text='GunBound World · experimental. Guía sin calibración validada; Q desactivado.' if self.game.get()=='GunBound World' else 'DragonBound · guía y controles automáticos dentro de la partida.')
     def engine_directory(self):
         if self.client:return self.client.directory
-        for directory in (BASE.parent/'DragonLab',BASE.parent.parent/'DragonLab'):
+        for directory in (BASE/'DragonLab',BASE.parent/'DragonLab',BASE.parent.parent/'DragonLab'):
             if (directory/'calibraciones.json').is_file():return directory
         return BASE/'datos'
     def stop_engine(self):
@@ -292,6 +299,13 @@ class Launcher:
         except Exception:
             self.stop_engine();self.status.config(text='No se pudo iniciar la captura. Vuelve a intentarlo.')
         finally:self.busy=False;self.play_button.config(state='normal')
+    def toggle_game(self):
+        if self.busy or time.monotonic()<self.opening_until:return
+        worker=getattr(self.engine.app,'worker',None) if self.engine else None
+        if worker and worker.is_alive():
+            self.stop_engine();self.play_button.config(text='Jugar →')
+            self.status.config(text='Guía pausada. El juego sigue abierto.')
+        else:self.play()
     def play(self):
         if not self.authenticated or self.busy:return
         if self.demo:self.start_engine();return
