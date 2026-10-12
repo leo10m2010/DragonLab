@@ -46,6 +46,12 @@ def update(record,sample):
                     record['rollback_fit']=dict(active)
                     archive=record.setdefault('previous_regimes',[])
                     archive.append({'fit':dict(active),'reason':'Replaced after independent future validation','archived':time.time()});record['previous_regimes']=archive[-8:]
+                checked_ids=set(candidate['training_ids'])|{x['id'] for x in values}
+                checked=[x for x in record.get('samples',[]) if sample_id(x) in checked_ids]
+                if checked:
+                    candidate['fit']['wind_range']=[min(x['wind'] for x in checked),max(x['wind'] for x in checked)]
+                    candidate['fit']['power_range']=[min(x['power'] for x in checked),max(x['power'] for x in checked)]
+                    candidate['fit']['validation_count']=len(values)
                 record['fit']=candidate['fit'];record['accepted_validation']=values;record.pop('candidate',None);record.pop('drift_pending',None);record['active_failures']=[]
                 record['status']='Ajuste validado con tiros nuevos';return record['fit']
             record.pop('candidate',None);record['status']='Ajuste actual conservado' if active else 'Aprendiendo: prueba independiente fallida'

@@ -30,11 +30,11 @@ def calibration_label(app):
     return mode+' · APROXIMADO','approximate'
 
 def pending_calibration(app):
-    from gunbound_profiles import ARMOR_SHOT1
+    from gunbound_profiles import ARMOR_SHOT1,ARMOR_SHOT2
     book=getattr(app,'book',None);settings=getattr(app,'s',None)
     if settings is None:return 'Sin calibración','Faltan mediciones para esta modalidad.'
     record=book.records.get(book.key(app.clone_id,settings.mobile,settings.selected_shot),{}) if book else {}
-    fit=record.get('fit') or (ARMOR_SHOT1 if settings.mobile=='ARMOR' and settings.selected_shot==0 else None)
+    fit=record.get('fit') or ({0:ARMOR_SHOT1,1:ARMOR_SHOT2}.get(settings.selected_shot) if settings.mobile=='ARMOR' else None)
     if record.get('drift_pending'):return 'Recalibrando','Las últimas mediciones cambiaron; comprobando un ajuste nuevo.'
     if fit and fit.get('wind_range') and not fit['wind_range'][0]<=settings.wind<=fit['wind_range'][1]:
         return 'Ampliando viento',f"Viento {settings.wind:g}: medido entre {fit['wind_range'][0]:g} y {fit['wind_range'][1]:g}. Tus tiros manuales amplían la calibración."

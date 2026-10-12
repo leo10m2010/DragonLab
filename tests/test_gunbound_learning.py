@@ -23,10 +23,10 @@ class LearningTests(unittest.TestCase):
     def test_training_does_not_activate_before_future_shots(self):
         with tempfile.TemporaryDirectory() as tmp:
             b=CalibrationBook(Path(tmp)/'book.json')
-            for i,p in enumerate([25,50,75,95]):b.observe({'measurements':[measurement(event(p,ident=str(i)))]},'gunbound-world')
+            for i,p in enumerate([25,50,75,95]):b.observe({'measurements':[measurement(event(p,ident=str(i),wind=[5,5,5,22][i]))]},'gunbound-world')
             r=b.records['gunbound-world:ARMOR:1'];self.assertNotIn('fit',r);self.assertIn('candidate',r)
-            for i,p in enumerate([30,60,90]):b.observe({'measurements':[measurement(event(p,ident='v'+str(i)))]},'gunbound-world')
-            self.assertEqual(r['fit']['native_euler_step'],.05);self.assertEqual(len(r['accepted_validation']),3)
+            for i,p in enumerate([30,60,90]):b.observe({'measurements':[measurement(event(p,ident='v'+str(i),wind=[1,1,0][i]))]},'gunbound-world')
+            self.assertEqual(r['fit']['native_euler_step'],.05);self.assertEqual(len(r['accepted_validation']),3);self.assertEqual(r['fit']['wind_range'],[0,22])
     def test_independent_modes_are_not_combined(self):
         with tempfile.TemporaryDirectory() as tmp:
             b=CalibrationBook(Path(tmp)/'book.json')
