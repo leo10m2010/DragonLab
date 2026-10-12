@@ -18,3 +18,9 @@ class GunBoundWeatherTests(unittest.TestCase):
         self.assertEqual(mirror,[758]);self.assertEqual(tornado,[(300,35)])
     def test_alias_is_case_and_whitespace_independent(self):
         self.assertEqual(weather_name(' BlackForce '),'Negro')
+
+    def test_random_only_uses_a_revealed_variant(self):
+        r=normalize_weather('random',[{'kind':'random','x':500,'size':128,'variant':'mirror','revealed':True}])
+        self.assertEqual(r[0]['resolvedTypeId'],7)
+        r=normalize_weather('random',[{'kind':'random','x':500,'size':128,'variant':'mirror','revealed':False}])
+        self.assertTrue(r[0]['unresolved']);self.assertNotIn('resolvedTypeId',r[0])

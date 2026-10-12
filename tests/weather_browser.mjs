@@ -12,5 +12,6 @@ try {
  assert.deepEqual(await evaluate('not JSON'),[]);assert.deepEqual(await evaluate('{}'),[]);
  assert.deepEqual(await evaluate('[]'),[]);assert.deepEqual(await evaluate([{kind:'mirror',x:200,size:100}]),[{kind:'mirror',x:200,size:100}]);
  assert.deepEqual(await evaluate(JSON.stringify([{kind:'mirror',x:'200'}])),[]);
+ assert.deepEqual(await evaluate(JSON.stringify([{kind:'random',x:500,size:128,variant:'mirror',revealed:false}])),[{kind:'random',x:500,size:128,variant:'mirror',revealed:false}]);
  console.log('PASS: real weatherZones JSON shape, arrays, malformed input and numeric positions');
 }finally{await browser.close()}

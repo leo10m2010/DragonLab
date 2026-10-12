@@ -1,7 +1,7 @@
 """Normalize observed GunBound weather names and separate spatial zones."""
 import math
 KINDS={'force':3,'lightning':4,'black-force':5,'mirror':7,'tornado':8}
-NAMES={'force':'Fuerza','lightning':'Rayo','black-force':'Negro','mirror':'Mirror','tornado':'Tornado','thor':'Thor','sun':'Sol','moon':'Luna','eclipse':'Eclipse','no-items':'Sin ítems','wind-change':'Cambio de viento','none':'Normal','normal':'Normal'}
+NAMES={'force':'Fuerza','lightning':'Rayo','black-force':'Negro','mirror':'Mirror','tornado':'Tornado','random':'Aleatorio','thor':'Thor','sun':'Sol','moon':'Luna','eclipse':'Eclipse','no-items':'Sin ítems','wind-change':'Cambio de viento','none':'Normal','normal':'Normal'}
 def canonical(value):
     if not isinstance(value,str):return ''
     kind=value.strip().lower()
@@ -15,6 +15,11 @@ def normalize_weather(current,zones):
         kind=canonical(zone.get('kind'));x=zone.get('x');size=zone.get('size')
         if not kind or not isinstance(x,(int,float)) or not math.isfinite(x):continue
         record={'kind':kind,'name':weather_name(kind),'x':x}
+        variant=canonical(zone.get('variant'))
+        if kind=='random':
+            if variant in KINDS and zone.get('revealed') is not False:
+                record['variant']=variant;record['name']='Aleatorio · '+weather_name(variant);kind=variant
+            else:record['unresolved']=True
         if kind in KINDS:record['typeId']=KINDS[kind];record['resolvedTypeId']=KINDS[kind]
         if isinstance(size,(int,float)) and math.isfinite(size) and size>0:record['size']=size
         records.append(record)
@@ -26,5 +31,5 @@ def normalize_weather(current,zones):
 WEATHER_ZONES_JS=r"""((value)=>{try{
  if(typeof value==='string'){if(value.length>16384)return [];value=JSON.parse(value)}
  const list=Array.isArray(value)?value:Array.from(value?.$items?.values?.()??value?.values?.()??[]);
- return list.slice(0,32).filter(w=>w&&typeof w.kind==='string'&&Number.isFinite(w.x)).map(w=>({kind:w.kind,x:w.x,size:w.size}));
+ return list.slice(0,32).filter(w=>w&&typeof w.kind==='string'&&Number.isFinite(w.x)).map(w=>({kind:w.kind,x:w.x,size:w.size,...(typeof w.variant==='string'?{variant:w.variant}:{}),...(typeof w.revealed==='boolean'?{revealed:w.revealed}:{})}));
 }catch{return []}})(s?.weatherZones)"""

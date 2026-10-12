@@ -44,7 +44,7 @@ class TrajectoryOverlay:
         annotations={};labels={};outside_split=False
         for i,event in enumerate(style.get('events',[])):
             kind=event.get('kind')
-            if kind not in ('underground','surface','split','mirror','enter','bounce','exit','force','lightning','black-force'):continue
+            if kind not in ('underground','surface','split','mirror','enter','bounce','exit','force','lightning','black-force','unresolved-weather'):continue
             px,py=project(event['x'],event['y']);px*=width/vw;py*=(bottom-y)/vh
             if not 12<=px<=width-12 or not 30<=py<=height-25:
                 if kind=='split' and py<30 and not outside_split:
@@ -52,7 +52,7 @@ class TrajectoryOverlay:
                     labels['deployment-outside']=(px,43,f"↑ Apertura · {event.get('missiles',0)} misiles",aim_color)
                 continue
             key='event:'+str(i);annotations[key]=([px-5,py,px+5,py,px,py-5,px,py+5],aim_color)
-            labels[key]=(px,py-14,{'underground':'Entra','surface':'Sale','mirror':'Mirror · rebote','enter':'Tornado · entra','bounce':'Tornado · giro','exit':'Tornado · sale','force':'Fuerza','lightning':'Rayo','black-force':'Negro','split':f'{event.get("missiles",0)} misiles'}[kind],aim_color)
+            labels[key]=(px,py-14,{'underground':'Entra','surface':'Sale','mirror':'Mirror · rebote','enter':'Tornado · entra','bounce':'Tornado · giro','exit':'Tornado · sale','unresolved-weather':'Aleatorio · sin revelar','force':'Fuerza','lightning':'Rayo','black-force':'Negro','split':f'{event.get("missiles",0)} misiles'}[kind],aim_color)
         numbers={p['id']:i for i,p in enumerate(enemies(players,hero_id),1)}
         if numbers:
             current=numbers.get(target_id,'—')
@@ -80,12 +80,13 @@ class TrajectoryOverlay:
             labels['current-weather']=(width-150,16,'Clima: '+weather_name(style['weather_name']),BLUE)
         for i,w in enumerate(weather):
             kind=w.get('resolvedTypeId') or w.get('typeId');center=w.get('x')
-            if kind not in (3,4,5,7,8) or not isinstance(center,(int,float)):continue
+            if w.get('unresolved'):kind=0
+            if kind not in (0,3,4,5,7,8) or not isinstance(center,(int,float)):continue
             px,_=project(center,0);px*=width/vw
             if 0<=px<=width:
-                color={3:'#ffd36c',4:'#8fbfff',5:'#a9a0b5',7:'#d69cfc',8:'#7bcddb'}[kind]
+                color={0:'#b4bdc9',3:'#ffd36c',4:'#8fbfff',5:'#a9a0b5',7:'#d69cfc',8:'#7bcddb'}[kind]
                 annotations['climate:'+str(i)]=([px,0,px,height],color)
-                labels['climate:'+str(i)]=(px,43,{3:'Fuerza',4:'Rayo',5:'Negro · menos daño',7:'Mirror',8:'Tornado'}[kind],color)
+                labels['climate:'+str(i)]=(px,43,{0:'Aleatorio · sin revelar',3:'Fuerza',4:'Rayo',5:'Negro · menos daño',7:'Mirror',8:'Tornado'}[kind],color)
         for key,(coords,color) in annotations.items():
             if key not in self.marks:self.marks[key]=self.canvas.create_line(*coords,fill=color,width=3 if key.startswith('player:') else 1.5,dash=(3,5) if key.startswith('climate:') else ())
             else:self.canvas.coords(self.marks[key],*coords);self.canvas.itemconfigure(self.marks[key],fill=color,width=3 if key.startswith('player:') else 1.5)

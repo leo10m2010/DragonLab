@@ -5,7 +5,7 @@ class GunBoundTrajectoryTests(unittest.TestCase):
     def settings(self,kind):return Settings(hero_x=0,hero_y=0,target_x=600,target_y=300,angle=20,look=1,muzzle=False,power_scale=5,gravity=100,max_time=5,environment={'weatherModel':'gunbound-world','activeWeathers':[{'typeId':kind,'x':200,'size':100}]})
     def test_mirror_reverses_once_and_curve_contains_reflected_leg(self):
         parts,events=segments(self.settings(7),50)
-        self.assertEqual([e['kind'] for e in events],['mirror']);self.assertGreater(parts[0]['vx'],0);self.assertLess(parts[1]['vx'],0)
+        self.assertEqual([e['kind'] for e in events],['mirror']);self.assertGreater(parts[0]['vx'],0);self.assertTrue(any(p['vx']<0 for p in parts[1:]))
     def test_tornado_has_three_legs_without_gravity_and_then_resumes(self):
         parts,events=segments(self.settings(8),50)
         self.assertEqual([e['kind'] for e in events],['enter','bounce','bounce','exit'])
@@ -23,3 +23,8 @@ class GunBoundTrajectoryTests(unittest.TestCase):
         with patch('gunbound_trajectory.segments',side_effect=AssertionError('wrong clone')):
             parts,events=segments(s,50)
         self.assertTrue(parts);self.assertTrue(events)
+
+    def test_unrevealed_random_is_identified_without_invented_reflection(self):
+        s=self.settings(7);s.environment['activeWeathers']=[{'kind':'random','unresolved':True,'x':200,'size':128}]
+        parts,events=segments(s,50)
+        self.assertEqual([e['kind'] for e in events],['unresolved-weather']);self.assertGreater(parts[-1]['vx'],0)

@@ -95,6 +95,8 @@ class App:
         if self.computing or self.dirty:
             if self.pending_fire is None:self.pending_fire=(time.monotonic()+.8,self.fire_context())
             self.fire_notice('Esperando el cálculo actual para este tiro…');return
+        if self.clone_id=='gunbound-world' and any(e.get('kind')=='unresolved-weather' for e in self.display_result().get('interactions',[])):
+            self.fire_notice('Clima aleatorio sin revelar: recorrido sin confirmar');return
         from strength_guide import guide_power
         chosen_power=guide_power(self.display_result())
         if chosen_power is None:
@@ -482,7 +484,10 @@ class App:
                     evidence_path=BASE/'climas-gunbound.json'
                     try:cases=json.loads(evidence_path.read_text(encoding='utf-8'))
                     except (OSError,ValueError):cases=[]
-                    cases=(cases+d['weather_cases'])[-12:]
+                    from weather_validation import crossing_evidence
+                    new_cases=[{**case,'evidence':crossing_evidence(case)} for case in d['weather_cases']]
+                    self.weather_validation=[e for case in new_cases for e in case['evidence']]
+                    cases=(cases+new_cases)[-12:]
                     atomic_write(evidence_path,json.dumps(cases,allow_nan=False).encode())
                 except (OSError,ValueError,TypeError):pass
         revision=self.book.revision
@@ -672,7 +677,7 @@ class App:
         self.shared['source']='experimental' if self.last_live and time.monotonic()-self.last_live<4 else 'manual'
         if '--diagnostics' in sys.argv and time.monotonic()-getattr(self,'diagnostic_clock',0)>1:
             self.diagnostic_clock=time.monotonic()
-            health={'version':PROGRAM_VERSION,'learning_error':getattr(self,'learning_error',''),'learning_status':self.book.message,'learning_samples':len(self.book.records.get(self.book.key(self.clone_id,self.s.mobile,self.s.selected_shot),{}).get('samples',[])),'reader_status':getattr(self,'reader_status',None),'reader_reason':getattr(self,'reader_reason',''),'result_reason':self.result.get('reason'),'guide_visible':bool(self.power_guide and self.power_guide.win.winfo_viewable()),'game_visible':self.game_visible,'bar_detected':bool(self.guide_points),'updated':time.time(),'connected':bool(self.last_live and time.monotonic()-self.last_live<4),'map_detected':bool(self.s.environment.get('terrain')),'camera_detected':bool(self.live_camera and self.live_camera.get('renderWidth')),'weather':[w.get('resolvedTypeId') or w.get('typeId') for w in self.s.environment.get('activeWeathers',[])],'players_detected':len(self.live_players),'overlay_visible':bool(self.overlay and self.overlay.visible),'power':self.result.get('power'),'computing':self.computing,'last_error':getattr(self,'last_error',None),'target':self.auto_target_id,'enemies_detected':len(enemies(self.live_players,self.target_hero_id)),'preview_capture':self.preview_visible,'solve_seconds':getattr(self,'last_solve_seconds',None),'shortcut_events':self.shortcut_count,'fire_shortcut_events':self.fire_shortcut_count,'fire_busy':self.fire_busy,'fire_pending':bool(self.pending_fire),'last_fire_message':self.last_fire_message,'page_shortcuts_active':self.page_shortcuts_active,'shortcut_ready':bool(getattr(self,'shortcuts',None) and self.shortcuts.ready),'shortcut_error':getattr(getattr(self,'shortcuts',None),'error',None)}
+            health={'version':PROGRAM_VERSION,'weather_validation':getattr(self,'weather_validation',[]),'learning_error':getattr(self,'learning_error',''),'learning_status':self.book.message,'learning_samples':len(self.book.records.get(self.book.key(self.clone_id,self.s.mobile,self.s.selected_shot),{}).get('samples',[])),'reader_status':getattr(self,'reader_status',None),'reader_reason':getattr(self,'reader_reason',''),'result_reason':self.result.get('reason'),'guide_visible':bool(self.power_guide and self.power_guide.win.winfo_viewable()),'game_visible':self.game_visible,'bar_detected':bool(self.guide_points),'updated':time.time(),'connected':bool(self.last_live and time.monotonic()-self.last_live<4),'map_detected':bool(self.s.environment.get('terrain')),'camera_detected':bool(self.live_camera and self.live_camera.get('renderWidth')),'weather':[w.get('resolvedTypeId') or w.get('typeId') for w in self.s.environment.get('activeWeathers',[])],'players_detected':len(self.live_players),'overlay_visible':bool(self.overlay and self.overlay.visible),'power':self.result.get('power'),'computing':self.computing,'last_error':getattr(self,'last_error',None),'target':self.auto_target_id,'enemies_detected':len(enemies(self.live_players,self.target_hero_id)),'preview_capture':self.preview_visible,'solve_seconds':getattr(self,'last_solve_seconds',None),'shortcut_events':self.shortcut_count,'fire_shortcut_events':self.fire_shortcut_count,'fire_busy':self.fire_busy,'fire_pending':bool(self.pending_fire),'last_fire_message':self.last_fire_message,'page_shortcuts_active':self.page_shortcuts_active,'shortcut_ready':bool(getattr(self,'shortcuts',None) and self.shortcuts.ready),'shortcut_error':getattr(getattr(self,'shortcuts',None),'error',None)}
             try:(BASE/'estado-live.json').write_text(json.dumps(health,indent=2),encoding='utf-8')
             except OSError:pass
 
