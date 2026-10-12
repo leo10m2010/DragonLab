@@ -273,7 +273,7 @@ class Launcher:
     def game_changed(self):
         if self.game.get() not in GAMES:self.game.set('DragonBound');return
         if self.engine and self.engine.app.clone_id!=GAMES[self.game.get()]['id']:self.stop_engine()
-        self.game_note.config(text='Armor medido: tiro 1 (viento 0–18), tiro 2 (0–22).\nSS y demás carros: aprendizaje con tus tiros manuales.' if self.game.get()=='GunBound World' else 'DragonBound · guía y controles automáticos dentro de la partida.')
+        self.game_note.config(text='Armor medido: 1 (0–18), 2 (0–22), SS (2–24 de viento).\nOtros carros: aprendizaje con tus tiros manuales.' if self.game.get()=='GunBound World' else 'DragonBound · guía y controles automáticos dentro de la partida.')
     def engine_directory(self):
         if self.client:return self.client.directory
         for directory in (BASE/'DragonLab',BASE.parent/'DragonLab',BASE.parent.parent/'DragonLab'):

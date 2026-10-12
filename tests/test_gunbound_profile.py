@@ -7,6 +7,8 @@ class GunBoundProfileTests(unittest.TestCase):
         self.assertIsNotNone(measured_profile('ARMOR',0,18))
         self.assertIsNotNone(measured_profile('ARMOR',1,0))
         self.assertIsNotNone(measured_profile('ARMOR',1,22))
+        self.assertIsNotNone(measured_profile('ARMOR',2,2))
+        self.assertIsNotNone(measured_profile('ARMOR',2,24))
         for mobile,shot,wind in [('ARMOR',1,23),('ARMOR',2,0),('NAK',0,0),('ARMOR',0,25)]:
             self.assertIsNone(measured_profile(mobile,shot,wind))
     def test_native_first_step_has_not_received_full_step_acceleration(self):

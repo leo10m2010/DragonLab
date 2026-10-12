@@ -5,7 +5,9 @@ ARMOR_SHOT1 = {'power_scale': 9.20007504911005, 'speed_offset': -0.0621058062221
 
 ARMOR_SHOT2 = {'power_scale': 9.199757044239016, 'speed_offset': -0.0280965885506248, 'gravity': 390.6981850186331, 'wind_scale': 3.808284011634467, 'sample_count': 4, 'speed_rmse': 0.015389914841973792, 'gravity_spread': 3.4296078816852855, 'acceleration_rmse': 1.728904884818855, 'acceleration_max_error': 3.361717605400816, 'power_range': [25, 100], 'wind_range': [0, 22], 'wind_observed': True, 'holdout_speed_error': 0.056196023424490704, 'holdout_acceleration_error': 4.915358231981591, 'native_euler_step': 0.05, 'validation_count': 3}
 
+ARMOR_SS = {'power_scale': 9.200254014191096, 'speed_offset': -0.07646188136845922, 'gravity': 390.4625874815306, 'wind_scale': 3.824835736810853, 'sample_count': 6, 'speed_rmse': 0.016905942881600727, 'gravity_spread': 6.69570165435033, 'acceleration_rmse': 2.814185372319021, 'acceleration_max_error': 4.918043428460914, 'power_range': [25, 100], 'wind_range': [2, 24], 'wind_observed': True, 'holdout_speed_error': 0.04333629845973519, 'holdout_acceleration_error': 4.98654661033697, 'native_euler_step': 0.05, 'validation_count': 3}
+
 def measured_profile(mobile,shot,wind):
-    fit={0:ARMOR_SHOT1,1:ARMOR_SHOT2}.get(shot) if mobile=='ARMOR' else None
+    fit={0:ARMOR_SHOT1,1:ARMOR_SHOT2,2:ARMOR_SS}.get(shot) if mobile=='ARMOR' else None
     if not fit or not fit['wind_range'][0]<=wind<=fit['wind_range'][1]:return None
     return copy.deepcopy(fit)
