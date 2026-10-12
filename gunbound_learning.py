@@ -7,12 +7,12 @@ INSTALL=r"""function(owner){
  const c=this, priorSubmit=this.onShotSubmitted,priorSettle=this.onShotSettled;
  const store={owner,buffer:[],pending:null,priorSubmit,priorSettle};
  store.submit=function(e){try{const s=c.room.state,p=s.players.get(c.myId);
- store.pending={mobile:p?.mobileId,shot:e?.selectedShot,wind:s.windPower,wind_angle:s.windAngleDeg,item:!!p?.armedItem,at:Date.now()};
+ store.lastSubmittedAt=Date.now();store.pending={mobile:p?.mobileId,shot:e?.selectedShot,wind:s.windPower,wind_angle:s.windAngleDeg,item:!!p?.armedItem,weather:s.weather,zones:Array.from(s.weatherZones?.$items?.values?.()??s.weatherZones?.values?.()??[]).slice(0,32).map(w=>({kind:w.kind,x:w.x,size:w.size})),at:Date.now()};
  }catch{store.pending=null}return typeof priorSubmit==='function'?priorSubmit.apply(this,arguments):undefined};
  store.settle=function(r){try{const release=store.pending;
  if(release&&r?.shooterId===c.myId){store.pending=null;
  const projectile=r.projectiles?.find(p=>p.sourceShotProjectileIndex===0&&p.path?.[0]?.t===0);
- if(!release.item&&projectile&&r.shot===release.shot){store.buffer.push({...release,power:c.lastPower,id:owner+':'+release.at,path:projectile.path.slice(0,8).map(p=>({x:p.x,y:p.y,t:p.t}))});if(store.buffer.length>24)store.buffer.shift()}}
+ if(!release.item&&projectile&&r.shot===release.shot){store.buffer.push({...release,power:c.lastPower,id:owner+':'+release.at,path:projectile.path.slice(0,800).map(p=>({x:p.x,y:p.y,t:p.t}))});if(store.buffer.length>24)store.buffer.shift()}}
  }catch{}return typeof priorSettle==='function'?priorSettle.apply(this,arguments):undefined};
  this.__dragonlabLearning=store;this.onShotSubmitted=store.submit;this.onShotSettled=store.settle;return true;
 }"""
@@ -42,10 +42,20 @@ def measurement(event):
     return {'mobile':mobile,'selected_shot':shot,'sample_id':event['id'],'power':power,'vx':vx,'vy':vy,'ax':ax,'ay':ay,'wind':wind,'wind_angle':angle,'native_euler_step':dt,'source':'gunbound-own-shot-path'}
 
 class GunBoundLearning:
-    def __init__(self,client):self.client=client;self.owner=uuid.uuid4().hex;self.handle=None;self.error=''
+    def __init__(self,client):self.client=client;self.owner=uuid.uuid4().hex;self.handle=None;self.error='';self.cases=[];self.paths={}
     def call(self,code):return self.client.call('Runtime.callFunctionOn',{'objectId':self.handle,'functionDeclaration':code,'arguments':[{'value':self.owner}],'returnByValue':True}).get('result',{}).get('value')
     def drain(self):
-        return [m for e in self.call(DRAIN) or [] if (m:=measurement(e)) is not None] if self.handle else []
+        events=self.call(DRAIN) or [] if self.handle else []
+        samples=[];self.cases=[];self.paths={}
+        for e in events:
+            m=measurement(e)
+            if m:samples.append(m)
+            points=e.get('path',[])
+            if len(points)>1 and all(all(isinstance(q.get(k),(int,float)) and math.isfinite(q[k]) for k in ('x','y','t')) for q in points):
+                self.paths[e['id']]=[(q['x'],q['y'],q['t']) for q in points]
+                if e.get('zones') and not e.get('item'):
+                    self.cases.append({k:e[k] for k in ('mobile','shot','power','wind','wind_angle','weather','zones','path') if k in e})
+        return samples
     def remove(self):
         if self.handle:
             try:self.call(REMOVE)

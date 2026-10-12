@@ -20,7 +20,7 @@ GESTURE_JS = r'''(()=>{
   s={owner,key,count:0,at:0,document:performance.timeOrigin};
   s.handler=e=>{
    if(!e.isTrusted||e.repeat||e.keyCode!==s.key||e.ctrlKey||e.shiftKey||e.altKey||e.metaKey)return;
-   const g=document.getElementById('gameScreen');
+   const g=location.hostname==='play.gunbound.world'?document.querySelector('canvas.gb-battle-canvas'):document.getElementById('gameScreen');
    if(!g||!g.getClientRects().length||getComputedStyle(g).visibility==='hidden')return;
    const f=document.activeElement;
    if(['INPUT','TEXTAREA','SELECT'].includes(f?.tagName)||f?.isContentEditable||!document.hasFocus()||document.visibilityState!=='visible')return;
@@ -98,7 +98,7 @@ class AutoCapture:
         origin=content_origin(meta) if meta.get('active') else None
         area,points=screen_geometry(meta,origin)
         out={'geometry':meta,'screen_box':area,'guide_points':points}
-        if meta.get('active') and meta.get('clone')!='gunbound-world':
+        if meta.get('active'):
             from shortcuts import KEYS
             script=GESTURE_JS.replace('__OWNER__',json.dumps(self.gesture_owner)).replace('__KEY__',str(KEYS[fire_key])).replace('__BINDING__','null')
             gesture=self.client.call('Runtime.evaluate',{'expression':script,'returnByValue':True}).get('result',{}).get('value')

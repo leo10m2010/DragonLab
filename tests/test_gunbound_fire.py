@@ -38,3 +38,23 @@ class GunBoundFireTests(unittest.TestCase):
         b=Backend();b.window=2;r=Reader(b)
         with self.assertRaises(RuntimeError):execute_gunbound(self.plan(),r,threading.Event(),backend=b)
         self.assertEqual(b.actions,[])
+
+    def test_low_valid_power_is_not_rejected_and_trace_is_recorded(self):
+        b=Backend();r=Reader(b);events=[]
+        out=execute_gunbound(self.plan(2),r,threading.Event(),backend=b,trace=events.append)
+        self.assertEqual(out['power'],2);self.assertIn('released',[e['stage'] for e in events])
+
+    def test_confirmation_requires_a_new_release_and_checks_actual_power(self):
+        from gunbound_fire import confirm_release
+        from unittest.mock import Mock
+        r=Mock();r.read.return_value={'releaseAt':2000,'busy':False,'lastPower':50}
+        self.assertEqual(confirm_release(r,{'power':50},1,threading.Event())['status'],'confirmed')
+        r.read.return_value['lastPower']=10
+        self.assertEqual(confirm_release(r,{'power':50},1,threading.Event())['status'],'mismatch')
+    def test_old_matching_power_does_not_confirm_a_new_shot(self):
+        from gunbound_fire import confirm_release
+        from unittest.mock import Mock,patch
+        r=Mock();r.read.return_value={'releaseAt':500,'busy':False,'lastPower':50}
+        with patch('gunbound_fire.time.monotonic',side_effect=[0,2]):
+            result=confirm_release(r,{'power':50},1,threading.Event())
+        self.assertEqual(result['status'],'unconfirmed')

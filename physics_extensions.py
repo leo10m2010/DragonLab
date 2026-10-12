@@ -38,6 +38,9 @@ def weather_records(environment):
     return sorted(set(tornado)),sorted(set(mirror))
 
 def segments(s,power):
+    if s.environment.get('weatherModel')=='gunbound-world':
+        from gunbound_trajectory import segments as gunbound_segments
+        return gunbound_segments(s,power)
     from core import acceleration,launch
     x,y,side=launch(s);origin=x
     angle=math.radians(s.angle+s.angle_offset)

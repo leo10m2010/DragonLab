@@ -13,7 +13,7 @@ class GunBoundPowerReader:
         self.client.sock.settimeout(.4)
     def read(self):
         script="""function(){const s=this.room.state,p=s.players.get(this.myId),rear=['nak','aduka'].includes(p?.mobileId),right=(p?.facing==='right')!==rear;
-        return {hero:this.myId,turn:s.activePlayerId,power:this.drag?.power??this.power,lastPower:this.lastPower,mode:this.inputMode==='slice'?'space':this.inputMode==='drag'?'drag':null,
+        return {releaseAt:this.__dragonlabLearning?.lastSubmittedAt??this.__dragonlabLearning?.pending?.at,hero:this.myId,turn:s.activePlayerId,power:this.drag?.power??this.power,lastPower:this.lastPower,mode:this.inputMode==='slice'?'space':this.inputMode==='drag'?'drag':null,
         focused:document.hasFocus()&&document.visibilityState==='visible',over:this.destroyed||s.phase==='GAME_OVER'||s.phase==='LOBBY',blocked:this.gameInputBlocked||!this.roomConnected||this.observer||this.renderSurface!=='live'||s.phase!=='TURN',
         chat:['INPUT','TEXTAREA','SELECT'].includes(document.activeElement?.tagName)||!!document.activeElement?.isContentEditable,moving:!!this.moveHeld||!!this.touchAimHeld||!!this.keyboardMoveKeys?.size,
         busy:!!this.charging||!!this.drag,shot:({shot1:0,shot2:1,ss:2})[this.shot],wind:s.windPower,windAngle:s.windAngleDeg,armedItem:!!p?.armedItem,
@@ -33,8 +33,11 @@ class GunBoundPowerReader:
     def close(self):self.client.close()
 
 def execute_gunbound(plan,reader,cancel,backend=None,trace=None):
-    if not isinstance(plan['power'],(int,float)) or not math.isfinite(plan['power']) or not 3<=plan['power']<=100:raise ValueError('Fuerza fuera de rango')
+    if not isinstance(plan['power'],(int,float)) or not math.isfinite(plan['power']) or not 1<=plan['power']<=100:raise ValueError('Fuerza fuera de rango')
+    def report(stage,**data):
+        if trace:trace({'stage':stage,**data})
     backend=backend or WindowsInput();state=reader.read();validate(plan,state)
+    report('validated',method=state.get('mode'),requested=plan['power'])
     if state.get('blocked') or state.get('armedItem'):raise RuntimeError('Espera tu turno y desactiva el ítem antes de disparar')
     if state.get('busy') or backend.input_busy():raise RuntimeError('Termina la carga actual')
     method=state['mode'];held=False;cursor=None;rect=backend.window_rect(plan['window']);start=time.monotonic();last=-1;changed=start;charging=False;move_sent=False
@@ -44,11 +47,11 @@ def execute_gunbound(plan,reader,cancel,backend=None,trace=None):
         if cursor and math.dist(backend.cursor(),cursor)>3:raise RuntimeError('Moviste el mouse; entrada liberada')
     check()
     try:
-        if method=='space':backend.key(True);held=True
+        if method=='space':backend.key(True);held=True;report('charge-start',method=method)
         else:
             x,y=reader.drag_start(plan['window']);check();backend.move(x,y);cursor=(x,y)
             if not backend.point_in_window(x,y,plan['window']):raise RuntimeError('Otra ventana cubre el arrastre')
-            backend.mouse(True);held=True
+            backend.mouse(True);held=True;report('charge-start',method=method)
         while True:
             check();state=reader.read();check();power=state.get('power')
             if charging and plan['power']==100 and not state.get('busy') and state.get('lastPower')==100 and (method=='space' or move_sent):return {'power':100,'method':method}
@@ -63,7 +66,8 @@ def execute_gunbound(plan,reader,cancel,backend=None,trace=None):
             if power!=last:last=power;changed=now
             if method=='space':
                 if power>=plan['power']-.25:return {'power':power,'method':method}
-            elif abs(power-plan['power'])<=.4:return {'power':power,'method':method}
+            elif abs(power-plan['power'])<=.4:
+                report('charge-confirmed',power=power);return {'power':power,'method':method}
             elif not move_sent:
                 sensitivity=state.get('sensitivity');sensitivity=round(max(50,min(150,sensitivity))) if isinstance(sensitivity,(int,float)) and math.isfinite(sensitivity) else 100
                 scale=state['canvasWidth']/state['stageWidth']*plan.get('dpr',1)
@@ -79,3 +83,15 @@ def execute_gunbound(plan,reader,cancel,backend=None,trace=None):
         if held:
             if method=='space':backend.key(False)
             else:backend.mouse(False)
+            report('released')
+
+def confirm_release(reader,result,started,cancel):
+    deadline=time.monotonic()+1.2
+    while time.monotonic()<deadline and not cancel.is_set():
+        state=reader.read()
+        if isinstance(state.get('releaseAt'),(int,float)) and state['releaseAt']>=started*1000 and not state.get('busy'):
+            power=state.get('lastPower')
+            if isinstance(power,(int,float)) and math.isfinite(power):
+                return {'status':'confirmed' if abs(power-result['power'])<=.5 else 'mismatch','actualPower':power,'confirmation_source':'native-release-and-live-power'}
+        time.sleep(.015)
+    return {'status':'unconfirmed','reason':'No se confirmó la liberación; no se reintenta'}

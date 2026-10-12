@@ -55,14 +55,14 @@ class PowerGuide:
         self.win.geometry(f'{width}x{height}{self.x:+d}{self.y:+d}');self.last_draw=None
     def draw(self,result,maximum,updating=False):
         power=guide_power(result)
-        key=(power,maximum,self.points,updating,bool(result.get('blocked')),result.get('guide_message'),result.get('guide_label'),result.get('guide_state'))
+        key=(power,maximum,self.points,updating,bool(result.get('blocked')),result.get('guide_message'),result.get('guide_label'),result.get('guide_state'),result.get('guide_notice'))
         if key==self.last_draw:return
         self.last_draw=key;c=self.canvas
         if power is None:
             for item in self.items:c.itemconfigure(item,state='hidden')
             # Show an honest state instead of disappearing without explanation.
             a=[self.start[0]-self.x,self.start[1]-self.y];b=[self.end[0]-self.x,self.end[1]-self.y]
-            c.itemconfigure(self.items[3],state='normal',text=result.get('guide_message') or ('Calculando fuerza…' if updating else 'Sin potencia válida · revisa DragonLab'),fill=MUTED)
+            c.itemconfigure(self.items[3],state='normal',text=result.get('guide_notice') or result.get('guide_message') or ('Calculando fuerza…' if updating else 'Sin potencia válida · revisa DragonLab'),fill=MUTED)
             c.coords(self.items[3],(a[0]+b[0])/2,min(a[1],b[1])-35)
             return
         a=[self.start[0]-self.x,self.start[1]-self.y];b=[self.end[0]-self.x,self.end[1]-self.y]
@@ -72,7 +72,7 @@ class PowerGuide:
         c.coords(self.items[0],*a,*b);c.coords(self.items[1],px,py-22,px,py+12)
         c.coords(self.items[2],px-7,py-24,px+7,py-24,px,py-15)
         c.coords(self.items[3],(a[0]+b[0])/2,min(a[1],b[1])-35)
-        prefix=(result.get('guide_label','')+' · ') if result.get('guide_label') else ''
+        prefix=('Q: '+result['guide_notice'][:95]+' · ') if result.get('guide_notice') else (result.get('guide_label','')+' · ') if result.get('guide_label') else ''
         c.itemconfigure(self.items[3],text=prefix+f'{"ACTUALIZANDO" if updating else "TERRENO BLOQUEA" if result.get("blocked") else "SUELTA EN"} {power:g} / {maximum:g} · {fraction*100:.1f}%')
     def close(self):self.win.destroy()
 

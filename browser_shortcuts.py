@@ -42,6 +42,7 @@ class BrowserShotEvents:
             if client:
                 try:
                     if self.document_script:client.call('Page.removeScriptToEvaluateOnNewDocument',{'identifier':self.document_script})
+                    client.call('Runtime.evaluate',{'expression':'(()=>{const s=window.__dragonlabShotGesture;if(s?.owner==='+json.dumps(self.owner)+'){window.removeEventListener(\"keydown\",s.handler,true);delete window.__dragonlabShotGesture}})()'})
                     client.call('Runtime.removeBinding',{'name':self.binding})
                 except Exception:pass
                 client.close()

@@ -127,9 +127,12 @@ class App:
                 attempt['result']=result
                 from shot_confirmation import wait_for_shot
                 try:
-                    if clone=='gunbound-world':raise RuntimeError('Confirmación balística pendiente para GunBound World')
-                    reader.client.terrain_interval=60;reader.client.terrain_clock=time.monotonic()
-                    confirmation=wait_for_shot(reader,plan,result,self.fire_cancel)
+                    if clone=='gunbound-world':
+                        from gunbound_fire import confirm_release
+                        confirmation=confirm_release(reader,result,attempt['started'],self.fire_cancel)
+                    else:
+                        reader.client.terrain_interval=60;reader.client.terrain_clock=time.monotonic()
+                        confirmation=wait_for_shot(reader,plan,result,self.fire_cancel)
                 except Exception:
                     confirmation={'status':'unconfirmed','reason':'La lectura se interrumpió después de soltar; no se repite el tiro'}
                 attempt['confirmation']=confirmation
@@ -331,6 +334,7 @@ class App:
         if self.clone_id=='gunbound-world' and getattr(self,'profile_required',True) and not r.get('reachable') and not r.get('blocked') and not updating:
             from product_status import pending_calibration
             title,message=pending_calibration(self);r={**r,'guide_message':title+' · '+message}
+        if time.monotonic()<getattr(self,'notice_until',0) and getattr(self,'last_fire_message',''):r['guide_notice']=self.last_fire_message
         if self.power_guide:self.power_guide.draw(r,self.s.max_power,updating)
     def hide_power_guide(self):
         if self.power_guide:self.power_guide.close();self.power_guide=None
@@ -409,7 +413,7 @@ class App:
                         from gunbound_learning import GunBoundLearning
                         learning=GunBoundLearning(client)
                     capture=AutoCapture(client);capture.capture_interval=3 if self.performance=='Ligero' else 1.5;client.terrain_interval=5 if self.performance=='Ligero' else 2
-                    if clone=='dragonbound':
+                    if clone in ('dragonbound','gunbound-world'):
                         from browser_shortcuts import BrowserShotEvents
                         shot_events=BrowserShotEvents(client.endpoint,client.target['id'],capture.gesture_owner,lambda:self.fire_key,lambda gesture:self.events.put({'status':'fire-gesture','gesture':gesture}))
                         shot_events.start();self.browser_shot_events=shot_events
@@ -421,7 +425,7 @@ class App:
                             client.game=None;client.renderer=None
                         else:sample=client.sample()
                         if learning:
-                            sample['measurements']=learning.poll();sample['learning_error']=learning.error
+                            sample['measurements']=learning.poll();sample['learning_error']=learning.error;sample['weather_cases']=learning.cases;sample['gunbound_paths']=learning.paths
                         sample['_auto']=auto;self.events.put(sample);stop.wait(interval)
                 except Exception as e:
                     if not stop.is_set():self.events.put({'status':'waiting','reason':'Buscando el navegador del juego… '+str(e)})
@@ -469,6 +473,18 @@ class App:
         try:self.shot_review.observe(d,replace(self.s,environment=dict(self.s.environment)))
         except (OSError,ValueError,TypeError,KeyError):pass
         self.observed_paths=self.trails.update(d.get('shots',[]))
+        if self.clone_id=='gunbound-world':
+            if d.get('gunbound_paths'):self.gunbound_observed=d['gunbound_paths'];self.gunbound_observed_until=time.monotonic()+5
+            if time.monotonic()<getattr(self,'gunbound_observed_until',0):self.observed_paths.update(getattr(self,'gunbound_observed',{}))
+            if d.get('weather_cases'):
+                try:
+                    from local_storage import atomic_write
+                    evidence_path=BASE/'climas-gunbound.json'
+                    try:cases=json.loads(evidence_path.read_text(encoding='utf-8'))
+                    except (OSError,ValueError):cases=[]
+                    cases=(cases+d['weather_cases'])[-12:]
+                    atomic_write(evidence_path,json.dumps(cases,allow_nan=False).encode())
+                except (OSError,ValueError,TypeError):pass
         revision=self.book.revision
         try:changed=self.book.observe(d,self.clone_id)
         except (OSError,ValueError,TypeError):changed=[];self.book.message='No se pudo guardar la medición; el perfil actual se conserva'
@@ -519,6 +535,7 @@ class App:
             if terrain.get('rows'):self.s.environment['terrain']=terrain
             elif terrain.get('surface'):self.s.environment['terrain']={'heights':terrain['surface'],'height':terrain.get('height',1200),'originX':terrain.get('originX',0),'originY':terrain.get('originY',0)}
         self.s.environment['activeWeathers']=d.get('weather',[]) if isinstance(d.get('weather'),list) else []
+        if self.clone_id=='gunbound-world':self.s.environment['weatherModel']='gunbound-world'
         self.s.environment['hitTolerance']=18
         self.s.environment['players']=[{k:p[k] for k in ('id','x','y','dead') if k in p} for p in ps if p['id']!=hero['id']]
         self.s.environment['targetId']=target['id']

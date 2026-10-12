@@ -44,7 +44,7 @@ class TrajectoryOverlay:
         annotations={};labels={};outside_split=False
         for i,event in enumerate(style.get('events',[])):
             kind=event.get('kind')
-            if kind not in ('underground','surface','split'):continue
+            if kind not in ('underground','surface','split','mirror','enter','bounce','exit','force','lightning','black-force'):continue
             px,py=project(event['x'],event['y']);px*=width/vw;py*=(bottom-y)/vh
             if not 12<=px<=width-12 or not 30<=py<=height-25:
                 if kind=='split' and py<30 and not outside_split:
@@ -52,7 +52,7 @@ class TrajectoryOverlay:
                     labels['deployment-outside']=(px,43,f"↑ Apertura · {event.get('missiles',0)} misiles",aim_color)
                 continue
             key='event:'+str(i);annotations[key]=([px-5,py,px+5,py,px,py-5,px,py+5],aim_color)
-            labels[key]=(px,py-14,{'underground':'Entra','surface':'Sale','split':f'{event.get("missiles",0)} misiles'}[kind],aim_color)
+            labels[key]=(px,py-14,{'underground':'Entra','surface':'Sale','mirror':'Mirror · rebote','enter':'Tornado · entra','bounce':'Tornado · giro','exit':'Tornado · sale','force':'Fuerza','lightning':'Rayo','black-force':'Negro','split':f'{event.get("missiles",0)} misiles'}[kind],aim_color)
         numbers={p['id']:i for i,p in enumerate(enemies(players,hero_id),1)}
         if numbers:
             current=numbers.get(target_id,'—')

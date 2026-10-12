@@ -23,5 +23,11 @@ try {
  await page.keyboard.press('r');assert.equal((await page.evaluate(custom)).count,1);
  await page.locator('#gameScreen').evaluate(e=>e.style.display='none');
  await page.keyboard.press('r');assert.equal((await page.evaluate(custom)).count,1);
+ await page.route('https://play.gunbound.world/**',route=>route.fulfill({body:'<canvas class="gb-battle-canvas" width="800" height="600"></canvas><input id="chat">',contentType:'text/html'}));
+ await page.goto('https://play.gunbound.world/');await page.evaluate(script);
+ await page.keyboard.press('q');assert.equal((await state()).count,1);
+ await page.locator('#chat').focus();await page.keyboard.press('q');assert.equal((await state()).count,1);
+ await page.locator('#chat').evaluate(e=>e.blur());await page.keyboard.press('Control+q');assert.equal((await state()).count,1);
+ await page.locator('canvas').evaluate(e=>e.style.display='none');await page.keyboard.press('q');assert.equal((await state()).count,1);
  console.log('PASS: trusted Q once; no repeat, synthetic event, modifiers/chat/lobby; custom R replaces Q.');
 }finally{await browser.close();}
