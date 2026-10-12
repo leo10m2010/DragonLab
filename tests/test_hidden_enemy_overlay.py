@@ -14,3 +14,13 @@ class HiddenEnemyOverlayTests(unittest.TestCase):
             self.assertIn('ENEMIGO 1',overlay.canvas.itemcget(overlay.labels['player:2'],'text'))
             self.assertIn('player:2',overlay.label_backgrounds)
         finally:overlay.close();root.destroy()
+
+    def test_weather_columns_and_current_name_are_visible(self):
+        from gunbound_weather import normalize_weather
+        root=tk.Tk();root.withdraw();overlay=TrajectoryOverlay(root)
+        try:
+            weather=normalize_weather('mirror',[{'kind':'mirror','x':350,'size':92},{'kind':'tornado','x':550,'size':140}])
+            overlay.update((0,0,800,600),(800,600),lambda x,y:(x,y),[],{},True,weather=weather,style={'weather_name':'mirror'})
+            self.assertEqual(overlay.canvas.itemcget(overlay.labels['current-weather'],'text'),'Clima: Mirror')
+            self.assertIn('climate:0',overlay.marks);self.assertIn('climate:1',overlay.marks)
+        finally:overlay.close();root.destroy()

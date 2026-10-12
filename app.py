@@ -77,6 +77,7 @@ class App:
         return (self.last_fingerprint,self.auto_target_id,self.target_hero_id,self.clone_id,
                 tuple((k,v.get()) for k,v in self.vars.items()))
     def fire_notice(self,text):
+        self.last_fire_message=text
         self.notice_until=time.monotonic()+4;self.footer.config(text=text,fg=ORANGE)
     def process_pending_fire(self):
         if self.pending_fire:
@@ -317,7 +318,7 @@ class App:
             return
         if not self.overlay:self.overlay=TrajectoryOverlay(getattr(self,'ui_parent',self.root))
         planned=self.planned_paths()
-        self.overlay.update(self.screen_box,self.viewport,self.projected,planned,self.observed_paths,True,players=self.live_players,target_id=self.auto_target_id,hero_id=self.target_hero_id,weather=self.s.environment.get('activeWeathers',[]),style={'color':MUTED if self.dirty or self.computing else '#80cfff' if self.path_color=='Azul' else GREEN,'width':self.path_width,'font_size':13 if self.large_text else 11,'target_key':self.target_key,'events':self.display_result().get('interactions',[])})
+        self.overlay.update(self.screen_box,self.viewport,self.projected,planned,self.observed_paths,True,players=self.live_players,target_id=self.auto_target_id,hero_id=self.target_hero_id,weather=self.s.environment.get('activeWeathers',[]),style={'color':MUTED if self.dirty or self.computing else '#80cfff' if self.path_color=='Azul' else GREEN,'width':self.path_width,'font_size':13 if self.large_text else 11,'target_key':self.target_key,'events':self.display_result().get('interactions',[]),'weather_name':getattr(self,'weather_current','')})
     def hide_overlay(self):
         if self.overlay:self.overlay.close();self.overlay=None
     def copy_power(self):
@@ -454,7 +455,7 @@ class App:
         self.last_page_gesture=stamp
         return stamp[3]>0 and -.05<=time.time()-gesture['at']/1000<.8
     def apply_live(self,d):
-        self.reader_status=d.get("status");self.reader_reason=d.get("reason","")
+        self.reader_status=d.get("status");self.reader_reason=d.get("reason","");self.weather_current=d.get('weatherCurrent','')
         if d.get('status')=='live':d['players']=self.player_tracker.update(d.get('players',[]))
         else:self.player_tracker.reset()
         try:self.shot_review.observe(d,replace(self.s,environment=dict(self.s.environment)))

@@ -75,6 +75,9 @@ class TrajectoryOverlay:
             if p.get('id') in numbers:
                 selected=p.get('id')==target_id
                 labels['player:'+str(p['id'])]=(px,py-23,('▶ ' if selected else '')+'ENEMIGO '+str(numbers[p['id']]),'#ffb86c' if selected else '#ecf3f7')
+        if style.get('weather_name'):
+            from gunbound_weather import weather_name
+            labels['current-weather']=(width-150,16,'Clima: '+weather_name(style['weather_name']),BLUE)
         for i,w in enumerate(weather):
             kind=w.get('resolvedTypeId') or w.get('typeId');center=w.get('x')
             if kind not in (3,4,5,7,8) or not isinstance(center,(int,float)):continue
@@ -82,7 +85,7 @@ class TrajectoryOverlay:
             if 0<=px<=width:
                 color={3:'#ffd36c',4:'#8fbfff',5:'#a9a0b5',7:'#d69cfc',8:'#7bcddb'}[kind]
                 annotations['climate:'+str(i)]=([px,0,px,height],color)
-                labels['climate:'+str(i)]=(px,16,{3:'Fuerza',4:'Rayo',5:'Negro · menos daño',7:'Mirror',8:'Tornado'}[kind],color)
+                labels['climate:'+str(i)]=(px,43,{3:'Fuerza',4:'Rayo',5:'Negro · menos daño',7:'Mirror',8:'Tornado'}[kind],color)
         for key,(coords,color) in annotations.items():
             if key not in self.marks:self.marks[key]=self.canvas.create_line(*coords,fill=color,width=3 if key.startswith('player:') else 1.5,dash=(3,5) if key.startswith('climate:') else ())
             else:self.canvas.coords(self.marks[key],*coords);self.canvas.itemconfigure(self.marks[key],fill=color,width=3 if key.startswith('player:') else 1.5)

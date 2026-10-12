@@ -3,6 +3,8 @@ import time
 from strength_guide import guide_power
 
 def capture_status(app):
+    if getattr(app,'fire_busy',False):return 'Aplicando tiro','Aplicando la fuerza con controles de Windows…'
+    if time.monotonic()<getattr(app,'notice_until',0) and getattr(app,'last_fire_message',None):return 'Atajo',app.last_fire_message
     if getattr(app,'last_error',None):return 'Revisar guía','La guía encontró un error; vuelve a conectar.'
     if not app.last_live or time.monotonic()-app.last_live>4:
         return 'Esperando partida',getattr(app,'reader_reason','') or 'Captura conectada. Esperando una partida activa.'
