@@ -1,5 +1,6 @@
 """Bounded, owned shot observer. Never sends game controls or account data."""
 import math,uuid
+from gunbound_weather import WEATHER_ZONES_JS
 
 INSTALL=r"""function(owner){
  if(this.destroyed||this.renderSurface!=="live")return false;
@@ -7,7 +8,7 @@ INSTALL=r"""function(owner){
  const c=this, priorSubmit=this.onShotSubmitted,priorSettle=this.onShotSettled;
  const store={owner,buffer:[],pending:null,priorSubmit,priorSettle};
  store.submit=function(e){try{const s=c.room.state,p=s.players.get(c.myId);
- store.lastSubmittedAt=Date.now();store.pending={mobile:p?.mobileId,shot:e?.selectedShot,wind:s.windPower,wind_angle:s.windAngleDeg,item:!!p?.armedItem,weather:s.weather,zones:Array.from(s.weatherZones?.$items?.values?.()??s.weatherZones?.values?.()??[]).slice(0,32).map(w=>({kind:w.kind,x:w.x,size:w.size})),at:Date.now()};
+ store.lastSubmittedAt=Date.now();store.pending={mobile:p?.mobileId,shot:e?.selectedShot,wind:s.windPower,wind_angle:s.windAngleDeg,item:!!p?.armedItem,weather:s.weather,zones:__WEATHER_ZONES__,at:Date.now()};
  }catch{store.pending=null}return typeof priorSubmit==='function'?priorSubmit.apply(this,arguments):undefined};
  store.settle=function(r){try{const release=store.pending;
  if(release&&r?.shooterId===c.myId){store.pending=null;
@@ -16,6 +17,7 @@ INSTALL=r"""function(owner){
  }catch{}return typeof priorSettle==='function'?priorSettle.apply(this,arguments):undefined};
  this.__dragonlabLearning=store;this.onShotSubmitted=store.submit;this.onShotSettled=store.settle;return true;
 }"""
+INSTALL=INSTALL.replace('__WEATHER_ZONES__',WEATHER_ZONES_JS)
 DRAIN='function(owner){const s=this.__dragonlabLearning;return s?.owner===owner?s.buffer.splice(0):[]}'
 REMOVE='function(owner){const s=this.__dragonlabLearning;if(s?.owner===owner){if(this.onShotSubmitted===s.submit)this.onShotSubmitted=s.priorSubmit;if(this.onShotSettled===s.settle)this.onShotSettled=s.priorSettle;delete this.__dragonlabLearning}return true}'
 

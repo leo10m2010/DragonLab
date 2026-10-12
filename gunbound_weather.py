@@ -21,3 +21,10 @@ def normalize_weather(current,zones):
     kind=canonical(current)
     if kind and not any(r['kind']==kind for r in records):records.append({'kind':kind,'name':weather_name(kind),'global':True})
     return records
+
+# Observed Colyseus state sends weatherZones as JSON text, not an ArraySchema.
+WEATHER_ZONES_JS=r"""((value)=>{try{
+ if(typeof value==='string'){if(value.length>16384)return [];value=JSON.parse(value)}
+ const list=Array.isArray(value)?value:Array.from(value?.$items?.values?.()??value?.values?.()??[]);
+ return list.slice(0,32).filter(w=>w&&typeof w.kind==='string'&&Number.isFinite(w.x)).map(w=>({kind:w.kind,x:w.x,size:w.size}));
+}catch{return []}})(s?.weatherZones)"""
