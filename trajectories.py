@@ -10,7 +10,7 @@ class TrajectoryOverlay:
         self.win=tk.Toplevel(root);self.win.withdraw();self.win.overrideredirect(True);self.win.attributes('-topmost',True)
         self.win.configure(bg='#010203');self.win.wm_attributes('-transparentcolor','#010203')
         self.canvas=tk.Canvas(self.win,bg='#010203',highlightthickness=0);self.canvas.pack(fill='both',expand=True)
-        self.lines={};self.marks={};self.labels={};self.key=None;self.visible=False
+        self.lines={};self.marks={};self.labels={};self.label_backgrounds={};self.key=None;self.visible=False
         self.win.update_idletasks();clickthrough(self.win)
         if os.name=='nt':self.win.wm_attributes('-disabled',True)
     def update(self,box,viewport,project,planned,observed,visible,players=(),target_id=None,hero_id=None,weather=(),style=None):
@@ -68,13 +68,13 @@ class TrajectoryOverlay:
                 dx,dy=math.cos(direction),math.sin(direction)
                 color='#ffb86c' if p.get('id')==target_id else '#ecf3f7'
                 annotations['player:'+str(p.get('id'))]=([px-10*dx,py-10*dy,px,py,px-7*dx-4*dy,py-7*dy+4*dx,px,py,px-7*dx+4*dy,py-7*dy-4*dx],color)
-                labels['player:'+str(p['id'])]=(px,py+13,(str(numbers[p['id']]) if p['id'] in numbers else 'Tú')+' fuera',color)
+                labels['player:'+str(p['id'])]=(px,py+13,(str(numbers[p['id']]) if p['id'] in numbers else 'Tú')+' · fuera de vista',color)
                 continue
             color=GREEN if p.get('id')==hero_id else '#ffb86c' if p.get('id')==target_id else '#c4d1db'
             annotations['player:'+str(p.get('id'))]=([px-8,py,px+8,py,px,py,px,py-12],color)
             if p.get('id') in numbers:
                 selected=p.get('id')==target_id
-                labels['player:'+str(p['id'])]=(px,py-23,('▶ ' if selected else '')+str(numbers[p['id']]),'#ffb86c' if selected else '#ecf3f7')
+                labels['player:'+str(p['id'])]=(px,py-23,('▶ ' if selected else '')+'ENEMIGO '+str(numbers[p['id']]),'#ffb86c' if selected else '#ecf3f7')
         for i,w in enumerate(weather):
             kind=w.get('resolvedTypeId') or w.get('typeId');center=w.get('x')
             if kind not in (3,4,5,7,8) or not isinstance(center,(int,float)):continue
@@ -84,15 +84,25 @@ class TrajectoryOverlay:
                 annotations['climate:'+str(i)]=([px,0,px,height],color)
                 labels['climate:'+str(i)]=(px,16,{3:'Fuerza',4:'Rayo',5:'Negro · menos daño',7:'Mirror',8:'Tornado'}[kind],color)
         for key,(coords,color) in annotations.items():
-            if key not in self.marks:self.marks[key]=self.canvas.create_line(*coords,fill=color,width=1.5,dash=(3,5) if key.startswith('climate:') else ())
-            else:self.canvas.coords(self.marks[key],*coords);self.canvas.itemconfigure(self.marks[key],fill=color)
+            if key not in self.marks:self.marks[key]=self.canvas.create_line(*coords,fill=color,width=3 if key.startswith('player:') else 1.5,dash=(3,5) if key.startswith('climate:') else ())
+            else:self.canvas.coords(self.marks[key],*coords);self.canvas.itemconfigure(self.marks[key],fill=color,width=3 if key.startswith('player:') else 1.5)
         for key in list(self.marks):
             if key not in annotations:self.canvas.delete(self.marks.pop(key))
         for key,(px,py,text,color) in labels.items():
             if key not in self.labels:self.labels[key]=self.canvas.create_text(px,py,text=text,fill=color,font=('Bahnschrift',font_size,'bold'))
             else:self.canvas.coords(self.labels[key],px,py);self.canvas.itemconfigure(self.labels[key],text=text,fill=color,font=('Bahnschrift',font_size,'bold'))
+            bounds=self.canvas.bbox(self.labels[key])
+            if bounds:
+                shift=max(0,4-bounds[0])-max(0,bounds[2]-(width-4))
+                if shift:self.canvas.move(self.labels[key],shift,0);bounds=self.canvas.bbox(self.labels[key])
+                l,t,r,b=bounds;l-=4;t-=2;r+=4;b+=2;radius=5
+                shape=[l+radius,t,r-radius,t,r,t,r,b-radius,r,b,r-radius,b,l+radius,b,l,b,l,t+radius,l,t]
+                if key not in self.label_backgrounds:self.label_backgrounds[key]=self.canvas.create_polygon(*shape,smooth=True,fill='#0b121c',outline='#294353')
+                else:self.canvas.coords(self.label_backgrounds[key],*shape)
+                self.canvas.tag_lower(self.label_backgrounds[key],self.labels[key])
         for key in list(self.labels):
-            if key not in labels:self.canvas.delete(self.labels.pop(key))
+            if key not in labels:
+                self.canvas.delete(self.labels.pop(key));self.canvas.delete(self.label_backgrounds.pop(key,None))
         if not self.visible:self.win.deiconify();self.visible=True
     def close(self):self.win.destroy()
 

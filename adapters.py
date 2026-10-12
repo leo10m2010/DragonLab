@@ -217,16 +217,24 @@ class AdapterClient(CDP):
             return {'status': 'waiting', 'reason': 'El estado cambió; esperando una estructura compatible'}
         sample=result.get('result', {}).get('value', {'status': 'waiting'})
         if self.profile['id']=='gunbound-world' and self.controller:
-            info=self.call('Runtime.callFunctionOn',{'objectId':self.controller,'functionDeclaration':'''function(){const s=this.room?.state,p=s?.players?.get(this.myId),m=this.world?.worldTransform,z=this.stageSize,rear=['nak','aduka'].includes(p?.mobileId),right=(p?.facing==='right')!==rear,world=(right?this.angle:180-this.angle)-(p?.bodyTilt??0);return {heroId:this.myId,activePlayer:s?.activePlayerId,currentPower:this.power,localAngle:right?world:180-world,muzzles:p?.mobileId==='armor'?[{angle:52,radius:33}]:[],selectedShot:({shot1:0,shot2:1,ss:2})[p?.selectedShot],camera:m&&z?{matrix:{a:m.a,b:m.b,c:m.c,d:m.d,tx:m.tx,ty:m.ty},renderWidth:z.width,renderHeight:z.height}:null}}''','returnByValue':True}).get('result',{}).get('value',{})
+            info=self.call('Runtime.callFunctionOn',{'objectId':self.controller,'functionDeclaration':'''function(){const s=this.room?.state,p=s?.players?.get(this.myId),m=this.world?.worldTransform,z=this.stageSize,rear=['nak','aduka'].includes(p?.mobileId),right=(p?.facing==='right')!==rear,world=(right?this.angle:180-this.angle)-(p?.bodyTilt??0);return {heroId:this.myId,activePlayer:s?.activePlayerId,currentPower:this.power,rawAngle:this.angle,localAngle:right?world:180-world,muzzles:p?.mobileId==='armor'?[{angle:52,radius:33}]:[],selectedShot:({shot1:0,shot2:1,ss:2})[p?.selectedShot],camera:m&&z?{matrix:{a:m.a,b:m.b,c:m.c,d:m.d,tx:m.tx,ty:m.ty},renderWidth:z.width,renderHeight:z.height}:null}}''','returnByValue':True}).get('result',{}).get('value',{})
             sample.update(info)
+            import time
+            stamp=(self.controller,sample.get('turn'))
+            if sample.get('phase') in ('TURN','RESOLVING') and (stamp!=getattr(self,'gunbound_terrain_stamp',None) or time.monotonic()-getattr(self,'gunbound_terrain_clock',0)>5):
+                ground=self.call('Runtime.callFunctionOn',{'objectId':self.controller,'functionDeclaration':'''function(){const c=this.terrain?.canvas,ctx=this.terrain?.ctx;if(!c||!ctx||!c.width||!c.height||c.width*c.height>12000000)return null;const w=c.width,h=c.height,p=ctx.getImageData(0,0,w,h).data,rows=[];for(let y=0;y<h;y++){let row=[],inside=false;for(let x=0;x<w;x++){const opaque=p[(y*w+x)*4+3]>0;if(opaque!==inside){row.push(x);inside=opaque}}if(inside)row.push(w);rows.push(row)}return {width:w,height:h,originX:0,originY:0,rows,rowsSorted:true}}''','returnByValue':True}).get('result',{}).get('value')
+                if ground:self.terrain_cache=ground
+                self.gunbound_terrain_stamp=stamp;self.gunbound_terrain_clock=time.monotonic()
+            sample['terrain']=self.terrain_cache
             hero=next((p for p in sample.get('players',[]) if p.get('id')==info.get('heroId')),None)
             if hero and isinstance(info.get('localAngle'),(int,float)):
                 hero['angle']=info['localAngle']
                 hero['isHero']=True
                 hero['muzzles']=info.get('muzzles',[])
+                hero['rawAngle']=info.get('rawAngle')
             if sample.get('phase') not in ('TURN','RESOLVING'):
                 sample['status']='waiting'
                 sample['reason']='Esperando una partida activa de GunBound World'
-                self.game=None;self.controller=None
+                self.game=None;self.controller=None;self.terrain_cache=None
                 self.call('Runtime.releaseObjectGroup',{'objectGroup':'dragonlab-discovery'})
         return sample

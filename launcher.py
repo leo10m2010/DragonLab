@@ -255,7 +255,7 @@ class Launcher:
             ('02 · Entra al juego y empieza una partida','Usa tu cuenta del juego. La guía se muestra dentro de la partida cuando hay datos suficientes. GunBound World es experimental y necesita validar sus propias calibraciones.'),
             ('Colores y calibración','Verde: salida medida. Naranja: aproximado o terreno bloqueado. Pendiente: aún no hay perfil válido para ese carro, tiro o viento. El nombre del carro y el tiro aparecen sobre la barra.'),
             ('03 · Elige y comprueba tu tiro','Ctrl cambia de objetivo. Q solicita un tiro en tu turno. Estos son los atajos iniciales; puedes cambiarlos en Ajustes del auxiliar. Comprueba el objetivo y la guía antes de usarlo.'),
-            ('Ajustes y salida','Ajustes cambia los controles y la apariencia de la guía. Cerrar DragonLab detiene la captura; el navegador queda abierto. En GunBound World Q está desactivado hasta validar la entrada de tiro.')])
+            ('Ajustes y salida','Ajustes cambia los controles y la apariencia de la guía. Cerrar DragonLab detiene la captura; el navegador queda abierto. Q aplica un tiro con controles de Windows. Requiere tu turno, fuerza válida y juego en primer plano; prueba primero un tiro normal sin ítems.')])
     def calibration_help(self):
         self.guide('Cada carro tiene su ritmo.',[
             ('Carro + modalidad','Tiro 1, tiro 2 y SS usan perfiles distintos. Un ajuste de Armor no valida Nak, Trico o Kalsiddon.'),
@@ -273,7 +273,7 @@ class Launcher:
     def game_changed(self):
         if self.game.get() not in GAMES:self.game.set('DragonBound');return
         if self.engine and self.engine.app.clone_id!=GAMES[self.game.get()]['id']:self.stop_engine()
-        self.game_note.config(text='Medido: Armor tiro 1 · viento 0–18.\nPendientes: tiro 2, SS y demás carros · Q desactivado.' if self.game.get()=='GunBound World' else 'DragonBound · guía y controles automáticos dentro de la partida.')
+        self.game_note.config(text='Medido: Armor tiro 1 · viento 0–18.\nPendientes: tiro 2, SS y demás carros · Q: tiro bajo tu control.' if self.game.get()=='GunBound World' else 'DragonBound · guía y controles automáticos dentro de la partida.')
     def engine_directory(self):
         if self.client:return self.client.directory
         for directory in (BASE/'DragonLab',BASE.parent/'DragonLab',BASE.parent.parent/'DragonLab'):

@@ -87,12 +87,16 @@ class App:
                 self.pending_fire=None;self.trigger_auto_fire()
     def trigger_auto_fire(self):
         if self.fire_busy or not self.auto_shot_enabled:return
-        if self.clone_id!='dragonbound' or not self.auto_enabled or not self.last_live or time.monotonic()-self.last_live>1.5:
-            self.fire_notice('Espera la conexión con DragonBound');return
+        if self.clone_id not in ('dragonbound','gunbound-world') or not self.auto_enabled or not self.last_live or time.monotonic()-self.last_live>1.5:
+            self.fire_notice('Espera la conexión con el juego');return
+        if self.clone_id=='gunbound-world' and not self.s.environment.get('terrain'):
+            self.fire_notice('Espera a detectar el terreno antes de disparar');return
         if self.computing or self.dirty:
             if self.pending_fire is None:self.pending_fire=(time.monotonic()+.8,self.fire_context())
             self.fire_notice('Esperando el cálculo actual para este tiro…');return
-        if not self.display_result().get('reachable'):
+        from strength_guide import guide_power
+        chosen_power=guide_power(self.display_result())
+        if chosen_power is None:
             self.fire_notice(self.display_result().get('reason') or 'Ese ángulo no tiene una fuerza válida');return
         hero=next((p for p in self.live_players if p['id']==self.target_hero_id),None)
         target=next((p for p in self.live_players if p['id']==self.auto_target_id),None)
@@ -100,14 +104,18 @@ class App:
             self.fire_notice('Espera a confirmar las posiciones');return
         if not hero or not target or not self.game_window or not self.screen_box:
             self.fire_notice('Espera a detectar el jugador y la ventana del juego');return
-        plan={'power':round(self.result['power']),'window':self.game_window,'hero':hero['id'],'target':target['id'],'shot':self.s.selected_shot,'wind':self.s.wind,'windAngle':self.s.wind_angle,'barStart':self.guide_points[0] if self.guide_points else None,'dpr':self.capture_dpr,'screenBox':self.screen_box,'heroState':{k:hero[k] for k in ('x','y','rawAngle','body','look') if k in hero},'targetState':{k:target[k] for k in ('x','y')}}
+        plan={'power':round(chosen_power),'window':self.game_window,'hero':hero['id'],'target':target['id'],'shot':self.s.selected_shot,'wind':self.s.wind,'windAngle':self.s.wind_angle,'barStart':self.guide_points[0] if self.guide_points else None,'dpr':self.capture_dpr,'screenBox':self.screen_box,'heroState':{k:hero[k] for k in ('x','y','rawAngle','body','look') if k in hero},'targetState':{k:target[k] for k in ('x','y')}}
         self.pending_fire=None;self.fire_busy=True;self.fire_cancel.clear();self.footer.config(text='Aplicando fuerza…')
+        clone=self.clone_id
         endpoint=self.endpoint.get();target_id=self.browser_target;snapshot=replace(self.s,environment=dict(self.s.environment))
         if self.book.profile(self.clone_id,self.s.mobile,self.s.selected_shot,self.s.wind):
             speed=plan['power']*snapshot.power_scale+snapshot.speed_offset
             plan['expectedSpeed']=math.trunc(speed) if snapshot.quantize_power else speed
         def run():
             from auto_fire import PowerReader,execute
+            if clone=='gunbound-world':
+                from gunbound_fire import GunBoundPowerReader,execute_gunbound
+                PowerReader,execute=GunBoundPowerReader,execute_gunbound
             reader=None;attempt={'version':PROGRAM_VERSION,'started':time.time(),'requestedPower':plan['power'],'events':[]}
             try:
                 try:reader=PowerReader(endpoint,target_id)
@@ -118,6 +126,7 @@ class App:
                 attempt['result']=result
                 from shot_confirmation import wait_for_shot
                 try:
+                    if clone=='gunbound-world':raise RuntimeError('Confirmación balística pendiente para GunBound World')
                     reader.client.terrain_interval=60;reader.client.terrain_clock=time.monotonic()
                     confirmation=wait_for_shot(reader,plan,result,self.fire_cancel)
                 except Exception:

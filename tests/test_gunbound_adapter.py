@@ -5,7 +5,7 @@ from adapters import AdapterClient
 class GunBoundAdapterTests(unittest.TestCase):
     def client(self, phase):
         c=object.__new__(AdapterClient)
-        c.game='state';c.controller='battle'
+        c.game='state';c.controller='battle';c.terrain_cache=None
         c.profile={'id':'gunbound-world','fields':{}}
         state={'status':'live','phase':phase,'players':[{'id':'self','angle':-1}], 'wind':16}
         c.call=Mock(side_effect=[{'result':{'value':state}}, {'result':{'value':{'heroId':'self','localAngle':45,'selectedShot':2}}}, {}])

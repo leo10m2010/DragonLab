@@ -79,7 +79,7 @@ class LauncherUITests(unittest.TestCase):
                 app.play();self.assertIsNotNone(app.engine)
                 app.game.set('GunBound World');host.return_value.stop.assert_called_once();self.assertIsNone(app.engine)
                 app.play();host.return_value.start.assert_called_with('gunbound-world')
-                self.assertIn('Q desactivado',app.game_note.cget('text'))
+                self.assertIn('Q: tiro bajo tu control',app.game_note.cget('text'))
         finally:destroy_root(root)
     def test_help_opens_only_one_dialog_and_keeps_instructions_in_same_design(self):
         import tkinter as tk
