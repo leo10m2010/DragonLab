@@ -152,7 +152,7 @@ class App:
         if not fit and getattr(self,'cloud_profiles',None):
             from cloud_profiles import compatible_fit
             fit=compatible_fit(self.cloud_profiles,self.book,self.clone_id,self.s.mobile,self.s.selected_shot,self.s.wind)
-        if fit and self.clone_id=='gunbound-world' and fit.get('native_euler_step') and self.s.wind>fit.get('wind_range',[0,100])[1]:fit=None
+        if fit and self.clone_id=='gunbound-world' and fit.get('native_euler_step') and not fit.get('wind_range',[0,100])[0]<=self.s.wind<=fit.get('wind_range',[0,100])[1]:fit=None
         if not fit and self.clone_id=='gunbound-world' and not self.book.records.get(self.book.key(self.clone_id,self.s.mobile,self.s.selected_shot),{}).get('drift_pending'):
             from gunbound_profiles import measured_profile
             fit=measured_profile(self.s.mobile,self.s.selected_shot,self.s.wind)
@@ -328,7 +328,9 @@ class App:
         label,state=calibration_label(self)
         r={**self.display_result(),'guide_label':label,'guide_state':state};updating=self.dirty or self.computing
         if hasattr(self,'force_canvas'):draw_force(self.force_canvas,r,self.s.max_power,self.current_game_power,updating)
-        if self.clone_id=='gunbound-world' and getattr(self,'profile_required',True) and not r.get('reachable') and not r.get('blocked') and not updating:r={**r,'guide_message':label+' · pendiente de calibración'}
+        if self.clone_id=='gunbound-world' and getattr(self,'profile_required',True) and not r.get('reachable') and not r.get('blocked') and not updating:
+            from product_status import pending_calibration
+            title,message=pending_calibration(self);r={**r,'guide_message':title+' · '+message}
         if self.power_guide:self.power_guide.draw(r,self.s.max_power,updating)
     def hide_power_guide(self):
         if self.power_guide:self.power_guide.close();self.power_guide=None
@@ -397,12 +399,15 @@ class App:
             from performance import Governor
             governor=Governor();sample={}
             while not stop.is_set():
-                client=None;shot_events=None
+                client=None;shot_events=None;learning=None
                 try:
                     try:client=AdapterClient(endpoint,target,clone,config)
                     except Exception:
                         if endpoint=='http://127.0.0.1:9222' and target is None:client=AdapterClient('http://127.0.0.1:9223',target,clone,config)
                         else:raise
+                    if clone=='gunbound-world':
+                        from gunbound_learning import GunBoundLearning
+                        learning=GunBoundLearning(client)
                     capture=AutoCapture(client);capture.capture_interval=3 if self.performance=='Ligero' else 1.5;client.terrain_interval=5 if self.performance=='Ligero' else 2
                     if clone=='dragonbound':
                         from browser_shortcuts import BrowserShotEvents
@@ -415,10 +420,13 @@ class App:
                             sample={'status':'waiting','reason':'Navegador conectado. La captura aparecerá al empezar la partida.'}
                             client.game=None;client.renderer=None
                         else:sample=client.sample()
+                        if learning:
+                            sample['measurements']=learning.poll();sample['learning_error']=learning.error
                         sample['_auto']=auto;self.events.put(sample);stop.wait(interval)
                 except Exception as e:
                     if not stop.is_set():self.events.put({'status':'waiting','reason':'Buscando el navegador del juego… '+str(e)})
                 finally:
+                    if learning:learning.close()
                     if shot_events:shot_events.close()
                     if client:
                         try:client.close()
@@ -455,7 +463,7 @@ class App:
         self.last_page_gesture=stamp
         return stamp[3]>0 and -.05<=time.time()-gesture['at']/1000<.8
     def apply_live(self,d):
-        self.reader_status=d.get("status");self.reader_reason=d.get("reason","");self.weather_current=d.get('weatherCurrent','')
+        self.learning_error=d.get('learning_error','');self.reader_status=d.get("status");self.reader_reason=d.get("reason","");self.weather_current=d.get('weatherCurrent','')
         if d.get('status')=='live':d['players']=self.player_tracker.update(d.get('players',[]))
         else:self.player_tracker.reset()
         try:self.shot_review.observe(d,replace(self.s,environment=dict(self.s.environment)))
@@ -647,7 +655,7 @@ class App:
         self.shared['source']='experimental' if self.last_live and time.monotonic()-self.last_live<4 else 'manual'
         if '--diagnostics' in sys.argv and time.monotonic()-getattr(self,'diagnostic_clock',0)>1:
             self.diagnostic_clock=time.monotonic()
-            health={'version':PROGRAM_VERSION,'reader_status':getattr(self,'reader_status',None),'reader_reason':getattr(self,'reader_reason',''),'result_reason':self.result.get('reason'),'guide_visible':bool(self.power_guide and self.power_guide.win.winfo_viewable()),'game_visible':self.game_visible,'bar_detected':bool(self.guide_points),'updated':time.time(),'connected':bool(self.last_live and time.monotonic()-self.last_live<4),'map_detected':bool(self.s.environment.get('terrain')),'camera_detected':bool(self.live_camera and self.live_camera.get('renderWidth')),'weather':[w.get('resolvedTypeId') or w.get('typeId') for w in self.s.environment.get('activeWeathers',[])],'players_detected':len(self.live_players),'overlay_visible':bool(self.overlay and self.overlay.visible),'power':self.result.get('power'),'computing':self.computing,'last_error':getattr(self,'last_error',None),'target':self.auto_target_id,'enemies_detected':len(enemies(self.live_players,self.target_hero_id)),'preview_capture':self.preview_visible,'solve_seconds':getattr(self,'last_solve_seconds',None),'shortcut_events':self.shortcut_count,'fire_shortcut_events':self.fire_shortcut_count,'fire_busy':self.fire_busy,'fire_pending':bool(self.pending_fire),'last_fire_message':self.last_fire_message,'page_shortcuts_active':self.page_shortcuts_active,'shortcut_ready':bool(getattr(self,'shortcuts',None) and self.shortcuts.ready),'shortcut_error':getattr(getattr(self,'shortcuts',None),'error',None)}
+            health={'version':PROGRAM_VERSION,'learning_error':getattr(self,'learning_error',''),'learning_status':self.book.message,'learning_samples':len(self.book.records.get(self.book.key(self.clone_id,self.s.mobile,self.s.selected_shot),{}).get('samples',[])),'reader_status':getattr(self,'reader_status',None),'reader_reason':getattr(self,'reader_reason',''),'result_reason':self.result.get('reason'),'guide_visible':bool(self.power_guide and self.power_guide.win.winfo_viewable()),'game_visible':self.game_visible,'bar_detected':bool(self.guide_points),'updated':time.time(),'connected':bool(self.last_live and time.monotonic()-self.last_live<4),'map_detected':bool(self.s.environment.get('terrain')),'camera_detected':bool(self.live_camera and self.live_camera.get('renderWidth')),'weather':[w.get('resolvedTypeId') or w.get('typeId') for w in self.s.environment.get('activeWeathers',[])],'players_detected':len(self.live_players),'overlay_visible':bool(self.overlay and self.overlay.visible),'power':self.result.get('power'),'computing':self.computing,'last_error':getattr(self,'last_error',None),'target':self.auto_target_id,'enemies_detected':len(enemies(self.live_players,self.target_hero_id)),'preview_capture':self.preview_visible,'solve_seconds':getattr(self,'last_solve_seconds',None),'shortcut_events':self.shortcut_count,'fire_shortcut_events':self.fire_shortcut_count,'fire_busy':self.fire_busy,'fire_pending':bool(self.pending_fire),'last_fire_message':self.last_fire_message,'page_shortcuts_active':self.page_shortcuts_active,'shortcut_ready':bool(getattr(self,'shortcuts',None) and self.shortcuts.ready),'shortcut_error':getattr(getattr(self,'shortcuts',None),'error',None)}
             try:(BASE/'estado-live.json').write_text(json.dumps(health,indent=2),encoding='utf-8')
             except OSError:pass
 

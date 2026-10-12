@@ -11,7 +11,7 @@ def capture_status(app):
     if not app.has_position_data:return 'Identificando jugadores','Esperando identificar tu jugador y un enemigo vivo.'
     if app.dirty or app.computing:return 'Calculando','Actualizando la fuerza con el ángulo y el objetivo actuales.'
     if guide_power(app.result) is None:
-        if app.clone_id=='gunbound-world' and getattr(app,'profile_required',True):return 'Sin calibración','GunBound World necesita un perfil de fuerza propio. No hay potencia validada para este tiro.'
+        if app.clone_id=='gunbound-world' and getattr(app,'profile_required',True):return pending_calibration(app)
         return 'Sin potencia válida',app.result.get('reason') or 'Este tiro necesita otro ángulo u objetivo.'
     if not app.game_visible:return 'Guía preparada','Vuelve al juego para ver la guía sobre la barra.'
     if not app.guide_points:return 'Buscando barra','Los jugadores están detectados; esperando ubicar la barra de fuerza.'
@@ -28,3 +28,16 @@ def calibration_label(app):
     if getattr(app,'clone_id',None)=='gunbound-world' and getattr(app,'profile_required',True):return mode+' · PENDIENTE','pending'
     if getattr(app,'active_measured_profile',False):return mode+' · SALIDA MEDIDA','measured'
     return mode+' · APROXIMADO','approximate'
+
+def pending_calibration(app):
+    from gunbound_profiles import ARMOR_SHOT1
+    book=getattr(app,'book',None);settings=getattr(app,'s',None)
+    if settings is None:return 'Sin calibración','Faltan mediciones para esta modalidad.'
+    record=book.records.get(book.key(app.clone_id,settings.mobile,settings.selected_shot),{}) if book else {}
+    fit=record.get('fit') or (ARMOR_SHOT1 if settings.mobile=='ARMOR' and settings.selected_shot==0 else None)
+    if record.get('drift_pending'):return 'Recalibrando','Las últimas mediciones cambiaron; comprobando un ajuste nuevo.'
+    if fit and fit.get('wind_range') and not fit['wind_range'][0]<=settings.wind<=fit['wind_range'][1]:
+        return 'Ampliando viento',f"Viento {settings.wind:g}: medido entre {fit['wind_range'][0]:g} y {fit['wind_range'][1]:g}. Tus tiros manuales amplían la calibración."
+    count=len(record.get('samples',[]));candidate=record.get('candidate')
+    if candidate:return 'Comprobando calibración',f"{len(candidate.get('validation',[]))}/3 tiros de comprobación. Usa fuerzas variadas; el perfil se activa al validarse."
+    return 'Midiendo tiros',f"{count} tiros registrados para esta modalidad. Dispara manualmente con fuerzas variadas; se guardan automáticamente."

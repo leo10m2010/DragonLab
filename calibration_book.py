@@ -5,7 +5,11 @@ from calibration_validation import validated_fit,current_fit
 
 def mobile_name(value):
     if isinstance(value,int) and 0<=value<len(PROFILES):return list(PROFILES)[value]
-    return value.upper() if isinstance(value,str) and value.upper() in PROFILES else None
+    if isinstance(value,str):
+        name=value.upper().replace('.','').replace(' ','')
+        name={'JFROG':'FROG','RAONLAUNCHER':'RAON'}.get(name,name)
+        return name if name in PROFILES else None
+    return None
 
 class CalibrationBook:
     def __init__(self,path):
@@ -45,6 +49,7 @@ class CalibrationBook:
         atomic_write(self.path,json.dumps({'schema':1,'records':self.records},indent=2).encode())
         self.revision+=1
     def observe(self,state,clone='dragonbound'):
+        if clone=='gunbound-world':return self.observe_gunbound(state.get('measurements',[]))
         if state.get('status')!='live':return []
         shots=state.get('shots',[])
         for child in shots:
@@ -104,6 +109,26 @@ class CalibrationBook:
         self.message=f"{name}: {record.get('status','Aprendiendo')}"
         if activated:accepted.append((key,activated))
         self.save();return accepted
+    def observe_gunbound(self,measurements):
+        accepted=[]
+        from learning_guard import update
+        for sample in measurements[:24]:
+            if sample.get('source')!='gunbound-own-shot-path':continue
+            name=mobile_name(sample.get('mobile'));shot=sample.get('selected_shot');ident=sample.get('sample_id')
+            if not name or shot not in (0,1,2) or not ident:continue
+            if not all(isinstance(sample.get(k),(int,float)) and math.isfinite(sample[k]) for k in ('power','vx','vy','ax','ay','wind','wind_angle')):continue
+            if not 1<=sample['power']<=100 or not 0<=sample['wind']<=100:continue
+            key=self.key('gunbound-world',name,shot);record=self.records.setdefault(key,{'samples':[]})
+            if any(m.get('sample_id')==ident for m in record['samples']):continue
+            record['samples']=(record['samples']+[sample])[-48:];record['updated']=time.time()
+            activated=update(record,sample)
+            if record.get('candidate'):record['candidate']['fit']['native_euler_step']=.05
+            if activated:
+                activated['native_euler_step']=.05;accepted.append((key,activated))
+            self.message=f"{name} · {('1','2','SS')[shot]}: {record.get('status','Midiendo')} · {len(record['samples'])} tiros"
+            self.save()
+        return accepted
+
     def refit_measured(self):
         # Historical observations can prepare a challenger but are not new
         # independent evidence for replacing a running calibration.
