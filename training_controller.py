@@ -66,7 +66,7 @@ class TrainingController:
             self.in_game=False
             self.current=None;self.blocked.clear();browser.client.game=None;browser.client.renderer=None
             if ui['options']:
-                option=next_mobile(ui['options'],s.mobile_attempts)
+                option=self.learner.choose_mobile(ui['options'],s.mobile_attempts) if self.learner else next_mobile(ui['options'],s.mobile_attempts)
                 if not option:raise RuntimeError('No hay carros identificables en el selector')
                 browser.click(option['point'],s.cancel);self.selected=True;name=mobile_name(option['name']);s.mobile_attempts[name]=s.mobile_attempts.get(name,0)+1
                 s.publish('Carro elegido: '+name);s.cancel.wait(.4);return
@@ -78,6 +78,7 @@ class TrainingController:
                 browser.click(ui['controls']['buttonStart1v1'],s.cancel);s.matches+=1;self.queue_at=time.monotonic();self.selected=False
                 s.publish('Buscando partida 1v1');s.cancel.wait(1);return
             s.publish('Esperando el lobby o la siguiente partida');s.cancel.wait(.5);return
+        if not self.in_game and self.learner:self.learner.episode=str(time.time_ns())
         self.in_game=True;self.queue_at=0;state=browser.sample();key=turn_key(state,ui['url'])
         if self.learner:self.learner.track(state)
         if key!=self.current:self.current=key;self.blocked.clear()
@@ -91,7 +92,8 @@ class TrainingController:
         if not available:
             if self.blocked:self.ledger.consume(key);s.publish('Sin modalidad disponible o tiro seguro en este turno')
             s.cancel.wait(.2);return
-        probe=next_probe(self.learner.curriculum_records() if self.learner else s.records(),mobile,state.get('wind',0),s.shots,available);probe['turn_serial']=key[-1]
+        probe=self.learner.choose_probe(mobile,state.get('wind',0),s.shots,available) if self.learner else next_probe(s.records(),mobile,state.get('wind',0),s.shots,available)
+        probe['turn_serial']=key[-1]
         if self.memory and s.shots%3==2:probe=self.memory.recommend(probe,state,available)
         stage='decidiendo con mediciones propias' if self.learner else 'calculando viento y recorrido'
         s.publish(f"Turno {key[-1]} · {mobile} · tiro {('1','2','SS')[probe['shot']]} · {stage}")

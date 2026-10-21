@@ -8,7 +8,7 @@ class TrainingSession:
         from pathlib import Path
         self.endpoint=endpoint;self.target=target;self.book_path=Path(book_path);self.emit=emit;self.max_shots=max_shots;self.max_matches=max_matches;self.max_seconds=max_seconds
         self.cancel=threading.Event();self.thread=None;self.running=False;self.status='Preparado';self.shots=0;self.matches=0;self.mobile_attempts={};self.history=[];self.last_error=''
-        self.errors=[];self.continuous=continuous;self.settings_provider=settings_provider
+        self.lab_progress={};self.errors=[];self.continuous=continuous;self.settings_provider=settings_provider
         self.autonomous=autonomous;self.learner=None
         self.published=None;self.published_at=0
     def start(self):
@@ -23,7 +23,7 @@ class TrainingSession:
         stamp=(message,self.running,self.shots,self.matches,self.last_error)
         if stamp==self.published and time.monotonic()-self.published_at<5:return
         self.published=stamp;self.published_at=time.monotonic()
-        data={'active':self.running,'continuous':self.continuous,'autonomous':self.autonomous,'guided':bool(self.settings_provider) and not self.autonomous,'message':message,'shots':self.shots,'matches':self.matches,'limit_shots':None if self.continuous else self.max_shots,'last_error':self.last_error,'errors':self.errors[-64:],'history':self.history[-120:],'updated':time.time()}
+        data={'active':self.running,'continuous':self.continuous,'autonomous':self.autonomous,'guided':bool(self.settings_provider) and not self.autonomous,'message':message,'shots':self.shots,'matches':self.matches,'limit_shots':None if self.continuous else self.max_shots,'last_error':self.last_error,'errors':self.errors[-64:],'progress':{**(self.learner.progress() if self.learner else {}),**self.lab_progress},'history':self.history[-120:],'updated':time.time()}
         try:atomic_write(self.book_path.parent/'entrenamiento-estado.json',json.dumps(data,allow_nan=False).encode())
         except OSError:pass
     def run(self):

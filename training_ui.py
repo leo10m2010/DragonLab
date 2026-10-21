@@ -29,7 +29,7 @@ def start_training(app,limit='Continuo'):
 def open_training(app):
     win=getattr(app,'training_window',None)
     if win and win.winfo_exists():win.lift();return win
-    win=tk.Toplevel(getattr(app,'ui_parent',app.root));app.training_window=win;win.title('DragonLab · Entrenamiento');win.geometry('600x490');win.configure(bg=BG)
+    win=tk.Toplevel(getattr(app,'ui_parent',app.root));app.training_window=win;win.title('DragonLab · Entrenamiento');win.geometry('600x530');win.configure(bg=BG)
     tk.Label(win,text='Aprender del juego',bg=BG,fg=TEXT,font=('Bahnschrift',23,'bold')).pack(anchor='w',padx=26,pady=(24,10))
     card=RoundedPanel(win,PANEL);card.pack(fill='both',expand=True,padx=24,pady=8)
     tk.Label(card.body,text='DragonBound · Avatar Off',bg=PANEL,fg=GREEN,font=('Bahnschrift',13,'bold')).pack(anchor='w',padx=18,pady=(10,8))
@@ -49,9 +49,13 @@ Continuo sigue entre partidas. Esc lo detiene.""",justify='left',bg=PANEL,fg=MUT
         except ValueError as error:status.config(text=str(error))
     RoundedButton(actions,text='Detener',command=stop).pack(side='left')
     RoundedButton(actions,text='Empezar entrenamiento',command=start,bg=GREEN,fg=BG).pack(side='right')
+    progress_label=tk.Label(win,text='Las mediciones confirmadas también mejoran el Lab tras validarse.',bg=BG,fg=MUTED,font=('Bahnschrift',10),wraplength=520);progress_label.pack(fill='x',padx=24,pady=6)
     def refresh():
         if not win.winfo_exists():return
         if app.training_session:status.config(text=f'{app.training_session.status} · {app.training_session.shots} tiros')
+        if app.training_session and app.training_session.learner:
+            data=app.training_session.learner.progress();lab=app.training_session.lab_progress
+            progress_label.config(text=f"Tiros medidos: {data['measured_launches']} · Modelos básicos: {data['validated_launch_modes']}\nCon experiencia: {data['retained_aimed_shots']} · Exploración: {data['retained_exploration_shots']} · Perfiles del Lab: {lab.get('validated_lab_modes',0)} · Mejorados: {lab.get('measured_lab_improvements',0)}\nModelos de salida validados; precisión de juego aún por comprobar.")
         win.after(500,refresh)
     def close():stop();win.destroy()
     win.protocol('WM_DELETE_WINDOW',close);win.bind('<Escape>',lambda e:stop());refresh();return win

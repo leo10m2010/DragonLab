@@ -42,7 +42,7 @@ def predicted_path(model,origin,world,power,wind,wind_angle,duration):
 
 class AutonomousLearner:
     def __init__(self,path,seed_path=None):
-        self.path=Path(path);self.records={};self.latest_plan={};self.pending={}
+        self.path=Path(path);self.records={};self.latest_plan={};self.pending={};self.episode=str(time.time_ns())
         try:
             saved=json.loads(self.path.read_text(encoding='utf-8'))
             if saved.get('schema')==1 and isinstance(saved.get('records'),dict):self.records=saved['records']
@@ -64,6 +64,40 @@ class AutonomousLearner:
     def save(self):atomic_write(self.path,json.dumps({'schema':1,'records':self.records},allow_nan=False).encode())
     def curriculum_records(self):
         return {key:{'samples':r.get('samples',[]),'fit':r.get('model') if not r.get('drift') else None,'candidate':r.get('candidate') or {}} for key,r in self.records.items()}
+    def progress(self):
+        records=list(self.records.values());cases=[c for r in records for c in r.get('cases',[])]
+        aimed=[c for c in cases if c.get('stage') in ('apuntar con modelo propio','repetir experiencia real compatible','afinar con dos tiros reales')]
+        tested=[e for r in records for e in r.get('model_tests',[])]
+        return {'measured_launches':sum(sum(not str(s.get('id','')).startswith('seed:') for s in r.get('samples',[])) for r in records),
+                'validated_launch_modes':sum(bool(r.get('model')) and not r.get('drift') for r in records),
+                'candidate_modes':sum(bool(r.get('candidate')) for r in records),
+                'retained_aimed_shots':len(aimed),'retained_exploration_shots':len(cases)-len(aimed),
+                'future_model_checks':len(tested),'median_launch_error':round(statistics.median(e['error'] for e in tested),3) if tested else None,
+                'accuracy_improvement_proven':False}
+    def choose_mobile(self,options,attempted):
+        from calibration_book import mobile_name
+        from training_policy import next_mobile
+        valid=[o for o in options if mobile_name(o.get('name')) and o.get('name')!='Random']
+        focus=getattr(self,'focus_mobile',None)
+        if focus:
+            item=next((o for o in valid if mobile_name(o['name'])==focus),None)
+            attempts=attempted.get(focus,0)-getattr(self,'focus_started',0)
+            complete=all(self.records.get(f'dragonbound:{focus}:{mode}',{}).get('model') and not self.records.get(f'dragonbound:{focus}:{mode}',{}).get('drift') for mode in (0,1,2))
+            if item and attempts<3 and not complete:return item
+        item=next_mobile(valid,attempted)
+        if item:self.focus_mobile=mobile_name(item['name']);self.focus_started=attempted.get(self.focus_mobile,0)
+        return item
+    def choose_probe(self,mobile,wind,attempts,available):
+        from training_policy import next_probe
+        # Establish one ordinary launch model before scattering all measurements.
+        pending=[mode for mode in available if not self.records.get(f'dragonbound:{mobile}:{mode}',{}).get('model') or self.records.get(f'dragonbound:{mobile}:{mode}',{}).get('drift')]
+        ready=[mode for mode in available if mode not in pending and not self.records.get(f'dragonbound:{mobile}:{mode}',{}).get('multi_projectile')]
+        modes=ready if ready and attempts%3!=0 else pending[:1] or available
+        probe=next_probe(self.curriculum_records(),mobile,wind,attempts,modes)
+        cases=self.records.get(f"dragonbound:{mobile}:{probe['shot']}",{}).get('cases',[])
+        # Hold the elevation for a block so measured outcomes become comparable.
+        probe['angle']=(55,35,75)[(len(cases)//6)%3]
+        return probe
     def add(self,key,sample,seed=False):
         if not all(isinstance(sample.get(k),(int,float)) and math.isfinite(sample[k]) for k in ('power','speed','ax','ay','wind','wind_angle')) or not 1<=sample['power']<=400 or sample['speed']<=0 or not 0<=sample['wind']<=100:return False
         record=self.records.setdefault(key,{'samples':[]});samples=record['samples']
@@ -98,7 +132,10 @@ class AutonomousLearner:
         sample={'id':identity(primary),'power':release['power'],'speed':start[3],'ax':start[4],'ay':start[5],'wind':release['wind'],'wind_angle':release['windAngle']}
         if not all(isinstance(v,(int,float)) and math.isfinite(v) for k,v in sample.items() if k!='id') or not 1<=sample['power']<=400:return False
         sample['heading']=start[2];sample['raw_angle']=release.get('angle');sample['pose']=release.get('pose')
+        existing=self.records.get(key,{})
+        tested_error=error(existing['model'],sample) if existing.get('model') and not existing.get('drift') else None
         if not self.add(key,sample):return False
+        if tested_error is not None and math.isfinite(tested_error):self.records[key]['model_tests']=(self.records[key].get('model_tests',[])+[{'id':sample['id'],'error':tested_error}])[-96:]
         record=self.records[key]
         planned=release.get('learner') or {}
         record['last_direction']={'planned_heading':planned.get('heading'),'observed_heading':start[2],'initial_vx':start[3]*math.cos(math.radians(start[2])),'raw_angle':release.get('angle'),'pose':release.get('pose')}
@@ -114,7 +151,7 @@ class AutonomousLearner:
             except (ValueError,TypeError,KeyError):pass
         target=(release.get('learner') or {}).get('target')
         case={'power':release['power'],'angle':(release.get('learner') or {}).get('elevation'),'wind':release['wind'],'wind_angle':release['windAngle'],'weather':[{k:w.get(k) for k in ('typeId','resolvedTypeId','x','size')} for w in state.get('weather',[])[:32]],'ends':ends,'target':target,'origin':[release['x'],release['y']]}
-        case['id']=identity(primary)
+        case['id']=identity(primary);case['episode']=self.episode;case['stage']=planned.get('stage','exploración anterior');case['miss_px']=min((math.dist(e,target) for e in ends),default=None) if target else None
         record['cases']=(record.get('cases',[])+[case])[-48:]
         try:self.pending[identity(primary)]={'key':key,'duration':primary['duration'],'end':position(primary,primary['duration']/1000),'created':time.monotonic()}
         except (ValueError,TypeError,KeyError):pass
@@ -177,6 +214,8 @@ class AutonomousLearner:
         # weather or a multi-projectile pattern follows a ballistic formula.
         remembered=self.remembered(record,hero,target_xy,state,player,probe,actual)
         if remembered:self.latest_plan=remembered;return remembered
+        bracket=self.bracketed(record,hero,target_xy,state,player,actual)
+        if bracket:self.latest_plan=bracket;return bracket
         effects=record.get('weather_effects',{});blocked=False
         for raw in candidates:
             world=heading(raw,body,look)
@@ -200,6 +239,7 @@ class AutonomousLearner:
         def signature(weathers):return sorted(str(w.get('resolvedTypeId') if w.get('resolvedTypeId') is not None else w.get('typeId')) for w in weathers)
         choices=[];right=target[0]>=hero['x'];current_weather=state.get('weather') or []
         for case in record.get('cases',[]):
+            if case.get('episode')!=self.episode:continue
             if not case.get('target') or not case.get('ends') or case.get('angle') is None:continue
             if (case['target'][0]>=case['origin'][0])!=right or math.dist(case['origin'],(hero['x'],hero['y']))>40:continue
             if abs(case['wind']-state['wind'])>3 or abs((case['wind_angle']-state['windAngle']+180)%360-180)>15 or signature(case['weather'])!=signature(current_weather):continue
@@ -213,6 +253,31 @@ class AutonomousLearner:
         if len(choices)<2:return None
         _,raw,case=min(choices,key=lambda c:c[0])
         return {'power':case['power'],'raw_angle':raw,'heading':heading(raw,player.get('body',0),player['look']),'elevation':case['angle'],'target':list(target),'stage':'repetir experiencia real compatible','model_samples':len(record.get('samples',[])),'approximate':True}
+    def bracketed(self,record,hero,target,state,player,actual):
+        # A bounded interpolation between comparable real short/long outcomes.
+        # Do not extrapolate, merge climates, or assume a multiple projectile is one.
+        if record.get('multi_projectile') or state.get('weather'):return None
+        right=target[0]>=hero['x'];sign=1 if right else -1;choices=[]
+        for case in record.get('cases',[]):
+            if case.get('episode')!=self.episode:continue
+            if case.get('weather') or case.get('has_continuation') or len(case.get('ends',[]))!=1 or case.get('angle') is None:continue
+            if not case.get('target') or math.dist(case['origin'],(hero['x'],hero['y']))>20:continue
+            if (case['target'][0]>=case['origin'][0])!=right:continue
+            if abs(case['wind']-state['wind'])>2 or abs((case['wind_angle']-state['windAngle']+180)%360-180)>10:continue
+            end=case['ends'][0];offset=(end[0]-case['origin'][0],end[1]-case['origin'][1])
+            if abs(offset[1]-(target[1]-hero['y']))>25:continue
+            raw=max(player['minAngle'],min(player['maxAngle'],raw_angle(case['angle'],player.get('body',0),player['look'],right)))
+            world=heading(player['rawAngle'] if actual else raw,player.get('body',0),player['look']);elevation=world if right else 180-world
+            if abs(elevation-case['angle'])>2:continue
+            choices.append((case,raw,sign*(offset[0]-(target[0]-hero['x']))))
+        for a,raw,short in reversed(choices):
+            if short>=0:continue
+            for b,_,long in reversed(choices):
+                if long<=0 or b['power']-a['power']<40 or abs(a['angle']-b['angle'])>1:continue
+                if math.dist(a['origin'],b['origin'])>10 or abs(a['wind']-b['wind'])>1 or abs((a['wind_angle']-b['wind_angle']+180)%360-180)>5:continue
+                power=round(a['power']+(b['power']-a['power'])*(-short)/(long-short))
+                return {'power':power,'raw_angle':raw,'heading':heading(player['rawAngle'] if actual else raw,player.get('body',0),player['look']),'elevation':a['angle'],'target':list(target),'stage':'afinar con dos tiros reales','supporting_cases':[a.get('id'),b.get('id')],'approximate':True,'model_samples':len(record.get('samples',[]))}
+        return None
     @staticmethod
     def solve_observed(model,origin,target,world,wind,wind_angle,details=False):
         if model['wind_scale'] is None and wind:return None

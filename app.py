@@ -639,7 +639,11 @@ class App:
                 finally:event['ready'].set()
                 continue
             if event.get('status')=='training-observation':
-                if not self.autonomous_training():self.book.observe_training(event.get('observation'),event.get('release'))
+                try:
+                    from training_progress import share_observation
+                    progress=share_observation(self.book,event.get('observation'),event.get('release'))
+                    if self.training_session:self.training_session.lab_progress=progress
+                except (OSError,ValueError,TypeError,KeyError):self.book.message='La medición no pudo incorporarse; se conserva el ajuste anterior'
                 self.profile_stamp=None;self.mark();continue
             if event.get('status')=='fire-gesture':
                 if self.consume_fire_gesture(event.get('gesture')):
