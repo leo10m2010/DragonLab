@@ -1,4 +1,14 @@
-# Entrenamiento autónomo · 0.13.1
+# Entrenamiento autónomo · 0.13.2
+
+## Control de turnos y memoria persistente
+
+La 0.13.2 sustituye consumed por un registro acotado de (partida, jugador, turn_number). El contador se lee explícitamente desde el juego; no se infiere de viento o del jugador activo. Una reserva antes de cargar impide repetir una carga ambigua tras un corte. Un número nuevo autoriza un intento aunque no se haya observado el turno rival. Al pasar por el lobby se inicia un registro nuevo para la próxima partida. Los errores transitorios de transporte reconstruyen la conexión con espera progresiva, sin robar el foco repetidamente.
+
+La selección intenta otras modalidades antes de dar por agotado el turno. Un desplazamiento corto requiere apoyo continuo en el terreno, se confirma con la posición nativa y obliga a recalcular. Las aproximaciones y tiros para abrir paso usan una fuerza calculada por el Lab y un final que progresa hacia el objetivo, a al menos 60 píxeles del carro. Si no hay una acción calculable, espera un nuevo turno; no promete disparar en una geometría imposible.
+
+estrategia-entrenamiento.json conserva hasta 512 configuraciones. La memoria agrupa modalidad/ángulo por carro, magnitud y dirección de viento, rango, lado y altura relativa. Aprende con cercanía de final observado al objetivo y necesita dos observaciones compatibles antes de recomendar. Una de cada tres decisiones puede reutilizar esa experiencia, conservando el resto para medir/comprobar calibraciones. Esto es memoria numérica de alcance, no aprendizaje de victorias ni daños; no representa una IA profesional. Los perfiles actuales se conservan y el libro exige mediciones futuras para activar cambios.
+
+Validación real 0.13.2: cuatro tiros entre Armor e Ice, turnos [2,3] y [1,4] en partidas distintas, fuerzas Lab/reales 208/207, 200/199, 320/320 y 180/179. Desplazamiento confirmado [902,55] → [916,53]. No se ha hecho una prueba de 24 horas. La memoria persistente, recuperación de conexión, turnos consecutivos, ausencia de duplicados y movimiento con apoyo tienen pruebas automatizadas. Consulte LAUNCHER-0.13.2.md para las condiciones de uso continuo.
 
 ## Corrección de ángulo y juego guiado
 

@@ -296,10 +296,18 @@ class Launcher:
         try:
             ok=self.get_engine().start(GAMES[self.game.get()]['id'])
             if ok:self.opening_until=time.monotonic()+2
+            if ok and '--train' in sys.argv:
+                sys.argv.remove('--train');self.root.after(1500,self.start_training)
             self.status.config(text='Abriendo el juego. La guía espera una partida.' if ok else 'No se pudo abrir el juego. Revisa Chrome o Edge y vuelve a intentar.')
         except Exception:
             self.stop_engine();self.status.config(text='No se pudo iniciar la captura. Vuelve a intentarlo.')
         finally:self.busy=False;self.play_button.config(state='normal')
+    def start_training(self):
+        if self.closed or not self.authenticated or not self.engine:return
+        try:
+            from training_ui import open_training,start_training
+            open_training(self.engine.app);start_training(self.engine.app)
+        except (ValueError,RuntimeError):self.status.config(text='Abre Ajustes para iniciar el entrenamiento en DragonBound.')
     def toggle_game(self):
         if self.busy or time.monotonic()<self.opening_until:return
         worker=getattr(self.engine.app,'worker',None) if self.engine else None

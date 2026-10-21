@@ -16,6 +16,16 @@ def settings_provider(app):
         return response['settings']
     return request
 
+def start_training(app,limit='Continuo'):
+    if app.clone_id!='dragonbound':raise ValueError('Elige DragonBound en la pantalla principal.')
+    if app.training_session and app.training_session.running:return app.training_session
+    from training_session import TrainingSession
+    endpoint=getattr(app,'live_endpoint',None) or app.endpoint.get()
+    if getattr(app,'last_live',0)==0:endpoint='http://127.0.0.1:9223'
+    continuous=limit=='Continuo'
+    app.training_session=TrainingSession(endpoint,app.browser_target,app.book.path,app.events.put,max_shots=60 if continuous else int(limit),continuous=continuous,settings_provider=settings_provider(app))
+    app.training_session.start();return app.training_session
+
 def open_training(app):
     win=getattr(app,'training_window',None)
     if win and win.winfo_exists():win.lift();return win
@@ -23,10 +33,10 @@ def open_training(app):
     tk.Label(win,text='Aprender jugando',bg=BG,fg=TEXT,font=('Bahnschrift',23,'bold')).pack(anchor='w',padx=26,pady=(24,10))
     card=RoundedPanel(win,PANEL);card.pack(fill='both',expand=True,padx=24,pady=8)
     tk.Label(card.body,text='DragonBound · Avatar Off',bg=PANEL,fg=GREEN,font=('Bahnschrift',13,'bold')).pack(anchor='w',padx=18,pady=(10,8))
-    tk.Label(card.body,text="""Busca partidas 1v1 y apunta con el cálculo del Lab.
-Ajusta el ángulo, lo comprueba y recalcula la fuerza real.
-Continuo juega entre partidas hasta que lo detengas.
-Guarda mediciones; los ajustes necesitan comprobación.""",justify='left',bg=PANEL,fg=MUTED,font=('Bahnschrift',11)).pack(anchor='w',padx=18,pady=8)
+    tk.Label(card.body,text="""Revisa cada turno, viento, clima y posición para apuntar.
+Si no hay tiro directo, busca un paso corto o abre terreno.
+Continuo juega entre partidas y recupera la conexión.
+Mantiene la PC activa mientras juega; Esc lo detiene.""",justify='left',bg=PANEL,fg=MUTED,font=('Bahnschrift',11)).pack(anchor='w',padx=18,pady=8)
     row=tk.Frame(card.body,bg=PANEL);row.pack(fill='x',padx=18,pady=8)
     tk.Label(row,text='Duración',bg=PANEL,fg=TEXT,font=('Bahnschrift',11)).pack(side='left')
     limit=tk.StringVar(value='Continuo');RoundedChoice(row,textvariable=limit,values=['Continuo','12','30','60','120'],state='readonly',width=11).pack(side='right')
@@ -35,14 +45,8 @@ Guarda mediciones; los ajustes necesitan comprobación.""",justify='left',bg=PAN
     def stop():
         if app.training_session:app.training_session.stop()
     def start():
-        if app.clone_id!='dragonbound':status.config(text='Elige DragonBound en la pantalla principal.');return
-        if app.training_session and app.training_session.running:return
-        from training_session import TrainingSession
-        endpoint=getattr(app,'live_endpoint',None) or app.endpoint.get()
-        if getattr(app,'last_live',0)==0:endpoint='http://127.0.0.1:9223'
-        continuous=limit.get()=='Continuo'
-        app.training_session=TrainingSession(endpoint,app.browser_target,app.book.path,app.events.put,max_shots=60 if continuous else int(limit.get()),continuous=continuous,settings_provider=settings_provider(app))
-        app.training_session.start()
+        try:start_training(app,limit.get())
+        except ValueError as error:status.config(text=str(error))
     RoundedButton(actions,text='Detener',command=stop).pack(side='left')
     RoundedButton(actions,text='Empezar entrenamiento',command=start,bg=GREEN,fg=BG).pack(side='right')
     def refresh():

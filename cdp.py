@@ -174,7 +174,7 @@ class CDP:
           return {status:pick(this,["destructed"])===true?"waiting":"live",players,shots,weather:weatherData,terrain,selectedShot:num(pick(this,["selectedShot","selected_shot"])),currentPower:num(pick(this,["curUIPower","power"])),wind:num(pick(this,["windPower","wind_power","wind"]))??num(pick(meter,["value","power"])),
             windAngle:num(pick(this,["windAngle","wind_angle"]))??num(pick(renderer,["wind_angle"]))??num(pick(meter,["angle","ang"])),
             rendererWind:num(pick(renderer,["wind_power"])),
-            turn:num(pick(this,["turn_number","turn","currentTurn"])),activePlayer:num(pick(this,["turn"])),heroId:pick(this,["my_player","myPlayerNumber","my_player_number"]),
+            turnSerial:num(own(this,"turn_number")),over:own(this,"isGameOver")===true||own(this,"destructed")===true,turn:num(pick(this,["turn_number","turn","currentTurn"])),activePlayer:num(pick(this,["turn"])),heroId:pick(this,["my_player","myPlayerNumber","my_player_number"]),
             camera:cam?{x:num(pick(cam,["camera_x"])),y:num(pick(cam,["camera_y"])),scale:num(pick(cam,["cameraScale"])),matrix:cm,renderWidth:num(pick(engine,["width"]))??(view?num(view.width):null),renderHeight:num(pick(engine,["height"]))??(view?num(view.height):null),viewWidth:num(pick(renderer,["original_w"])),viewHeight:num(pick(renderer,["original_h"]))}:null};
         }'''
         args=([{'objectId':self.renderer}] if self.renderer else [{'value':None}])+[{'value':terrain_due}]
