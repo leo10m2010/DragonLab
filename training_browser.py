@@ -14,6 +14,7 @@ UI_JS=r"""(()=>{
 })()"""
 
 class UnavailableShot(RuntimeError):pass
+class FocusPause(RuntimeError):pass
 
 class TrainingBrowser:
     def __init__(self,endpoint,target=None):
@@ -26,7 +27,7 @@ class TrainingBrowser:
         if cancel.is_set():raise RuntimeError('Entrenamiento detenido')
         ui=self.ui()
         if ui.get('stop'):cancel.set();raise RuntimeError('Esc: entrenamiento detenido')
-        if not ui.get('focused') or ui.get('chat'):raise RuntimeError('Entrenamiento pausado: vuelve al juego y cierra el chat')
+        if not ui.get('focused') or ui.get('chat'):raise FocusPause('En pausa: vuelve al juego y cierra el chat para continuar')
         return ui
     def click(self,point,cancel):
         self.guard(cancel)
@@ -35,14 +36,45 @@ class TrainingBrowser:
         try:self.client.call('Input.dispatchMouseEvent',{'type':'mousePressed',**args})
         finally:self.client.call('Input.dispatchMouseEvent',{'type':'mouseReleased',**args})
     def key(self,key,down):
-        codes={'space':(' ',32,'Space'),'up':('ArrowUp',38,'ArrowUp'),'down':('ArrowDown',40,'ArrowDown')}
+        codes={'space':(' ',32,'Space'),'up':('ArrowUp',38,'ArrowUp'),'down':('ArrowDown',40,'ArrowDown'),'left':('ArrowLeft',37,'ArrowLeft'),'right':('ArrowRight',39,'ArrowRight')}
         name,vk,code=codes[key]
         self.client.call('Input.dispatchKeyEvent',{'type':'keyDown' if down else 'keyUp','key':name,'code':code,'windowsVirtualKeyCode':vk,'nativeVirtualKeyCode':vk})
     def arm(self):
         self.client.call('Page.bringToFront')
         self.client.call('Runtime.evaluate',{'expression':"(()=>{const old=window.__dragonlabTrainingStop;if(old?.handler)window.removeEventListener('keydown',old.handler,true);const s={stopped:false};s.handler=e=>{if(e.isTrusted&&e.key==='Escape')s.stopped=true};window.addEventListener('keydown',s.handler,true);window.__dragonlabTrainingStop=s})()"})
     def sample(self):return self.client.sample()
-    def shoot(self,probe,cancel):
+    def adjust_angle(self,reader,target,cancel):
+        state=reader.read();hero_id=state.get('hero')
+        hero=next((p for p in state.get('players',[]) if p.get('id')==hero_id),{})
+        initial=hero.get('rawAngle')
+        if not isinstance(initial,(int,float)) or not math.isfinite(initial):raise RuntimeError('Ángulo sin lectura; no se dispara')
+        if not hasattr(self,'angle_limits'):self.angle_limits={}
+        key=(getattr(self,'angle_mobile',None),hero.get('body'),hero.get('look'))
+        bounds=self.angle_limits.get(key,{})
+        for source,destination in (('minAngle','low'),('maxAngle','high')):
+            if isinstance(hero.get(source),(int,float)) and math.isfinite(hero[source]):bounds[destination]=hero[source]
+        requested=target;target=max(bounds.get('low',-180),min(bounds.get('high',180),target))
+        if abs(target-initial)<=1:return {'before':initial,'after':initial,'requested':requested,'reached':abs(requested-initial)<=1,'limited':target!=requested}
+        direction='up' if target>initial else 'down';last=initial;changed=time.monotonic();start=changed;stalled=False
+        try:
+            self.guard(cancel);self.key(direction,True)
+            while time.monotonic()-start<3:
+                if cancel.wait(.025):raise RuntimeError('Entrenamiento detenido')
+                self.guard(cancel);state=reader.read()
+                if state.get('turn')!=hero_id or state.get('over'):raise RuntimeError('Cambió el turno al ajustar ángulo')
+                value=next((p.get('rawAngle') for p in state.get('players',[]) if p.get('id')==hero_id),None)
+                if not isinstance(value,(int,float)) or not math.isfinite(value):raise RuntimeError('Se perdió la lectura del ángulo')
+                if value!=last:last=value;changed=time.monotonic()
+                if abs(target-value)<=1 or (target-initial)*(target-value)<0:break
+                if time.monotonic()-changed>.65:stalled=True;break
+        finally:self.key(direction,False)
+        # A limit is acceptable only after observing actual movement. Replan at it.
+        if abs(last-initial)<.5:raise RuntimeError('La flecha no cambió el ángulo; no se dispara')
+        if stalled:
+            bounds['high' if direction=='up' else 'low']=last;self.angle_limits[key]=bounds
+            if len(self.angle_limits)>64:self.angle_limits={key:bounds}
+        return {'before':initial,'after':last,'requested':requested,'reached':abs(last-requested)<=1,'limited':stalled}
+    def shoot(self,probe,cancel,settings_provider=None):
         self.reader=PowerReader(self.client.endpoint,self.client.target['id']);reader=self.reader
         held=None
         try:
@@ -56,17 +88,28 @@ class TrainingBrowser:
             if s.get('mode')!='space':
                 self.click(self.guard(cancel)['controls'].get('slice_drag_button'),cancel);time.sleep(.08);s=reader.read()
                 if s.get('mode')!='space':raise RuntimeError('No se pudo activar Slice')
-            started=time.monotonic()
-            for _ in range(40):
-                self.guard(cancel);s=reader.read()
-                if s.get('turn')!=hero_id:raise RuntimeError('Cambió el turno')
-                hero=next((p for p in s['players'] if p['id']==hero_id),None)
-                if not hero:raise RuntimeError('Jugador sin posición')
-                angle=hero.get('rawAngle');delta=probe['angle']-angle if isinstance(angle,(int,float)) else 0
-                if abs(delta)<=2 or time.monotonic()-started>2:break
-                held='up' if delta>0 else 'down';self.key(held,True);time.sleep(.045);self.key(held,False);held=None
+            lab=None;planned_angle=probe['angle']
+            if settings_provider:
+                from training_aim import choose_aim,actual_solution
+                settings=settings_provider(self.sample(),cancel)
+                desired=int(settings.target_x>=settings.hero_x)
+                if settings.look!=desired:
+                    held='right' if desired else 'left';self.guard(cancel);self.key(held,True);cancel.wait(.08);self.key(held,False);held=None
+                    settings=settings_provider(self.sample(),cancel)
+                    if settings.look!=desired:raise RuntimeError('El carro no confirmó su orientación al objetivo')
+                hero=next(p for p in reader.read()['players'] if p['id']==hero_id)
+                body_offset=hero.get('body',0)*(1 if hero.get('look')==0 else -1)
+                limits=(hero['minAngle']+body_offset,hero['maxAngle']+body_offset) if all(isinstance(hero.get(k),(int,float)) for k in ('minAngle','maxAngle')) else None
+                planned_angle,lab=choose_aim(settings,probe['angle'],limits)
+                planned_angle+=hero.get('body',0)*(1 if hero.get('look')==1 else -1)
+            self.angle_mobile=probe.get('mobile');angle_change=self.adjust_angle(reader,planned_angle,cancel)
+            if settings_provider:
+                settings=settings_provider(self.sample(),cancel);lab=actual_solution(settings)
+                probe={**probe,'power':lab['power']}
             s=reader.read();hero=next(p for p in s['players'] if p['id']==hero_id)
             release={'hero':hero_id,'x':hero['x'],'y':hero['y'],'shot':target_shot,'angle':hero.get('rawAngle'),'wind':s.get('wind'),'windAngle':s.get('windAngle'),'baseline':[]}
+            release['angle_change']=angle_change
+            if lab:release['lab']={'power':lab['power'],'angle':settings.angle,'target':[settings.target_x,settings.target_y],'end':lab.get('end'),'approximate':lab.get('approximate',False)}
             from shot_attribution import identity,attributed_start
             release['baseline']=[identity(p) for p in self.sample().get('shots',[])]
             self.guard(cancel);held='space';self.key('space',True);start=time.monotonic();charging=False

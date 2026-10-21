@@ -1,0 +1,13 @@
+# DragonLab 0.13.1
+
+Cierra la versión anterior y abre DragonLab-Prueba.exe de esta carpeta. Elige DragonBound, pulsa Jugar y abre Ajustes → Entrenamiento automático. La duración Continuo busca nuevas partidas y sigue hasta que lo detengas. Puedes elegir también una sesión de 12, 30, 60 o 120 tiros.
+
+El entrenador elige carro y busca partidas 1v1 en el servidor 8 Avatar Off. Espera su turno, orienta el carro al objetivo, elige un ángulo viable con el motor del Lab y mantiene la flecha hasta observar el cambio. Lee los límites nativos de cada carro; por ejemplo, Armor no puede superar 55° relativos al cuerpo. Recalcula la fuerza con el ángulo y posición reales antes de cargar. No dispara con un cálculo bloqueado por terreno. Si la flecha no responde, no carga por suposición.
+
+Continuo no termina por los límites de tiros, partidas o tiempo de las sesiones acotadas. Al perder foco o abrir el chat espera y retoma al volver; no roba el foco continuamente. Esc, Detener, pausar la guía, cerrar sesión o cerrar el programa finalizan el entrenamiento. Una cancelación durante la carga puede liberar un tiro parcial. Tres fallos de control consecutivos detienen la sesión para evitar repeticiones defectuosas; una geometría sin tiro válido espera otro turno.
+
+El panel indica la fuerza del Lab y la fuerza realmente registrada. Conserva ángulo solicitado/real, viento, clima y la distancia entre el final nativo del proyectil y el objetivo. Esa distancia puede corresponder a un choque con terreno y no es una certificación de daño. Los ajustes se activan mediante el sistema de comprobación independiente existente; no se aplica una corrección de fuerza a ciegas por un solo fallo. Los patrones de varias balas conservan sus mediciones separadas.
+
+Comprobación real inicial de la corrección: Armor subió de 16° a 55° y bajó de 54° a 47°; se recalculó fuerza 207 y se registró 206. Otra sesión guiada completó tres tiros entre dos partidas, con fuerzas del Lab 204, 205 y 98 y fuerzas reales 204, 204 y 97. Continuo superó el tope configurado de un tiro y 30 segundos, realizó otra búsqueda y registró dos tiros (Lab 144/138, reales 143/137); Esc finalizó la prueba. Estas pruebas verifican controles y conexión con el motor, no la precisión completa de todos los perfiles, climas ni carros. Los perfiles aproximados siguen necesitando calibración.
+
+La prueba inicia sesión automáticamente y no envía mediciones al servidor. GunBound World conserva sus perfiles separados; este entrenador autónomo sigue limitado a DragonBound. Para producción configura Supabase y el panel según cloud/GUIA-ACTIVACION.md.

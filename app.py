@@ -619,11 +619,19 @@ class App:
     def tick_once(self):
         pending=[]
         while not self.events.empty():pending.append(self.events.get_nowait())
-        live=[e for e in pending if e.get('status') not in ('calculated','target-shortcut','fire-shortcut','fire-gesture','fire-finished','fire-confirmed','cancel-shortcut','training-observation')]
+        live=[e for e in pending if e.get('status') not in ('calculated','target-shortcut','fire-shortcut','fire-gesture','fire-finished','fire-confirmed','cancel-shortcut','training-observation','training-settings')]
         # Consume the latest state before results/shortcuts; old frames must not
         # delay the game or allow an obsolete calculation to replace a new one.
-        pending=([live[-1]] if live else [])+[e for e in pending if e.get('status') in ('calculated','target-shortcut','fire-shortcut','fire-gesture','fire-finished','fire-confirmed','cancel-shortcut','training-observation')]
+        pending=([live[-1]] if live else [])+[e for e in pending if e.get('status') in ('calculated','target-shortcut','fire-shortcut','fire-gesture','fire-finished','fire-confirmed','cancel-shortcut','training-observation','training-settings')]
         for event in pending:
+            if event.get('status')=='training-settings':
+                try:
+                    self.apply_live(event['state'])
+                    if not self.has_position_data:raise ValueError('El Lab espera las posiciones del jugador y objetivo')
+                    event['response']['settings']=replace(self.read(),environment=dict(self.s.environment))
+                except Exception as error:event['response']['error']=str(error)
+                finally:event['ready'].set()
+                continue
             if event.get('status')=='training-observation':
                 self.book.observe_training(event.get('observation'),event.get('release'));self.profile_stamp=None;self.mark();continue
             if event.get('status')=='fire-gesture':
