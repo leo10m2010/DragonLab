@@ -56,6 +56,9 @@ def open_settings(app):
     tk.Label(row,text='Modo',bg=PANEL,fg=TEXT,font=('Bahnschrift',12)).pack(side='left')
     RoundedChoice(row,textvariable=performance,values=['Auto','Ligero','Normal'],state='readonly',width=10).pack(side='right')
     tk.Label(speed,text='Auto adapta la captura a la carga; Ligero reduce la frecuencia.',bg=PANEL,fg=MUTED,font=('Bahnschrift',10)).pack(anchor='w',padx=16,pady=(6,6))
+    training=section('APRENDIZAJE')
+    from training_ui import open_training
+    RoundedButton(training,text='Entrenamiento automático',command=lambda:open_training(app)).pack(anchor='w',padx=16,pady=8)
     def save():
         try:
             validate_bindings(target.get(),fire.get())

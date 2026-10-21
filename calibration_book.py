@@ -129,6 +129,28 @@ class CalibrationBook:
             self.save()
         return accepted
 
+    def observe_training(self,state,release):
+        if not isinstance(state,dict) or not isinstance(release,dict):return []
+        self.note_release(release)
+        from shot_attribution import attributed_start,identity
+        import hashlib
+        starts=[]
+        for shot in state.get('shots',[]):
+            a=attributed_start(state,shot,release)
+            if a and a['learnable']:starts.append(shot)
+        if len({tuple(s['start']) for s in starts})>1:
+            hero=next((p for p in state.get('players',[]) if p.get('id')==state.get('heroId')),None)
+            name=mobile_name(hero.get('mobile')) if hero else None
+            if name and release.get('shot') in (0,1,2):
+                key=self.key('dragonbound',name,release['shot']);record=self.records.setdefault(key,{'samples':[]})
+                launches=[{'bullet':s.get('bulletId'),'start':s['start']} for s in starts[:16]]
+                ident=hashlib.sha256(str([(s.get('id'),s['start']) for s in starts]).encode()).hexdigest()[:24]
+                groups=record.setdefault('training_patterns',[])
+                if not any(g['id']==ident for g in groups):
+                    groups.append({'id':ident,'power':release['power'],'wind':release.get('wind'),'wind_angle':release.get('windAngle'),'launches':launches,'source':'attributed-native-group'})
+                    record['training_patterns']=groups[-48:];record['pattern_status']='Salida múltiple: modelo específico pendiente';self.save()
+        return self.observe(state,'dragonbound')
+
     def refit_measured(self):
         # Historical observations can prepare a challenger but are not new
         # independent evidence for replacing a running calibration.

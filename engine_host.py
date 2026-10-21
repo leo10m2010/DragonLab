@@ -39,7 +39,7 @@ class EngineHost:
     def stop(self):
         if self.closed:return
         self.closed=True
-        for name in ('settings_window','diagnostics_window'):
+        for name in ('settings_window','diagnostics_window','training_window'):
             win=getattr(self.app,name,None)
             if win and win.winfo_exists():win.destroy()
         if self.window.winfo_exists():self.app.close()

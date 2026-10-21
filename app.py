@@ -28,7 +28,7 @@ class App:
         self.profiles={};self.server=None;self.share_token=secrets.token_urlsafe(24);self.shared={};self.dirty=True;self.last_input='';self.selected_target=None;self.target_ids={}
         self.base=BASE;self.clone_id='dragonbound';self.adapter_config=None;self.browser_target=None;self.viewport=(800,600);self.last_fingerprint=None;self.last_computed=0;self.compute_generation=0;self.computing=False;self.direction='Auto'
         self.power_guide=None;self.guide_points=None;self.current_game_power=None;self.auto_visible=False;self.auto_enabled=True;self.auto_points=None;self.auto_guide_enabled=True;self.auto_target_id=None;self.target_hero_id=None
-        self.preferences_path=BASE/'preferencias.json';self.target_key='Ctrl';self.fire_key='Q';self.auto_shot_enabled=True;self.performance='Ligero';self.map_expanded=False;self.fire_busy=False;self.pending_fire=None;self.result_context=None;self.fire_shortcut_count=0;self.page_shortcuts_active=False;self.last_page_gesture=None;self.last_fire_message=None;self.fire_cancel=threading.Event();self.capture_dpr=1
+        self.training_session=None;self.preferences_path=BASE/'preferencias.json';self.target_key='Ctrl';self.fire_key='Q';self.auto_shot_enabled=True;self.performance='Ligero';self.map_expanded=False;self.fire_busy=False;self.pending_fire=None;self.result_context=None;self.fire_shortcut_count=0;self.page_shortcuts_active=False;self.last_page_gesture=None;self.last_fire_message=None;self.fire_cancel=threading.Event();self.capture_dpr=1
         self.player_tracker=PlayerTracker();self.compact=False;self.large_text=False;self.path_color='Menta';self.path_width=3
         from shot_review import ShotReview
         self.shot_review=ShotReview(BASE/'revision-tiros.json')
@@ -87,6 +87,8 @@ class App:
             elif not self.dirty and not self.computing:
                 self.pending_fire=None;self.trigger_auto_fire()
     def trigger_auto_fire(self):
+        if getattr(self,'training_session',None) and self.training_session.running:
+            self.fire_notice('Entrenamiento activo: detén la sesión para usar el atajo');return
         if self.fire_busy or not self.auto_shot_enabled:return
         if self.clone_id not in ('dragonbound','gunbound-world') or not self.auto_enabled or not self.last_live or time.monotonic()-self.last_live>1.5:
             self.fire_notice('Espera la conexión con el juego');return
@@ -395,6 +397,7 @@ class App:
         return True
     def toggle_live(self):
         if self.worker and self.worker.is_alive():
+            if getattr(self,'training_session',None):self.training_session.stop()
             self.live_stop.set();self.auto_enabled=False;self.auto_visible=False;self.hide_overlay();self.hide_power_guide();self.live_camera=None;self.last_live=0
             self.status.config(text='●  Captura pausada',fg=ORANGE);self.connect.config(text='Activar captura automática');return
         self.auto_enabled=True;stop=threading.Event();self.live_stop=stop
@@ -415,6 +418,7 @@ class App:
                         from gunbound_learning import GunBoundLearning
                         learning=GunBoundLearning(client)
                     capture=AutoCapture(client);capture.capture_interval=3 if self.performance=='Ligero' else 1.5;client.terrain_interval=5 if self.performance=='Ligero' else 2
+                    self.live_endpoint=client.endpoint
                     if clone in ('dragonbound','gunbound-world'):
                         from browser_shortcuts import BrowserShotEvents
                         shot_events=BrowserShotEvents(client.endpoint,client.target['id'],capture.gesture_owner,lambda:self.fire_key,lambda gesture:self.events.put({'status':'fire-gesture','gesture':gesture}))
@@ -615,17 +619,21 @@ class App:
     def tick_once(self):
         pending=[]
         while not self.events.empty():pending.append(self.events.get_nowait())
-        live=[e for e in pending if e.get('status') not in ('calculated','target-shortcut','fire-shortcut','fire-gesture','fire-finished','fire-confirmed','cancel-shortcut')]
+        live=[e for e in pending if e.get('status') not in ('calculated','target-shortcut','fire-shortcut','fire-gesture','fire-finished','fire-confirmed','cancel-shortcut','training-observation')]
         # Consume the latest state before results/shortcuts; old frames must not
         # delay the game or allow an obsolete calculation to replace a new one.
-        pending=([live[-1]] if live else [])+[e for e in pending if e.get('status') in ('calculated','target-shortcut','fire-shortcut','fire-gesture','fire-finished','fire-confirmed','cancel-shortcut')]
+        pending=([live[-1]] if live else [])+[e for e in pending if e.get('status') in ('calculated','target-shortcut','fire-shortcut','fire-gesture','fire-finished','fire-confirmed','cancel-shortcut','training-observation')]
         for event in pending:
+            if event.get('status')=='training-observation':
+                self.book.observe_training(event.get('observation'),event.get('release'));self.profile_stamp=None;self.mark();continue
             if event.get('status')=='fire-gesture':
                 if self.consume_fire_gesture(event.get('gesture')):
                     self.fire_shortcut_count+=1;self.trigger_auto_fire()
                 continue
             if event.get('status')=='cancel-shortcut':
-                self.pending_fire=None;self.fire_cancel.set();continue
+                self.pending_fire=None;self.fire_cancel.set()
+                if getattr(self,'training_session',None):self.training_session.stop()
+                continue
             if event.get('status')=='fire-shortcut':
                 self.fire_shortcut_count+=1
                 if event.get('hero')==self.target_hero_id:self.trigger_auto_fire()
@@ -677,7 +685,7 @@ class App:
         self.shared['source']='experimental' if self.last_live and time.monotonic()-self.last_live<4 else 'manual'
         if '--diagnostics' in sys.argv and time.monotonic()-getattr(self,'diagnostic_clock',0)>1:
             self.diagnostic_clock=time.monotonic()
-            health={'version':PROGRAM_VERSION,'weather_validation':getattr(self,'weather_validation',[]),'learning_error':getattr(self,'learning_error',''),'learning_status':self.book.message,'learning_samples':len(self.book.records.get(self.book.key(self.clone_id,self.s.mobile,self.s.selected_shot),{}).get('samples',[])),'reader_status':getattr(self,'reader_status',None),'reader_reason':getattr(self,'reader_reason',''),'result_reason':self.result.get('reason'),'guide_visible':bool(self.power_guide and self.power_guide.win.winfo_viewable()),'game_visible':self.game_visible,'bar_detected':bool(self.guide_points),'updated':time.time(),'connected':bool(self.last_live and time.monotonic()-self.last_live<4),'map_detected':bool(self.s.environment.get('terrain')),'camera_detected':bool(self.live_camera and self.live_camera.get('renderWidth')),'weather':[w.get('resolvedTypeId') or w.get('typeId') for w in self.s.environment.get('activeWeathers',[])],'players_detected':len(self.live_players),'overlay_visible':bool(self.overlay and self.overlay.visible),'power':self.result.get('power'),'computing':self.computing,'last_error':getattr(self,'last_error',None),'target':self.auto_target_id,'enemies_detected':len(enemies(self.live_players,self.target_hero_id)),'preview_capture':self.preview_visible,'solve_seconds':getattr(self,'last_solve_seconds',None),'shortcut_events':self.shortcut_count,'fire_shortcut_events':self.fire_shortcut_count,'fire_busy':self.fire_busy,'fire_pending':bool(self.pending_fire),'last_fire_message':self.last_fire_message,'page_shortcuts_active':self.page_shortcuts_active,'shortcut_ready':bool(getattr(self,'shortcuts',None) and self.shortcuts.ready),'shortcut_error':getattr(getattr(self,'shortcuts',None),'error',None)}
+            health={'version':PROGRAM_VERSION,'training':{'active':bool(self.training_session and self.training_session.running),'message':self.training_session.status if self.training_session else '', 'shots':self.training_session.shots if self.training_session else 0},'weather_validation':getattr(self,'weather_validation',[]),'learning_error':getattr(self,'learning_error',''),'learning_status':self.book.message,'learning_samples':len(self.book.records.get(self.book.key(self.clone_id,self.s.mobile,self.s.selected_shot),{}).get('samples',[])),'reader_status':getattr(self,'reader_status',None),'reader_reason':getattr(self,'reader_reason',''),'result_reason':self.result.get('reason'),'guide_visible':bool(self.power_guide and self.power_guide.win.winfo_viewable()),'game_visible':self.game_visible,'bar_detected':bool(self.guide_points),'updated':time.time(),'connected':bool(self.last_live and time.monotonic()-self.last_live<4),'map_detected':bool(self.s.environment.get('terrain')),'camera_detected':bool(self.live_camera and self.live_camera.get('renderWidth')),'weather':[w.get('resolvedTypeId') or w.get('typeId') for w in self.s.environment.get('activeWeathers',[])],'players_detected':len(self.live_players),'overlay_visible':bool(self.overlay and self.overlay.visible),'power':self.result.get('power'),'computing':self.computing,'last_error':getattr(self,'last_error',None),'target':self.auto_target_id,'enemies_detected':len(enemies(self.live_players,self.target_hero_id)),'preview_capture':self.preview_visible,'solve_seconds':getattr(self,'last_solve_seconds',None),'shortcut_events':self.shortcut_count,'fire_shortcut_events':self.fire_shortcut_count,'fire_busy':self.fire_busy,'fire_pending':bool(self.pending_fire),'last_fire_message':self.last_fire_message,'page_shortcuts_active':self.page_shortcuts_active,'shortcut_ready':bool(getattr(self,'shortcuts',None) and self.shortcuts.ready),'shortcut_error':getattr(getattr(self,'shortcuts',None),'error',None)}
             try:(BASE/'estado-live.json').write_text(json.dumps(health,indent=2),encoding='utf-8')
             except OSError:pass
 
@@ -707,6 +715,9 @@ class App:
         refresh(self)
         self.draw();self.draw_overlay();self.draw_force()
     def close(self):
+        if getattr(self,'training_session',None):
+            self.training_session.stop()
+            if self.training_session.thread:self.training_session.thread.join(timeout=1)
         if getattr(self,'cloud_runtime',None):self.cloud_runtime.stopped=True
         if hasattr(self,'shortcuts'):self.shortcuts.close()
         self.pending_fire=None;self.fire_cancel.set();self.live_stop.set();self.hide_overlay();self.hide_power_guide()
