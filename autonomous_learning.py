@@ -262,7 +262,7 @@ class AutonomousLearner:
         if remembered:self.latest_plan=remembered;return remembered
         bracket=self.bracketed(record,hero,target_xy,state,player,actual) if model_override is None and not calibration_only else None
         if bracket:self.latest_plan=bracket;return bracket
-        effects=record.get('weather_effects',{});blocked=False
+        effects=record.get('weather_effects',{});blocked=False;unsupported_weather=False
         for raw in candidates:
             world=heading(raw,body,look)
             # Before future validation there are no calibrated aiming defaults.
@@ -273,13 +273,13 @@ class AutonomousLearner:
                     xmin=min(p[0] for p in path);xmax=max(p[0] for p in path)
                     crossed=[w for w in weather if isinstance(w.get('x'),(int,float)) and xmin-w.get('size',0)/2<=w['x']<=xmax+w.get('size',0)/2]
                     known=all((effects.get(str(w.get('resolvedTypeId') if w.get('resolvedTypeId') is not None else w.get('typeId'))) or {}).get('checked',0)>=3 and (effects.get(str(w.get('resolvedTypeId') if w.get('resolvedTypeId') is not None else w.get('typeId'))) or {}).get('altered',0)==0 for w in crossed)
-                    if not known:continue
+                    if not known:unsupported_weather=True;continue
                     if any(occupied(state.get('terrain'),*p) and math.dist(p,target_xy)>20 for p in path[2:]):blocked=True;continue
                     result={'power':power,'raw_angle':raw,'heading':world,'elevation':world if right else 180-world,'target':list(target_xy),'stage':model_source,'model_samples':len(record.get('samples',[])),'approximate':True}
                     self.latest_plan=result;return result
         raw=candidates[0];world=heading(raw,body,look)
         recent=record.get('cases',[])[-1:];needs_move=blocked or bool(recent and recent[0].get('ends') and all(math.dist(e,(hero['x'],hero['y']))<60 for e in recent[0]['ends']))
-        result={'power':previous['power'] if actual and previous else probe['power'],'raw_angle':raw,'heading':world,'elevation':world if right else 180-world,'target':list(target_xy),'stage':'calibración controlada' if calibration_only else 'medir clima/patrón' if weather or record.get('multi_projectile') else 'comprobar modelo propio' if record.get('candidate') else 'explorar fuerzas y ángulos','model_samples':len(record.get('samples',[])),'approximate':True,'needs_move':needs_move}
+        result={'power':previous['power'] if actual and previous else probe['power'],'raw_angle':raw,'heading':world,'elevation':world if right else 180-world,'target':list(target_xy),'stage':'calibración controlada' if calibration_only else 'medir clima/patrón' if weather or record.get('multi_projectile') else 'comprobar modelo propio' if record.get('candidate') else 'explorar fuerzas y ángulos','model_samples':len(record.get('samples',[])),'approximate':True,'needs_move':needs_move,'reposition_allowed':bool(model and not record.get('multi_projectile') and not unsupported_weather and (model.get('wind_scale') is not None or not state['wind']))}
         self.latest_plan=result;return result
     def remembered(self,record,hero,target,state,player,probe,actual):
         def signature(weathers):return sorted(str(w.get('resolvedTypeId') if w.get('resolvedTypeId') is not None else w.get('typeId')) for w in weathers)

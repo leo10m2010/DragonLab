@@ -72,13 +72,14 @@ class EvaluationTrial:
         if self.frozen:
             if abs(state['wind']-self.frozen['wind'])>1 or state['wind'] and abs((state['windAngle']-self.frozen['angle']+180)%360-180)>5:raise NoAim('El viento queda fuera del ajuste congelado; no se envía una carga de prueba')
             plan=self.learner.plan(state,player,probe,actual,previous,model_override=self.frozen['model'])
-            if plan.get('stage')!='evaluación con modelo congelado':raise NoAim('Sin trayectoria comprobada para esta geometría o clima; no se dispara')
+            if plan.get('stage')!='evaluación con modelo congelado':raise NoAim('Sin trayectoria comprobada para esta geometría o clima; no se dispara',reposition=plan.get('reposition_allowed',False))
             return {**plan,'evaluation_phase':'evaluation'}
         if len(self.calibration)>=self.calibration_limit:raise NoAim('Calibración agotada sin modelo aplicable; hace falta controlar las condiciones')
         if self.prior:
             hypothesis=self.context_candidate['model'] if self.context_candidate else self.prior
             proposal=self.learner.plan(state,player,probe,actual,previous,model_override=hypothesis)
             if proposal.get('stage')=='evaluación con modelo congelado':return {**proposal,'stage':'calibración dirigida provisional','evaluation_phase':'calibration'}
+            raise NoAim('Sin ángulo o recorrido libre para la hipótesis actual',reposition=proposal.get('reposition_allowed',False))
         raise NoAim('Sin hipótesis de trayectoria aplicable; no se envía una fuerza arbitraria')
     def record(self,release,state):
         phase=(release.get('learner') or {}).get('evaluation_phase')

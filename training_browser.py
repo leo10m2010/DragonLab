@@ -125,6 +125,28 @@ class TrainingBrowser:
         hero=next(p for p in reader.read()['players'] if p['id']==state['hero'])
         if hero['look']!=desired:raise RuntimeError('El carro no confirmó la orientación de salida')
         return hero
+    def plan_with_reposition(self,reader,autonomous,probe,target_x,serial,cancel):
+        """At most two supported steps; every attempt replans from the actual pose."""
+        from training_aim import NoAim
+        from training_movement import walking_step
+        movements=[];avoid=None
+        for attempt in range(3):
+            self.guard(cancel)
+            fresh=reader.read()
+            if fresh.get('turnNumber')!=serial or fresh.get('turn')!=fresh.get('hero'):raise TurnExpired('Cambió el turno al buscar un ángulo')
+            player=next(p for p in fresh['players'] if p['id']==fresh['hero'])
+            state=self.sample()
+            try:
+                result=autonomous.plan(state,player,probe)
+                return result,({'steps':movements,'from':movements[0]['from'],'to':movements[-1]['to']} if movements else None)
+            except NoAim as error:
+                if not error.reposition or attempt==2 or self.seconds_left()<8:raise
+                step=walking_step(state,target_x,avoid=avoid)
+                if not step:raise NoAim(str(error)+'; no hay suelo seguro para cambiar de posición') from error
+                movement=self.walk(reader,step,cancel,expected_serial=serial);movements.append(movement)
+                if abs(movement['to'][0]-movement['from'][0])<.5:avoid=step['direction']
+                self.orient(reader,target_x>=movement['to'][0],serial,cancel)
+        raise NoAim('No se encontró un ángulo tras dos pasos')
     def shoot(self,probe,cancel,settings_provider=None,before_fire=None,autonomous=None):
         self.reader=PowerReader(self.client.endpoint,self.client.target['id']);reader=self.reader
         held=None
@@ -150,7 +172,7 @@ class TrainingBrowser:
                 target=min(targets,key=lambda p:math.hypot(p['x']-hero['x'],p['y']-hero['y']))
                 self.orient(reader,target['x']>=hero['x'],serial,cancel)
                 fresh=reader.read();player=next(p for p in fresh['players'] if p['id']==hero_id)
-                independent=autonomous.plan(self.sample(),player,probe);planned_angle=independent['raw_angle']
+                independent,movement=self.plan_with_reposition(reader,autonomous,probe,target['x'],serial,cancel);planned_angle=independent['raw_angle']
                 if independent.get('needs_move') and self.seconds_left()>12:
                     from training_movement import walking_step
                     plan=walking_step(self.sample(),target['x'])

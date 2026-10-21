@@ -3,7 +3,9 @@ from dataclasses import replace
 import math,time
 from core import solve
 
-class NoAim(RuntimeError):pass
+class NoAim(RuntimeError):
+    def __init__(self,message,reposition=False):
+        super().__init__(message);self.reposition=bool(reposition)
 
 def terrain_solution(settings,result):
     power=result.get('guide_power')
