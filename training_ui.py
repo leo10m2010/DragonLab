@@ -16,14 +16,15 @@ def settings_provider(app):
         return response['settings']
     return request
 
-def start_training(app,limit='Continuo'):
+def start_training(app,limit='40'):
     if app.clone_id!='dragonbound':raise ValueError('Elige DragonBound en la pantalla principal.')
     if app.training_session and app.training_session.running:return app.training_session
     from training_session import TrainingSession
     endpoint=getattr(app,'live_endpoint',None) or app.endpoint.get()
     if getattr(app,'last_live',0)==0:endpoint='http://127.0.0.1:9223'
-    continuous=limit=='Continuo'
-    app.training_session=TrainingSession(endpoint,app.browser_target,app.book.path,app.events.put,max_shots=60 if continuous else int(limit),continuous=continuous,autonomous=True)
+    if limit not in ('20','40'):raise ValueError('La prueba admite 20 o 40 tiros como máximo')
+    continuous=False
+    app.training_session=TrainingSession(endpoint,app.browser_target,app.book.path,app.events.put,max_shots=60 if continuous else int(limit),continuous=continuous,autonomous=True,objective='evaluation',max_matches=6,max_seconds=900)
     from training_progress import lab_summary
     app.training_session.lab_progress=lab_summary(app.book)
     app.training_session.start();return app.training_session
@@ -37,7 +38,7 @@ def open_training(app):
     win.title('DragonLab · Aprendizaje');height=min(680,max(500,win.winfo_screenheight()-100))
     win.geometry(f'640x{height}');win.minsize(580,min(540,height));win.configure(bg=BG)
     win.columnconfigure(0,weight=1);win.rowconfigure(2,weight=1)
-    tk.Label(win,text='Aprender del juego',bg=BG,fg=TEXT,font=('Bahnschrift',23,'bold')).grid(row=0,column=0,sticky='w',padx=24,pady=(18,4))
+    tk.Label(win,text='Comprobar puntería',bg=BG,fg=TEXT,font=('Bahnschrift',23,'bold')).grid(row=0,column=0,sticky='w',padx=24,pady=(18,4))
     status=tk.Label(win,text='DragonBound · Avatar Off',bg=BG,fg=MUTED,font=('Bahnschrift',10),wraplength=570,justify='left')
     status.grid(row=1,column=0,sticky='ew',padx=24,pady=(0,10))
     holder=tk.Frame(win,bg=BG);holder.grid(row=2,column=0,sticky='nsew',padx=20)
@@ -48,6 +49,9 @@ def open_training(app):
     viewport.bind('<Configure>',lambda e:viewport.itemconfigure(item,width=e.width))
     content.bind('<Configure>',lambda e:viewport.configure(scrollregion=viewport.bbox('all')))
     win.bind('<MouseWheel>',lambda e:viewport.yview_scroll(-int(e.delta/120),'units') if not isinstance(e.widget,RoundedChoice) else None)
+    trial_card=RoundedPanel(content,PANEL);trial_card.pack(fill='x',pady=(0,10))
+    tk.Label(trial_card.body,text='Prueba actual · Armor, tiro 1',bg=PANEL,fg=TEXT,font=('Bahnschrift',13,'bold')).pack(anchor='w',padx=16,pady=(8,4))
+    result_label=tk.Label(trial_card.body,bg=PANEL,fg=GREEN,font=('Bahnschrift',11),justify='left',wraplength=520);result_label.pack(anchor='w',padx=16,pady=(0,10))
     card=RoundedPanel(content,PANEL);card.pack(fill='x',pady=(0,10));body=card.body
     headline=tk.Label(body,text='Calibración de salida',bg=PANEL,fg=TEXT,font=('Bahnschrift',13,'bold'));headline.pack(anchor='w',padx=16,pady=(8,4))
     launch=tk.Label(body,bg=PANEL,fg=GREEN,font=('Bahnschrift',18,'bold'));launch.pack(anchor='w',padx=16)
@@ -64,7 +68,7 @@ def open_training(app):
     tk.Label(content,text='Puntería y autonomía completa: pendientes de evaluación.\nEstos porcentajes no estiman cuánto tiempo falta.',justify='left',bg=BG,fg=MUTED,font=('Bahnschrift',10),wraplength=540).pack(anchor='w',padx=8,pady=(0,8))
     controls=tk.Frame(win,bg=BG);controls.grid(row=3,column=0,sticky='ew',padx=24,pady=6)
     tk.Label(controls,text='Duración',bg=BG,fg=MUTED,font=('Bahnschrift',10)).pack(side='left')
-    limit=tk.StringVar(value='Continuo');duration=RoundedChoice(controls,textvariable=limit,values=['Continuo','12','30','60','120'],width=11);duration.pack(side='right')
+    limit=tk.StringVar(value='40');duration=RoundedChoice(controls,textvariable=limit,values=['20','40'],width=11);duration.pack(side='right')
     actions=tk.Frame(win,bg=BG);actions.grid(row=4,column=0,sticky='ew',padx=24,pady=(4,8))
     def stop():
         if app.training_session:app.training_session.stop()
@@ -73,14 +77,24 @@ def open_training(app):
         except (ValueError,RuntimeError) as error:status.config(text=str(error))
     stop_button=RoundedButton(actions,text='Detener',command=stop);stop_button.pack(side='left')
     start_button=RoundedButton(actions,text='Empezar',command=start,bg=GREEN,fg=BG);start_button.pack(side='right')
-    tk.Label(win,text='Deja el juego en primer plano. Esc detiene el entrenamiento.',bg=BG,fg=MUTED,font=('Bahnschrift',10)).grid(row=5,column=0,sticky='w',padx=24,pady=(0,12))
+    tk.Label(win,text='Armor · Tiro 1 · Prueba limitada. Esc detiene la sesión.',bg=BG,fg=MUTED,font=('Bahnschrift',10)).grid(row=5,column=0,sticky='w',padx=24,pady=(0,12))
     def refresh():
         if not win.winfo_exists():return
         session=app.training_session;learner=session.learner if session else None
         running=bool(session and session.running)
         for control,state in [(start_button,'disabled' if running else 'normal'),(stop_button,'normal' if running else 'disabled'),(duration,'disabled' if running else 'readonly')]:
             if control.cget('state')!=state:control.config(state=state)
-        if session:status.config(text=f'{session.status} · {session.shots} tiros')
+        if not session:result_label.config(text='La prueba separa calibración y evaluación.\nSolo considera dirigidos los tiros con una solución comprobada.')
+        if session:
+            trial=session.trial.summary() if session.trial else None
+            detail=f" · Calibración {trial['calibration_shots']}/{trial['exploration_budget']} · Dirigidos {trial['directed_test_shots']} · Omitidos {trial['skipped_turns']}" if trial else f' · {session.shots} tiros'
+            status.config(text=session.status+detail)
+            if trial:
+                battle=session.battle.summary() if session.battle else {}
+                labels={'running':'En curso','approved':'Prueba de puntería aprobada','failed':'Prueba no aprobada','insufficient-data':'Faltan tiros dirigidos para evaluar'}
+                median=f"{trial['median_path_error_px']:g} px" if trial['median_path_error_px'] is not None else 'sin mediciones'
+                result_label.config(text=f"{labels[trial['status']]}\nTiros cerca del objetivo: {trial['near_target_shots']}/{trial['directed_test_shots']} · Mediana: {median}\nVentanas con bajada de vida/escudo: {trial['health_drop_windows']}/{trial['known_health_windows']}\nPartidas observadas: {battle.get('wins',0)} ganadas · {battle.get('losses',0)} perdidas · {battle.get('unknown_results',0)} sin resultado confirmado")
+            else:result_label.config(text='La prueba separa calibración y evaluación.\nSolo considera dirigidos los tiros con una solución comprobada.')
         report=coverage_report(learner.records if learner else {},app.book.records)
         launch.config(text=f"{report['launch_coverage_percent']:g}% · {report['launch_modes_validated']}/{report['launch_modes_total']} salidas")
         launch_bar.set(report['launch_coverage_percent']);lab_bar.set(report['lab_coverage_percent'])

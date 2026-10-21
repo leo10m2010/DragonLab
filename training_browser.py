@@ -210,7 +210,10 @@ class TrainingBrowser:
             if independent:release['learner']=independent
             if lab:release['lab']={'power':lab['power'],'angle':settings.angle,'target':[settings.target_x,settings.target_y],'end':lab.get('end'),'action':lab.get('training_action','apuntar'),'approximate':lab.get('approximate',False)}
             from shot_attribution import identity,attributed_start
-            release['baseline']=[identity(p) for p in self.sample().get('shots',[])]
+            before_state=self.sample()
+            from battle_metrics import health
+            release['health_before']={str(p['id']):health(p) for p in before_state.get('players',[])}
+            release['baseline']=[identity(p) for p in before_state.get('shots',[])]
             self.guard(cancel)
             fresh=reader.read()
             if fresh.get('turn')!=hero_id or fresh.get('turnNumber')!=serial:raise TurnExpired('Cambió el turno antes de cargar')
@@ -234,7 +237,8 @@ class TrainingBrowser:
             else:raise RuntimeError('La barra no confirmó la fuerza')
             self.key('space',False);held=None
             # Capture observed starts while their own-shooter attribution is fresh.
-            until=time.monotonic()+.6;observed=None
+            self.client.terrain_clock=time.monotonic()
+            until=time.monotonic()+1.2;observed=None
             while time.monotonic()<until:
                 observed=self.sample()
                 if any(identity(p) not in release['baseline'] and (attributed_start(observed,p,release) or {}).get('learnable') for p in observed.get('shots',[])):return release,observed

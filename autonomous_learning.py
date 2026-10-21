@@ -242,13 +242,13 @@ class AutonomousLearner:
             last=local[-1];projection=flight_error(model,last)
             if abs(last['wind']-wind)<=1 and (wind==0 or abs((last['wind_angle']-wind_angle+180)%360-180)<=5) and error(model,last)<=5 and projection is not None and projection<=12:return model,'apuntar con modelo propio'
         return None,'condiciones sin comprobar'
-    def plan(self,state,player,probe,actual=False,previous=None):
+    def plan(self,state,player,probe,actual=False,previous=None,model_override=None,calibration_only=False):
         hero=next(p for p in state['players'] if str(p['id'])==str(state['heroId']))
         others=[p for p in state['players'] if str(p['id'])!=str(hero['id']) and not p.get('dead') and (hero.get('team') is None or p.get('team')!=hero['team'])]
         if not others:raise RuntimeError('Sin objetivo vivo')
         target=min(others,key=lambda p:math.hypot(p['x']-hero['x'],p['y']-hero['y']))
         key=f"dragonbound:{probe['mobile']}:{probe['shot']}";record=self.records.get(key,{})
-        model,model_source=self.applicable_model(record,state['wind'],state['windAngle'])
+        model,model_source=(model_override,'evaluación con modelo congelado') if model_override is not None else (None,'calibración controlada') if calibration_only else self.applicable_model(record,state['wind'],state['windAngle'])
         look=player['look'];body=player.get('body',0);right=target['x']>=hero['x']
         low,high=player['minAngle'],player['maxAngle']
         offsets=[hero.get('muzzleX'),hero.get('muzzleY')]
@@ -258,9 +258,9 @@ class AutonomousLearner:
         weather=state.get('weather') or []
         # Nearby repeated native outcomes can be reused without assuming the
         # weather or a multi-projectile pattern follows a ballistic formula.
-        remembered=self.remembered(record,hero,target_xy,state,player,probe,actual)
+        remembered=self.remembered(record,hero,target_xy,state,player,probe,actual) if model_override is None and not calibration_only else None
         if remembered:self.latest_plan=remembered;return remembered
-        bracket=self.bracketed(record,hero,target_xy,state,player,actual)
+        bracket=self.bracketed(record,hero,target_xy,state,player,actual) if model_override is None and not calibration_only else None
         if bracket:self.latest_plan=bracket;return bracket
         effects=record.get('weather_effects',{});blocked=False
         for raw in candidates:
@@ -279,7 +279,7 @@ class AutonomousLearner:
                     self.latest_plan=result;return result
         raw=candidates[0];world=heading(raw,body,look)
         recent=record.get('cases',[])[-1:];needs_move=blocked or bool(recent and recent[0].get('ends') and all(math.dist(e,(hero['x'],hero['y']))<60 for e in recent[0]['ends']))
-        result={'power':previous['power'] if actual and previous else probe['power'],'raw_angle':raw,'heading':world,'elevation':world if right else 180-world,'target':list(target_xy),'stage':'medir clima/patrón' if weather or record.get('multi_projectile') else 'comprobar modelo propio' if record.get('candidate') else 'explorar fuerzas y ángulos','model_samples':len(record.get('samples',[])),'approximate':True,'needs_move':needs_move}
+        result={'power':previous['power'] if actual and previous else probe['power'],'raw_angle':raw,'heading':world,'elevation':world if right else 180-world,'target':list(target_xy),'stage':'calibración controlada' if calibration_only else 'medir clima/patrón' if weather or record.get('multi_projectile') else 'comprobar modelo propio' if record.get('candidate') else 'explorar fuerzas y ángulos','model_samples':len(record.get('samples',[])),'approximate':True,'needs_move':needs_move}
         self.latest_plan=result;return result
     def remembered(self,record,hero,target,state,player,probe,actual):
         def signature(weathers):return sorted(str(w.get('resolvedTypeId') if w.get('resolvedTypeId') is not None else w.get('typeId')) for w in weathers)

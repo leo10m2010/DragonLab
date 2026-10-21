@@ -15,6 +15,7 @@ DRAG_POINT = r"""(()=>{
 class PowerReader:
     def __init__(self,endpoint,target=None):
         self.client=CDP(endpoint,target_id=target)
+        self.client.terrain_interval=60;self.client.terrain_clock=time.monotonic()
         try:self.initial=self.client.sample()
         except Exception:
             self.client.close();raise

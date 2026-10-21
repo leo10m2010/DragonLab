@@ -131,6 +131,7 @@ class CDP:
             x:num(pick(p,["x","posX"])),y:num(pick(p,["y","posY"])),
             angle:(()=>{let a=num(pick(p,["ang"])),b=num(pick(p,["body"])),look=num(pick(p,["look"]));return a!==null&&b!==null&&look!==null?(look===0?a+b:a-b):num(pick(p,["angle","display_angle"]))})(),rawAngle:num(pick(p,["ang"])),body:num(pick(p,["body_angle","bodyAngle","body"])),
             look:num(pick(p,["look","direction"])),mobile:num(pick(p,["mobile","mobile_id"])),
+            hp:num(own(p,"hp")),shield:num(own(p,"shield")),maxHp:num(own(p,"maxhp")),
             dead:flag(pick(p,["dead","is_dead","isDead"]))||[false,0].includes(pick(p,["is_alive"])),muzzles:[["aim_s1_ang","aim_s1_len"],["aim_s2_ang","aim_s2_len"],["aim_ss_ang","aim_ss_len"]].map(keys=>({angle:num(pick(p,[keys[0]])),radius:num(pick(p,[keys[1]]))})),muzzleX:num(pick(p,["aim_circle_x"])),muzzleY:num(pick(p,["aim_circle_y"])),shot:num(pick(p,["selected_shot"])),team:pick(p,["team"]),isHero:flag(pick(p,["is_me","isMe","is_hero"]))}));
           let meter=pick(renderer,["wind_meter","windMeter"]),cam=renderer;
           const numeric=(o,keys)=>Object.fromEntries(keys.map(k=>[k,num(own(o,k))]).filter(x=>x[1]!==null));
@@ -158,7 +159,7 @@ class CDP:
               bulletId:num(pick(data,["img"])),delay:num(start[6])??0,auxiliary:!!pick(data,["is_lightning"])||!!pick(data,["thor"]),
               change:pick(data,["change"])?numeric(pick(data,["change"]),["at","dur","img"]):null,
               hole:Array.isArray(pick(data,["hole"]))?pick(data,["hole"]).slice(0,2).map(num):null,
-              shotType:num(pick(data,["shot_type"])),metadata:numeric(pick(data,["start"]),["power","player","player_n","mobile","selectedShot","angle"])};
+              shotType:num(pick(data,["shot_type"])),metadata:{...numeric(pick(data,["start"]),["player","player_n","mobile","selectedShot","angle"]),launchSpeed:num(pick(pick(data,["start"]),["power"]))}};
             return numeric(s,["id","x","y","vx","vy","ax","ay","angle","power","mobile","bullet_id","time","time_ms"]);
           });
           // Rendered columns describe the present turn; after_shot_* can already

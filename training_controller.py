@@ -14,6 +14,13 @@ class TrainingController:
         if session.autonomous:
             from autonomous_learning import AutonomousLearner
             self.learner=AutonomousLearner(session.book_path.parent/'aprendizaje-autonomo.json',session.book_path);session.learner=self.learner
+        self.trial=None;self.battle=None
+        if session.objective=='evaluation':
+            if not self.learner:raise ValueError('La evaluación requiere aprendizaje autónomo')
+            from training_evaluation import EvaluationTrial
+            from battle_metrics import BattleMetrics
+            self.trial=EvaluationTrial(session.book_path.parent/'evaluacion-punteria.json',self.learner,session.max_shots);session.trial=self.trial
+            self.battle=BattleMetrics(session.book_path.parent/'partidas-observadas.json',self.trial.health_result);session.battle=self.battle
         self.memory=None if session.autonomous else ActionMemory(session.book_path.parent/'estrategia-entrenamiento.json')
     def within_limits(self,started):
         s=self.s
@@ -46,14 +53,24 @@ class TrainingController:
                     s.cancel.wait(min(15,2**min(retries,4)))
         except Exception as error:s.last_error=str(error)
         finally:
+            if self.battle:
+                if browser and not s.cancel.is_set():
+                    until=time.monotonic()+15
+                    while self.battle.pending and time.monotonic()<until and not s.cancel.is_set():
+                        try:self.battle.observe(browser.sample())
+                        except (OSError,RuntimeError,ConnectionError,TimeoutError):break
+                        s.cancel.wait(.2)
+                self.battle.end()
+            if self.trial:self.trial.finish()
             self.power.close()
             if browser:
                 try:browser.close()
                 except Exception:pass
             s.running=False
-            s.publish('Entrenamiento detenido: '+s.last_error if s.last_error else 'Sesión finalizada; progreso guardado')
+            s.publish('Entrenamiento detenido: '+s.last_error if s.last_error else ('Evaluación finalizada: '+self.trial.summary()['status'] if self.trial else 'Sesión finalizada; progreso guardado'))
     def cycle(self,browser):
         s=self.s;ui=browser.guard(s.cancel)
+        if self.trial and self.trial.done():return False
         if self.power:self.power.hold(True)
         if ui.get('blocked'):raise RuntimeError('Hay un aviso del juego. Ciérralo antes de volver a empezar')
         if ui.get('away'):
@@ -61,12 +78,13 @@ class TrainingController:
         if ui.get('serverEntry'):
             browser.click(ui['serverEntry'],s.cancel);s.publish('Entrando a Avatar Off');s.cancel.wait(.7);return
         if not ui.get('game'):
+            if self.battle:self.battle.end()
             if self.learner:self.learner.pending.clear()
             if self.in_game:self.ledger=TurnLedger();self.failures=0
             self.in_game=False
             self.current=None;self.blocked.clear();browser.client.game=None;browser.client.renderer=None
             if ui['options']:
-                option=self.learner.choose_mobile(ui['options'],s.mobile_attempts) if self.learner else next_mobile(ui['options'],s.mobile_attempts)
+                option=next((o for o in ui['options'] if mobile_name(o.get('name'))=='ARMOR'),None) if self.trial else self.learner.choose_mobile(ui['options'],s.mobile_attempts) if self.learner else next_mobile(ui['options'],s.mobile_attempts)
                 if not option:raise RuntimeError('No hay carros identificables en el selector')
                 browser.click(option['point'],s.cancel);self.selected=True;name=mobile_name(option['name']);s.mobile_attempts[name]=s.mobile_attempts.get(name,0)+1
                 s.publish('Carro elegido: '+name);s.cancel.wait(.4);return
@@ -81,6 +99,7 @@ class TrainingController:
         if not self.in_game and self.learner:self.learner.episode=str(time.time_ns())
         self.in_game=True;self.queue_at=0;state=browser.sample();key=turn_key(state,ui['url'])
         if self.learner:self.learner.track(state)
+        if self.battle:self.battle.observe(state)
         if key!=self.current:self.current=key;self.blocked.clear()
         if not self.ledger.available(key):
             s.publish('Esperando el próximo turno' if key in self.ledger.used else 'Esperando confirmar tu turno')
@@ -88,24 +107,32 @@ class TrainingController:
         hero=next(p for p in state['players'] if str(p.get('id'))==str(state['heroId']))
         mobile=mobile_name(hero.get('mobile'))
         if not mobile:raise RuntimeError('Carro no identificado; sesión detenida')
+        if self.trial and mobile!='ARMOR':s.publish('Esperando el lobby: la prueba solo usa Armor tiro 1');s.cancel.wait(.5);return
         available=[i for i,k in enumerate(('btnShot1','btnShot2','btnShotSS')) if ui['controls'].get(k) and i not in self.blocked]
         if not available:
             if self.blocked:self.ledger.consume(key);s.publish('Sin modalidad disponible o tiro seguro en este turno')
             s.cancel.wait(.2);return
-        probe=self.learner.choose_probe(mobile,state.get('wind',0),s.shots,available) if self.learner else next_probe(s.records(),mobile,state.get('wind',0),s.shots,available)
+        if self.trial:
+            if 0 not in available:
+                self.ledger.consume(key);self.trial.skip('Armor tiro 1 no está disponible');s.publish('Tiro 1 no disponible; prueba sin disparo');return
+            available=[0]
+        probe=self.trial.probe() if self.trial else self.learner.choose_probe(mobile,state.get('wind',0),s.shots,available) if self.learner else next_probe(s.records(),mobile,state.get('wind',0),s.shots,available)
         probe['turn_serial']=key[-1]
         if self.memory and s.shots%3==2:probe=self.memory.recommend(probe,state,available)
         stage='decidiendo con mediciones propias' if self.learner else 'calculando viento y recorrido'
         s.publish(f"Turno {key[-1]} · {mobile} · tiro {('1','2','SS')[probe['shot']]} · {stage}")
         try:
             options={'settings_provider':None if self.learner else s.settings_provider,'before_fire':lambda:self.ledger.consume(key)}
-            if self.learner:options['autonomous']=self.learner
+            if self.learner:options['autonomous']=self.trial or self.learner
             release,observation=browser.shoot(probe,s.cancel,**options)
             self.observe(probe,release,observation);self.failures=0;s.last_error=''
         except UnavailableShot as error:
             self.blocked.add(probe['shot']);s.publish(str(error))
         except NoAim as error:
-            self.blocked.add(probe['shot']);s.publish(str(error)+'; probando otra modalidad')
+            if self.trial:
+                if self.ledger.available(key):self.ledger.consume(key)
+                self.trial.skip(error);s.publish(str(error))
+            else:self.blocked.add(probe['shot']);s.publish(str(error)+'; probando otra modalidad')
         except (TurnExpired,UnconfirmedShot) as error:
             if self.ledger.available(key):self.ledger.consume(key)
             self.failures=0;s.last_error='';self.record_error(key,str(error),'turn-ended' if isinstance(error,TurnExpired) else 'unconfirmed')
@@ -128,6 +155,8 @@ class TrainingController:
     def observe(self,probe,release,observation):
         s=self.s;s.shots+=1
         if self.learner:self.learner.observe(probe,release,observation)
+        if self.trial:
+            token=self.trial.record(release,observation);self.battle.note(release,release.get('learner') or {},observation,token)
         s.emit({'status':'training-observation','release':release,'observation':observation})
         weather=[{k:w[k] for k in ('typeId','resolvedTypeId','x','size') if isinstance(w.get(k),(int,float))} for w in observation.get('weather',[])[:32] if isinstance(w,dict)]
         lab=release.get('learner') or release.get('lab') or {};feedback={}
