@@ -4,6 +4,7 @@ from unittest.mock import Mock,patch
 from training_turns import TurnLedger,turn_key
 from training_controller import TrainingController
 from training_session import TrainingSession
+from training_browser import TurnExpired,UnconfirmedShot,TrainingBrowser
 from training_aim import NoAim,choose_aim,actual_solution
 from training_movement import walking_step
 from core import Settings
@@ -77,6 +78,54 @@ class ControllerTests(unittest.TestCase):
             self.assertEqual(first.shoot.call_count,1);self.assertEqual(second.shoot.call_count,1)
             self.assertEqual(second.shoot.call_args.args[0]['turn_serial'],2)
             second.arm.assert_called_once_with(focus=False)
+
+class ShortTurnTests(unittest.TestCase):
+    make_session=ControllerTests.make_session
+    browser=ControllerTests.browser
+    def test_expired_turns_do_not_halt_training_or_repeat_same_turn(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            s=self.make_session(tmp);c=TrainingController(s);b=self.browser()
+            b.sample.side_effect=[state(n) for n in [1,1,2,2,3,3,4]]
+            def shoot(probe,cancel,settings_provider,before_fire):
+                if probe['turn_serial']<4:raise TurnExpired('Turno vencido')
+                before_fire();return {},{}
+            b.shoot.side_effect=shoot;c.observe=Mock()
+            for _ in range(7):c.cycle(b)
+            self.assertEqual(b.shoot.call_count,4);self.assertEqual(c.failures,0)
+            self.assertEqual([e['kind'] for e in s.errors],['turn-ended']*3)
+            c.observe.assert_called_once()
+    def test_unconfirmed_releases_are_not_repeated_or_counted_as_controls(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            s=self.make_session(tmp);c=TrainingController(s);b=self.browser();b.sample.return_value=state()
+            def shoot(probe,cancel,settings_provider,before_fire):before_fire();raise UnconfirmedShot('No observation')
+            b.shoot.side_effect=shoot
+            c.cycle(b);c.cycle(b)
+            self.assertEqual(b.shoot.call_count,1);self.assertEqual(c.failures,0)
+            self.assertEqual(s.errors[0]['kind'],'unconfirmed')
+    def test_genuine_control_failures_still_stop_and_preserve_reason(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            s=self.make_session(tmp);c=TrainingController(s);b=self.browser();b.shoot.side_effect=RuntimeError('Angle stuck')
+            for n in [1,2]:b.sample.return_value=state(n);c.cycle(b)
+            b.sample.return_value=state(3)
+            with self.assertRaisesRegex(RuntimeError,'último: Angle stuck'):c.cycle(b)
+            self.assertEqual(len(s.errors),3);self.assertEqual(s.errors[-1]['reason'],'Angle stuck')
+    def test_runtime_error_with_confirmed_turn_change_recovers(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            s=self.make_session(tmp);c=TrainingController(s);b=self.browser();b.sample.side_effect=[state(1),state(2,1)]
+            b.shoot.side_effect=RuntimeError('Control unavailable')
+            c.cycle(b)
+            self.assertEqual(c.failures,0);self.assertEqual(s.errors[-1]['kind'],'turn-ended')
+    def test_short_remaining_budget_does_not_begin_charge(self):
+        b=TrainingBrowser.__new__(TrainingBrowser)
+        with patch('training_browser.time.monotonic',return_value=100):
+            b.turn_deadline=104
+            with self.assertRaises(TurnExpired):b.require_charge_time()
+            b.turn_deadline=110;b.require_charge_time()
+    def test_control_failures_reset_at_match_boundary(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            s=self.make_session(tmp);c=TrainingController(s);b=self.browser();c.in_game=True;c.failures=2
+            view=ui();view['game']=False;b.guard.return_value=view
+            c.cycle(b);self.assertEqual(c.failures,0)
 
 class MovementTests(unittest.TestCase):
     def test_no_movement_without_terrain_and_no_walk_off_cliff(self):

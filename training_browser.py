@@ -15,6 +15,8 @@ UI_JS=r"""(()=>{
  return {url:location.href,serverEntry:entries.length===1?entries[0]:null,focused:document.hasFocus(),chat:['INPUT','TEXTAREA','SELECT'].includes(document.activeElement?.tagName)||!!document.activeElement?.isContentEditable,game:!!box(document.getElementById('gameScreen')),controls,options,away,blocked:!!ok&&!away,stop:!!window.__dragonlabTrainingStop?.stopped};
 })()"""
 
+class TurnExpired(RuntimeError):pass
+class UnconfirmedShot(RuntimeError):pass
 class UnavailableShot(RuntimeError):pass
 class FocusPause(RuntimeError):pass
 
@@ -45,9 +47,14 @@ class TrainingBrowser:
         if focus:self.client.call('Page.bringToFront')
         self.client.call('Runtime.evaluate',{'expression':"(()=>{const old=window.__dragonlabTrainingStop;if(old?.handler)window.removeEventListener('keydown',old.handler,true);const s={stopped:false};s.handler=e=>{if(e.isTrusted&&e.key==='Escape')s.stopped=true};window.addEventListener('keydown',s.handler,true);window.__dragonlabTrainingStop=s})()"})
     def sample(self):return self.client.sample()
+    def seconds_left(self):
+        deadline=getattr(self,'turn_deadline',None)
+        return max(0,deadline-time.monotonic()) if deadline is not None else 120
+    def require_charge_time(self):
+        if self.seconds_left()<4.5:raise TurnExpired('Queda poco tiempo para confirmar la carga; esperando otro turno')
     def adjust_angle(self,reader,target,cancel,expected_serial=None):
         state=reader.read();hero_id=state.get('hero');serial=state.get('turnNumber')
-        if expected_serial is not None and serial!=expected_serial:raise RuntimeError('Cambió el turno antes de ajustar ángulo')
+        if expected_serial is not None and serial!=expected_serial:raise TurnExpired('Cambió el turno antes de ajustar ángulo')
         hero=next((p for p in state.get('players',[]) if p.get('id')==hero_id),{})
         initial=hero.get('rawAngle')
         if not isinstance(initial,(int,float)) or not math.isfinite(initial):raise RuntimeError('Ángulo sin lectura; no se dispara')
@@ -64,10 +71,10 @@ class TrainingBrowser:
         direction='up' if (target>initial)==increases else 'down';last=initial;changed=time.monotonic();start=changed;stalled=False;switched=False
         try:
             self.guard(cancel);self.key(direction,True)
-            while time.monotonic()-start<3:
+            while time.monotonic()-start<3 and self.seconds_left()>5:
                 if cancel.wait(.025):raise RuntimeError('Entrenamiento detenido')
                 self.guard(cancel);state=reader.read()
-                if state.get('turn')!=hero_id or state.get('turnNumber')!=serial or state.get('over'):raise RuntimeError('Cambió el turno al ajustar ángulo')
+                if state.get('turn')!=hero_id or state.get('turnNumber')!=serial or state.get('over'):raise TurnExpired('Cambió el turno al ajustar ángulo')
                 value=next((p.get('rawAngle') for p in state.get('players',[]) if p.get('id')==hero_id),None)
                 if not isinstance(value,(int,float)) or not math.isfinite(value):raise RuntimeError('Se perdió la lectura del ángulo')
                 if value!=last:
@@ -82,7 +89,9 @@ class TrainingBrowser:
                 if time.monotonic()-changed>.65:stalled=True;break
         finally:self.key(direction,False)
         # A limit is acceptable only after observing actual movement. Replan at it.
-        if abs(last-initial)<.5:raise RuntimeError('La flecha no cambió el ángulo; no se dispara')
+        if abs(last-initial)<.5:
+            if self.seconds_left()<=5:raise TurnExpired('Se agotó el tiempo para ajustar el ángulo')
+            raise RuntimeError('La flecha no cambió el ángulo; no se dispara')
         if stalled:
             bounds['high' if last>initial else 'low']=last;self.angle_limits[key]=bounds
             if len(self.angle_limits)>64:self.angle_limits={key:bounds}
@@ -97,7 +106,7 @@ class TrainingBrowser:
             while time.monotonic()-start<.65:
                 if cancel.wait(.025):raise RuntimeError('Movimiento detenido')
                 self.guard(cancel);state=reader.read()
-                if state.get('turn')!=hero_id or state.get('turnNumber')!=serial or state.get('over'):raise RuntimeError('Cambió el turno al caminar')
+                if state.get('turn')!=hero_id or state.get('turnNumber')!=serial or state.get('over'):raise TurnExpired('Cambió el turno al caminar')
                 p=next(p for p in state['players'] if p['id']==hero_id)
                 if p['y']-origin[1]>plan.get('max_drop',14):break
                 if p['x']!=last:last=p['x'];changed=time.monotonic()
@@ -108,7 +117,7 @@ class TrainingBrowser:
         state=reader.read();hero=next(p for p in state['players'] if p['id']==state['hero'])
         desired=desired_look(hero,right)
         if hero['look']==desired:return hero
-        if state.get('turn')!=state['hero'] or state.get('turnNumber')!=serial:raise RuntimeError('Cambió el turno antes de orientar')
+        if state.get('turn')!=state['hero'] or state.get('turnNumber')!=serial:raise TurnExpired('Cambió el turno antes de orientar')
         direction='right' if desired else 'left'
         try:
             self.guard(cancel);self.key(direction,True);cancel.wait(.08)
@@ -123,6 +132,8 @@ class TrainingBrowser:
             ui=self.guard(cancel);s=reader.read()
             if s.get('over') or s.get('turn')!=s.get('hero') or s.get('busy') or s.get('moving'):raise RuntimeError('Esperando tu turno sin movimiento')
             hero_id=s['hero'];serial=s.get('turnNumber');target_shot=probe['shot']
+            remaining=s.get('turnSeconds');self.turn_deadline=time.monotonic()+(remaining if isinstance(remaining,(int,float)) and math.isfinite(remaining) else 8.5)
+            self.require_charge_time()
             if probe.get('turn_serial',serial)!=serial:raise RuntimeError('El turno cambió antes de preparar el tiro')
             if s.get('shot')!=target_shot:
                 self.click(ui['controls'].get(('btnShot1','btnShot2','btnShotSS')[target_shot]),cancel);time.sleep(.08);s=reader.read()
@@ -140,7 +151,7 @@ class TrainingBrowser:
                 self.orient(reader,target['x']>=hero['x'],serial,cancel)
                 fresh=reader.read();player=next(p for p in fresh['players'] if p['id']==hero_id)
                 independent=autonomous.plan(self.sample(),player,probe);planned_angle=independent['raw_angle']
-                if independent.get('needs_move'):
+                if independent.get('needs_move') and self.seconds_left()>12:
                     from training_movement import walking_step
                     plan=walking_step(self.sample(),target['x'])
                     if plan:
@@ -154,7 +165,7 @@ class TrainingBrowser:
                 player=next(p for p in reader.read()['players'] if p['id']==hero_id)
                 desired=desired_look(player,settings.target_x>=settings.hero_x)
                 if settings.look!=desired:
-                    if reader.read().get('turnNumber')!=serial:raise RuntimeError('Cambió el turno antes de orientar')
+                    if reader.read().get('turnNumber')!=serial:raise TurnExpired('Cambió el turno antes de orientar')
                     held='right' if desired else 'left';self.guard(cancel);self.key(held,True);cancel.wait(.08);self.key(held,False);held=None
                     settings=settings_provider(self.sample(),cancel)
                     if settings.look!=desired:raise RuntimeError('El carro no confirmó su orientación al objetivo')
@@ -174,7 +185,7 @@ class TrainingBrowser:
                         player=next(p for p in reader.read()['players'] if p['id']==hero_id)
                         desired=desired_look(player,settings.target_x>=settings.hero_x)
                         if settings.look!=desired:
-                            if reader.read().get('turnNumber')!=serial:raise RuntimeError('Cambió el turno antes de orientar')
+                            if reader.read().get('turnNumber')!=serial:raise TurnExpired('Cambió el turno antes de orientar')
                             held='right' if desired else 'left';self.guard(cancel);self.key(held,True);cancel.wait(.08);self.key(held,False);held=None
                             settings=settings_provider(self.sample(),cancel)
                             if settings.look!=desired:raise RuntimeError('El carro no confirmó su orientación tras caminar')
@@ -202,12 +213,16 @@ class TrainingBrowser:
             release['baseline']=[identity(p) for p in self.sample().get('shots',[])]
             self.guard(cancel)
             fresh=reader.read()
-            if fresh.get('turn')!=hero_id or fresh.get('turnNumber')!=serial:raise RuntimeError('Cambió el turno antes de cargar')
+            if fresh.get('turn')!=hero_id or fresh.get('turnNumber')!=serial:raise TurnExpired('Cambió el turno antes de cargar')
+            remaining=fresh.get('turnSeconds')
+            if isinstance(remaining,(int,float)) and math.isfinite(remaining):self.turn_deadline=min(self.turn_deadline,time.monotonic()+remaining)
+            self.require_charge_time()
             if before_fire:before_fire()
             held='space';self.key('space',True);start=time.monotonic();charging=False
             while time.monotonic()-start<4:
                 self.guard(cancel);s=reader.read()
-                if s.get('turn')!=hero_id or s.get('turnNumber')!=serial or s.get('over') or s.get('shot')!=target_shot:raise RuntimeError('Cambió el contexto del tiro')
+                if s.get('turn')!=hero_id or s.get('turnNumber')!=serial or s.get('over'):raise TurnExpired('Terminó el turno durante la carga')
+                if s.get('shot')!=target_shot:raise RuntimeError('Cambió la modalidad durante la carga')
                 current=next((p for p in s.get('players',[]) if p.get('id')==hero_id),None)
                 if not current or s.get('moving') or math.hypot(current['x']-release['x'],current['y']-release['y'])>1 or s.get('wind')!=release['wind'] or s.get('windAngle')!=release['windAngle']:raise RuntimeError('Cambió la posición o el viento durante la carga')
                 if s.get('busy'):charging=True
@@ -224,7 +239,7 @@ class TrainingBrowser:
                 observed=self.sample()
                 if any(identity(p) not in release['baseline'] and (attributed_start(observed,p,release) or {}).get('learnable') for p in observed.get('shots',[])):return release,observed
                 time.sleep(.025)
-            raise RuntimeError('Tiro liberado, pero sin salida propia confirmada; no se usará para calibrar')
+            raise UnconfirmedShot('Tiro liberado, pero sin salida propia confirmada; no se usará para calibrar')
         finally:
             try:
                 if held:self.key(held,False)

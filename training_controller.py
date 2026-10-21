@@ -3,7 +3,7 @@ import math,time
 from calibration_book import mobile_name
 from training_policy import next_probe,next_mobile
 from training_turns import TurnLedger,turn_key
-from training_browser import TrainingBrowser,FocusPause,UnavailableShot
+from training_browser import TrainingBrowser,FocusPause,UnavailableShot,TurnExpired,UnconfirmedShot
 from training_aim import NoAim
 from training_memory import ActionMemory
 
@@ -62,7 +62,7 @@ class TrainingController:
             browser.click(ui['serverEntry'],s.cancel);s.publish('Entrando a Avatar Off');s.cancel.wait(.7);return
         if not ui.get('game'):
             if self.learner:self.learner.pending.clear()
-            if self.in_game:self.ledger=TurnLedger()
+            if self.in_game:self.ledger=TurnLedger();self.failures=0
             self.in_game=False
             self.current=None;self.blocked.clear();browser.client.game=None;browser.client.renderer=None
             if ui['options']:
@@ -104,14 +104,25 @@ class TrainingController:
             self.blocked.add(probe['shot']);s.publish(str(error))
         except NoAim as error:
             self.blocked.add(probe['shot']);s.publish(str(error)+'; probando otra modalidad')
+        except (TurnExpired,UnconfirmedShot) as error:
+            if self.ledger.available(key):self.ledger.consume(key)
+            self.failures=0;s.last_error='';self.record_error(key,str(error),'turn-ended' if isinstance(error,TurnExpired) else 'unconfirmed')
+            s.publish(str(error)+'; continuará en el próximo turno')
         except (FocusPause,OSError,ConnectionError,TimeoutError):raise
         except RuntimeError as error:
             # A charge can have released partially. Never retry a control error
             # in the same native turn, even after a reconnect or missed frame.
             if self.ledger.available(key):self.ledger.consume(key)
-            s.last_error=str(error);self.failures+=1;s.publish(str(error))
-            if self.failures>=3:raise RuntimeError('Tres fallos de control; sesión detenida para evitar tiros repetidos')
+            latest=browser.sample()
+            if turn_key(latest,ui['url'])!=key:
+                self.failures=0;s.last_error='';self.record_error(key,str(error),'turn-ended');s.publish('El turno terminó; continuará en el siguiente')
+            else:
+                s.last_error=str(error);self.failures+=1;self.record_error(key,str(error),'control');s.publish(str(error))
+                if self.failures>=3:raise RuntimeError('Tres fallos de control; último: '+str(error))
         s.cancel.wait(.15)
+    def record_error(self,key,reason,kind):
+        self.s.errors.append({'turn':key[-1],'reason':reason,'kind':kind,'at':time.time()})
+        self.s.errors=self.s.errors[-64:]
     def observe(self,probe,release,observation):
         s=self.s;s.shots+=1
         if self.learner:self.learner.observe(probe,release,observation)
