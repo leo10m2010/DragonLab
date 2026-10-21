@@ -15,7 +15,8 @@ jobs:
         with:
           python-version: '3.12'
       - run: pip install pillow==12.3.0
-      - run: python -B -m unittest discover -s tests -p 'test_*.py' -v
+      - run: sudo apt-get update && sudo apt-get install -y xvfb python3-tk
+      - run: xvfb-run -a python -B -m unittest discover -s tests -p 'test_*.py' -v
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
