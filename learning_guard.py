@@ -12,9 +12,14 @@ def errors(fit,sample):
     k=k or 0;a=math.radians(sample['wind_angle'])
     speed=abs(math.hypot(sample['vx'],sample['vy'])-(fit['power_scale']*sample['power']+fit['speed_offset']))
     acceleration=math.hypot(sample['ax']-k*sample['wind']*math.cos(a),sample['ay']-(fit['gravity']-k*sample['wind']*math.sin(a)))
-    return {'speed':speed,'acceleration':acceleration,'score':speed/5+acceleration/5}
+    path_error=None;duration=sample.get('duration_s')
+    if sample.get('simple_trajectory') and isinstance(duration,(int,float)) and math.isfinite(duration) and 0<duration<=20:
+        angle=math.atan2(-sample['vy'],sample['vx']);ds=fit['power_scale']*sample['power']+fit['speed_offset']-math.hypot(sample['vx'],sample['vy'])
+        dax=k*sample['wind']*math.cos(a)-sample['ax'];day=fit['gravity']-k*sample['wind']*math.sin(a)-sample['ay']
+        path_error=max(math.hypot(ds*math.cos(angle)*t+.5*dax*t*t,-ds*math.sin(angle)*t+.5*day*t*t) for t in (duration*i/8 for i in range(1,9)))
+    return {'speed':speed,'acceleration':acceleration,'trajectory':path_error,'score':speed/5+acceleration/5+(path_error/12 if path_error is not None else 0)}
 
-def good(value):return value is not None and value['speed']<=5 and value['acceleration']<=5
+def good(value):return value is not None and value['speed']<=5 and value['acceleration']<=5 and (value.get('trajectory') is None or value['trajectory']<=12)
 
 def update(record,sample):
     """Return an activated fit, or None. Training never counts as future evidence."""

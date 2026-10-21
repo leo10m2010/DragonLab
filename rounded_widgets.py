@@ -41,20 +41,21 @@ class RoundedButton(tk.Canvas):
     def __init__(self,master,text='',command=None,**options):
         self.options={'text':text,'command':command,'bg':'#233b4b','fg':'#edf4f1','activebackground':'#305368','activeforeground':'#72dfba','font':('Bahnschrift',10),'padx':14,'pady':10,'state':'normal','takefocus':True}
         self.options.update({'disabledbackground':None,'disabledforeground':'#718a91','focuscolor':'#72dfba'})
-        self.options.update(options);self.hover=False;self.focused=False
+        self.options.update(options);self.hover=False;self.focused=False;self.pressed=False
         super().__init__(master,bg=master.cget('bg'),highlightthickness=0,cursor='hand2',takefocus=self.options['takefocus'])
         self.bind('<Configure>',lambda e:self.draw())
         self.bind('<Enter>',lambda e:self.set_hover(True));self.bind('<Leave>',lambda e:self.set_hover(False))
-        self.bind('<ButtonRelease-1>',self.click)
+        self.bind('<ButtonPress-1>',self.press);self.bind('<ButtonRelease-1>',self.click)
         self.bind('<FocusIn>',lambda e:self.focus(True));self.bind('<FocusOut>',lambda e:self.focus(False))
-        self.bind('<space>',lambda e:self.invoke());self.bind('<Return>',lambda e:self.invoke())
+        self.bind('<space>',self.key_activate);self.bind('<Return>',self.key_activate)
         self.configure(**self.options)
     def configure(self,cnf=None,**kw):
         if cnf:kw.update(cnf)
         native={k:v for k,v in kw.items() if k not in self.options and k not in ('relief','highlightbackground','highlightcolor')}
         self.options.update({k:v for k,v in kw.items() if k in self.options})
+        if self.options['state']=='disabled':self.pressed=False
         if native:super().configure(**native)
-        if 'takefocus' in kw:super().configure(takefocus=kw['takefocus'])
+        super().configure(takefocus=self.options['takefocus'] if self.options['state']!='disabled' else False)
         font=tkfont.Font(self,font=self.options['font'])
         width=font.measure(self.options['text'])+self.options['padx']*2+4
         height=font.metrics('linespace')+self.options['pady']*2+4
@@ -73,7 +74,30 @@ class RoundedButton(tk.Canvas):
         if o['state']=='disabled':bg=o['disabledbackground'] or o['bg'];fg=o['disabledforeground']
         rounded(self,1,1,w-2,h-2,20,fill=bg,outline=o['focuscolor'] if self.focused else '',width=1)
         self.create_text(w/2,h/2,text=o['text'],font=o['font'],fill=fg)
+    def press(self,event):
+        self.pressed=self.options['state']!='disabled'
+        if self.pressed:self.focus_set()
+        return 'break'
     def click(self,event):
-        if 0<=event.x<self.winfo_width() and 0<=event.y<self.winfo_height():self.invoke()
+        pressed=self.pressed;self.pressed=False
+        if pressed and 0<=event.x<self.winfo_width() and 0<=event.y<self.winfo_height():self.invoke()
+        return 'break'
+    def key_activate(self,event=None):
+        self.invoke();return 'break'
     def invoke(self):
         if self.options['state']!='disabled' and self.options['command']:return self.options['command']()
+
+class RoundedProgress(tk.Canvas):
+    """A percentage with explicit bounds; redraw only when size/value changes."""
+    def __init__(self,master,**kwargs):
+        self.value=0
+        super().__init__(master,bg=master.cget('bg'),height=10,highlightthickness=0,**kwargs)
+        self.bind('<Configure>',lambda e:self.draw())
+    def set(self,value):
+        value=max(0,min(100,float(value)))
+        if value!=self.value:self.value=value;self.draw()
+    def draw(self):
+        w=max(2,self.winfo_width());h=max(2,self.winfo_height());stamp=(w,h,self.value)
+        if getattr(self,'stamp',None)==stamp:return
+        self.stamp=stamp;self.delete('all');rounded(self,0,0,w,h,h/2,fill='#2b4147',outline='')
+        if self.value:rounded(self,0,0,max(2,w*self.value/100),h,h/2,fill='#72dfba',outline='')

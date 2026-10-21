@@ -24,38 +24,76 @@ def start_training(app,limit='Continuo'):
     if getattr(app,'last_live',0)==0:endpoint='http://127.0.0.1:9223'
     continuous=limit=='Continuo'
     app.training_session=TrainingSession(endpoint,app.browser_target,app.book.path,app.events.put,max_shots=60 if continuous else int(limit),continuous=continuous,autonomous=True)
+    from training_progress import lab_summary
+    app.training_session.lab_progress=lab_summary(app.book)
     app.training_session.start();return app.training_session
 
 def open_training(app):
+    from rounded_widgets import RoundedProgress
+    from training_progress import coverage_report,TRAINING_MOBILES
     win=getattr(app,'training_window',None)
     if win and win.winfo_exists():win.lift();return win
-    win=tk.Toplevel(getattr(app,'ui_parent',app.root));app.training_window=win;win.title('DragonLab · Entrenamiento');win.geometry('600x530');win.configure(bg=BG)
-    tk.Label(win,text='Aprender del juego',bg=BG,fg=TEXT,font=('Bahnschrift',23,'bold')).pack(anchor='w',padx=26,pady=(24,10))
-    card=RoundedPanel(win,PANEL);card.pack(fill='both',expand=True,padx=24,pady=8)
-    tk.Label(card.body,text='DragonBound · Avatar Off',bg=PANEL,fg=GREEN,font=('Bahnschrift',13,'bold')).pack(anchor='w',padx=18,pady=(10,8))
-    tk.Label(card.body,text="""Mide los tiros reales; el Lab no es su referencia.
-Explora fuerzas y ángulos y comprueba lo aprendido.
-Los carros y climas poco medidos pueden fallar al inicio.
-Continuo sigue entre partidas. Esc lo detiene.""",justify='left',bg=PANEL,fg=MUTED,font=('Bahnschrift',11)).pack(anchor='w',padx=18,pady=8)
-    row=tk.Frame(card.body,bg=PANEL);row.pack(fill='x',padx=18,pady=8)
-    tk.Label(row,text='Duración',bg=PANEL,fg=TEXT,font=('Bahnschrift',11)).pack(side='left')
-    limit=tk.StringVar(value='Continuo');RoundedChoice(row,textvariable=limit,values=['Continuo','12','30','60','120'],state='readonly',width=11).pack(side='right')
-    status=tk.Label(win,text='Esc detiene la sesión. Deja el juego en primer plano.',bg=BG,fg=MUTED,font=('Bahnschrift',10),wraplength=520);status.pack(fill='x',padx=24,pady=10)
-    actions=tk.Frame(win,bg=BG);actions.pack(fill='x',padx=24,pady=(0,20))
+    win=tk.Toplevel(getattr(app,'ui_parent',app.root));app.training_window=win
+    win.title('DragonLab · Aprendizaje');height=min(680,max(500,win.winfo_screenheight()-100))
+    win.geometry(f'640x{height}');win.minsize(580,min(540,height));win.configure(bg=BG)
+    win.columnconfigure(0,weight=1);win.rowconfigure(2,weight=1)
+    tk.Label(win,text='Aprender del juego',bg=BG,fg=TEXT,font=('Bahnschrift',23,'bold')).grid(row=0,column=0,sticky='w',padx=24,pady=(18,4))
+    status=tk.Label(win,text='DragonBound · Avatar Off',bg=BG,fg=MUTED,font=('Bahnschrift',10),wraplength=570,justify='left')
+    status.grid(row=1,column=0,sticky='ew',padx=24,pady=(0,10))
+    holder=tk.Frame(win,bg=BG);holder.grid(row=2,column=0,sticky='nsew',padx=20)
+    from rounded_controls import RoundedScroll
+    viewport=tk.Canvas(holder,bg=BG,highlightthickness=0);viewport.pack(side='left',fill='both',expand=True)
+    scroll=RoundedScroll(holder,command=viewport.yview);scroll.pack(side='right',fill='y');viewport.configure(yscrollcommand=scroll.set)
+    content=tk.Frame(viewport,bg=BG);item=viewport.create_window(0,0,window=content,anchor='nw')
+    viewport.bind('<Configure>',lambda e:viewport.itemconfigure(item,width=e.width))
+    content.bind('<Configure>',lambda e:viewport.configure(scrollregion=viewport.bbox('all')))
+    win.bind('<MouseWheel>',lambda e:viewport.yview_scroll(-int(e.delta/120),'units') if not isinstance(e.widget,RoundedChoice) else None)
+    card=RoundedPanel(content,PANEL);card.pack(fill='x',pady=(0,10));body=card.body
+    headline=tk.Label(body,text='Calibración de salida',bg=PANEL,fg=TEXT,font=('Bahnschrift',13,'bold'));headline.pack(anchor='w',padx=16,pady=(8,4))
+    launch=tk.Label(body,bg=PANEL,fg=GREEN,font=('Bahnschrift',18,'bold'));launch.pack(anchor='w',padx=16)
+    launch_bar=RoundedProgress(body);launch_bar.pack(fill='x',padx=16,pady=(8,6))
+    tk.Label(body,text='Porcentaje de modelos de salida validados: 17 carros × 3 modalidades.\nNo mide precisión de impactos ni dominio de todos los climas.',justify='left',bg=PANEL,fg=MUTED,font=('Bahnschrift',10),wraplength=520).pack(anchor='w',padx=16,pady=(0,10))
+    row=tk.Frame(body,bg=PANEL);row.pack(fill='x',padx=16,pady=6)
+    vehicle=tk.StringVar(value=app.s.mobile if getattr(getattr(app,'s',None),'mobile',None) in TRAINING_MOBILES else 'ARMOR')
+    tk.Label(row,text='Ver carro',bg=PANEL,fg=TEXT,font=('Bahnschrift',11)).pack(side='left')
+    choice=RoundedChoice(row,textvariable=vehicle,values=TRAINING_MOBILES,width=16);choice.pack(side='right')
+    details=tk.Label(body,bg=PANEL,fg=TEXT,font=('Bahnschrift',11),justify='left',wraplength=520);details.pack(anchor='w',padx=16,pady=(4,12))
+    lab_card=RoundedPanel(content,PANEL);lab_card.pack(fill='x',pady=(0,10));lab_label=tk.Label(lab_card.body,bg=PANEL,fg=TEXT,font=('Bahnschrift',12,'bold'));lab_label.pack(anchor='w',padx=16,pady=(8,6))
+    lab_bar=RoundedProgress(lab_card.body);lab_bar.pack(fill='x',padx=16,pady=(0,8))
+    evidence=tk.Label(lab_card.body,bg=PANEL,fg=MUTED,font=('Bahnschrift',10),wraplength=520,justify='left');evidence.pack(anchor='w',padx=16,pady=(0,10))
+    tk.Label(content,text='Puntería y autonomía completa: pendientes de evaluación.\nEstos porcentajes no estiman cuánto tiempo falta.',justify='left',bg=BG,fg=MUTED,font=('Bahnschrift',10),wraplength=540).pack(anchor='w',padx=8,pady=(0,8))
+    controls=tk.Frame(win,bg=BG);controls.grid(row=3,column=0,sticky='ew',padx=24,pady=6)
+    tk.Label(controls,text='Duración',bg=BG,fg=MUTED,font=('Bahnschrift',10)).pack(side='left')
+    limit=tk.StringVar(value='Continuo');duration=RoundedChoice(controls,textvariable=limit,values=['Continuo','12','30','60','120'],width=11);duration.pack(side='right')
+    actions=tk.Frame(win,bg=BG);actions.grid(row=4,column=0,sticky='ew',padx=24,pady=(4,8))
     def stop():
         if app.training_session:app.training_session.stop()
     def start():
         try:start_training(app,limit.get())
-        except ValueError as error:status.config(text=str(error))
-    RoundedButton(actions,text='Detener',command=stop).pack(side='left')
-    RoundedButton(actions,text='Empezar entrenamiento',command=start,bg=GREEN,fg=BG).pack(side='right')
-    progress_label=tk.Label(win,text='Las mediciones confirmadas también mejoran el Lab tras validarse.',bg=BG,fg=MUTED,font=('Bahnschrift',10),wraplength=520);progress_label.pack(fill='x',padx=24,pady=6)
+        except (ValueError,RuntimeError) as error:status.config(text=str(error))
+    stop_button=RoundedButton(actions,text='Detener',command=stop);stop_button.pack(side='left')
+    start_button=RoundedButton(actions,text='Empezar',command=start,bg=GREEN,fg=BG);start_button.pack(side='right')
+    tk.Label(win,text='Deja el juego en primer plano. Esc detiene el entrenamiento.',bg=BG,fg=MUTED,font=('Bahnschrift',10)).grid(row=5,column=0,sticky='w',padx=24,pady=(0,12))
     def refresh():
         if not win.winfo_exists():return
-        if app.training_session:status.config(text=f'{app.training_session.status} · {app.training_session.shots} tiros')
-        if app.training_session and app.training_session.learner:
-            data=app.training_session.learner.progress();lab=app.training_session.lab_progress
-            progress_label.config(text=f"Tiros medidos: {data['measured_launches']} · Modelos básicos: {data['validated_launch_modes']}\nCon experiencia: {data['retained_aimed_shots']} · Exploración: {data['retained_exploration_shots']} · Perfiles del Lab: {lab.get('validated_lab_modes',0)} · Mejorados: {lab.get('measured_lab_improvements',0)}\nModelos de salida validados; precisión de juego aún por comprobar.")
-        win.after(500,refresh)
+        session=app.training_session;learner=session.learner if session else None
+        running=bool(session and session.running)
+        for control,state in [(start_button,'disabled' if running else 'normal'),(stop_button,'normal' if running else 'disabled'),(duration,'disabled' if running else 'readonly')]:
+            if control.cget('state')!=state:control.config(state=state)
+        if session:status.config(text=f'{session.status} · {session.shots} tiros')
+        report=coverage_report(learner.records if learner else {},app.book.records)
+        launch.config(text=f"{report['launch_coverage_percent']:g}% · {report['launch_modes_validated']}/{report['launch_modes_total']} salidas")
+        launch_bar.set(report['launch_coverage_percent']);lab_bar.set(report['lab_coverage_percent'])
+        lab_label.config(text=f"Disponibles en el Lab · {report['lab_coverage_percent']:g}% · {report['lab_modes_validated']}/{report['launch_modes_total']}")
+        lines=[]
+        for mode in report['modes']:
+            if mode['mobile']!=vehicle.get():continue
+            suffix=' · patrón especial pendiente' if mode['special_pending'] else ''
+            check=f" ({mode['check_percent']}% de comprobación)" if mode['checks'] and not mode['validated'] else ''
+            lines.append(f"{('Tiro 1','Tiro 2','SS')[mode['shot']]} · {mode['status']}{check}{suffix}")
+        details.config(text='\n'.join(lines))
+        progress=learner.progress() if learner else {};shared=session.lab_progress if session else {}
+        evidence.config(text=f"Mediciones: {progress.get('measured_launches',0)} · Con experiencia: {progress.get('retained_aimed_shots',0)} · Exploración: {progress.get('retained_exploration_shots',0)}\nReemplazos del Lab con menor error comprobado: {shared.get('measured_lab_improvements',0)}")
+        win.after(700,refresh)
     def close():stop();win.destroy()
     win.protocol('WM_DELETE_WINDOW',close);win.bind('<Escape>',lambda e:stop());refresh();return win

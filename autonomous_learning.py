@@ -5,8 +5,8 @@ from pathlib import Path
 from training_orientation import heading,raw_angle
 from local_storage import atomic_write
 
-def fit(samples):
-    if len(samples)<4 or len({s['power'] for s in samples})<3 or max(s['power'] for s in samples)-min(s['power'] for s in samples)<80:return None
+def fit(samples,minimum=4):
+    if len(samples)<minimum or len({s['power'] for s in samples})<(2 if minimum==2 else 3) or max(s['power'] for s in samples)-min(s['power'] for s in samples)<80:return None
     powers=[s['power'] for s in samples];speeds=[s['speed'] for s in samples];pbar=statistics.mean(powers);vbar=statistics.mean(speeds)
     denominator=sum((p-pbar)**2 for p in powers)
     scale=sum((p-pbar)*(v-vbar) for p,v in zip(powers,speeds))/denominator;offset=vbar-scale*pbar
@@ -24,6 +24,15 @@ def error(model,sample):
     if model['wind_scale'] is None and sample['wind']!=0:return math.inf
     k=model['wind_scale'] or 0;r=math.radians(sample['wind_angle'])
     return max(abs(model['scale']*sample['power']+model['offset']-sample['speed']),math.hypot(k*sample['wind']*math.cos(r)-sample['ax'],model['gravity']-k*sample['wind']*math.sin(r)-sample['ay']))
+
+def flight_error(model,sample):
+    duration=sample.get('duration_s');angle=sample.get('heading')
+    if not all(isinstance(v,(int,float)) and math.isfinite(v) for v in (duration,angle)) or not 0<duration<=20:return None
+    if model['wind_scale'] is None and sample['wind']:return math.inf
+    k=model['wind_scale'] or 0;r=math.radians(sample['wind_angle']);a=math.radians(angle)
+    ds=model['scale']*sample['power']+model['offset']-sample['speed']
+    dax=k*sample['wind']*math.cos(r)-sample['ax'];day=model['gravity']-k*sample['wind']*math.sin(r)-sample['ay']
+    return max(math.hypot(ds*math.cos(a)*t+.5*dax*t*t,-ds*math.sin(a)*t+.5*day*t*t) for t in (duration*i/8 for i in range(1,9)))
 
 def occupied(terrain,x,y):
     if not terrain:return False
@@ -65,10 +74,12 @@ class AutonomousLearner:
     def curriculum_records(self):
         return {key:{'samples':r.get('samples',[]),'fit':r.get('model') if not r.get('drift') else None,'candidate':r.get('candidate') or {}} for key,r in self.records.items()}
     def progress(self):
+        from training_progress import coverage_report
         records=list(self.records.values());cases=[c for r in records for c in r.get('cases',[])]
-        aimed=[c for c in cases if c.get('stage') in ('apuntar con modelo propio','repetir experiencia real compatible','afinar con dos tiros reales')]
+        aimed=[c for c in cases if c.get('stage') in ('apuntar con modelo propio','repetir experiencia real compatible','afinar con dos tiros reales','apuntar con ajuste local comprobado')]
         tested=[e for r in records for e in r.get('model_tests',[])]
-        return {'measured_launches':sum(sum(not str(s.get('id','')).startswith('seed:') for s in r.get('samples',[])) for r in records),
+        coverage=coverage_report(self.records);coverage.pop('modes')
+        return {**coverage,'measured_launches':sum(sum(not str(s.get('id','')).startswith('seed:') for s in r.get('samples',[])) for r in records),
                 'validated_launch_modes':sum(bool(r.get('model')) and not r.get('drift') for r in records),
                 'candidate_modes':sum(bool(r.get('candidate')) for r in records),
                 'retained_aimed_shots':len(aimed),'retained_exploration_shots':len(cases)-len(aimed),
@@ -92,9 +103,17 @@ class AutonomousLearner:
         # Establish one ordinary launch model before scattering all measurements.
         pending=[mode for mode in available if not self.records.get(f'dragonbound:{mobile}:{mode}',{}).get('model') or self.records.get(f'dragonbound:{mobile}:{mode}',{}).get('drift')]
         ready=[mode for mode in available if mode not in pending and not self.records.get(f'dragonbound:{mobile}:{mode}',{}).get('multi_projectile')]
-        modes=ready if ready and attempts%3!=0 else pending[:1] or available
-        probe=next_probe(self.curriculum_records(),mobile,wind,attempts,modes)
-        cases=self.records.get(f"dragonbound:{mobile}:{probe['shot']}",{}).get('cases',[])
+        records=self.curriculum_records()
+        for mode in available:
+            key=f'dragonbound:{mobile}:{mode}';record=records.setdefault(key,{})
+            record['samples']=[s for s in record.get('samples',[]) if s.get('episode')==self.episode]
+            if record.get('candidate'):
+                ids={s['id'] for s in record['samples']}
+                record['candidate']={**record['candidate'],'validation':[v for v in record['candidate'].get('validation',[]) if v.get('id') in ids]}
+        first=next(iter(available));first_rows=records[f'dragonbound:{mobile}:{first}']['samples']
+        modes=[first] if len(first_rows)<4 else ready if ready and attempts%3!=0 else pending[:1] or available
+        probe=next_probe(records,mobile,wind,attempts,modes)
+        cases=[c for c in self.records.get(f"dragonbound:{mobile}:{probe['shot']}",{}).get('cases',[]) if c.get('episode')==self.episode]
         # Hold the elevation for a block so measured outcomes become comparable.
         probe['angle']=(55,35,75)[(len(cases)//6)%3]
         return probe
@@ -104,12 +123,13 @@ class AutonomousLearner:
         if any(s['id']==sample['id'] for s in samples):return False
         candidate=record.get('candidate')
         if not seed and candidate:
-            if error(candidate['model'],sample)<=8:
+            projected=flight_error(candidate['model'],sample)
+            if error(candidate['model'],sample)<=8 and (projected is None or projected<=12):
                 candidate.setdefault('validation',[]).append({'power':sample['power'],'id':sample['id']})
                 if len(candidate['validation'])>=3:record['model']=candidate['model'];record['drift']=False;record.pop('candidate',None)
             else:record.pop('candidate',None)
         if not seed and record.get('model'):
-            record['bad']=record.get('bad',0)+1 if error(record['model'],sample)>12 else 0
+            record['bad']=record.get('bad',0)+1 if error(record['model'],sample)>12 or (flight_error(record['model'],sample) or 0)>25 else 0
             if record['bad']>=3:record['drift']=True
         record['samples']=(samples+[sample])[-96:]
         if not record.get('candidate') and (not record.get('model') or record.get('drift')):
@@ -131,6 +151,7 @@ class AutonomousLearner:
         key=f"dragonbound:{probe['mobile']}:{release['shot']}";primary=owned[0];start=primary['start']
         sample={'id':identity(primary),'power':release['power'],'speed':start[3],'ax':start[4],'ay':start[5],'wind':release['wind'],'wind_angle':release['windAngle']}
         if not all(isinstance(v,(int,float)) and math.isfinite(v) for k,v in sample.items() if k!='id') or not 1<=sample['power']<=400:return False
+        sample['episode']=self.episode;sample['duration_s']=primary.get('duration',0)/1000;sample['simple']=len(owned)==1 and not any(primary.get(k) for k in ('change','wave','orbit','path','jumps'))
         sample['heading']=start[2];sample['raw_angle']=release.get('angle');sample['pose']=release.get('pose')
         existing=self.records.get(key,{})
         tested_error=error(existing['model'],sample) if existing.get('model') and not existing.get('drift') else None
@@ -139,7 +160,9 @@ class AutonomousLearner:
         record=self.records[key]
         planned=release.get('learner') or {}
         record['last_direction']={'planned_heading':planned.get('heading'),'observed_heading':start[2],'initial_vx':start[3]*math.cos(math.radians(start[2])),'raw_angle':release.get('angle'),'pose':release.get('pose')}
-        record['multi_projectile']=bool(record.get('multi_projectile') or len(owned)>1 or primary.get('change') or primary.get('wave') or primary.get('orbit'))
+        intrinsic=len(owned)>1 or bool(primary.get('wave') or primary.get('orbit'))
+        record['multi_projectile']=bool(record.get('patterns') or record.get('observed_phases') or intrinsic)
+        record['weather_modified_last_shot']=bool(primary.get('change') or primary.get('jumps'))
         # Store the real pattern instead of declaring the primary a full model.
         if len(owned)>1:record['patterns']=(record.get('patterns',[])+[{'power':release['power'],'starts':[s['start'] for s in owned[:16]]}])[-32:]
         from native_paths import position
@@ -151,6 +174,12 @@ class AutonomousLearner:
             except (ValueError,TypeError,KeyError):pass
         target=(release.get('learner') or {}).get('target')
         case={'power':release['power'],'angle':(release.get('learner') or {}).get('elevation'),'wind':release['wind'],'wind_angle':release['windAngle'],'weather':[{k:w.get(k) for k in ('typeId','resolvedTypeId','x','size')} for w in state.get('weather',[])[:32]],'ends':ends,'target':target,'origin':[release['x'],release['y']]}
+        if target:
+            distances=[]
+            for shot in owned:
+                try:distances.extend(math.dist(position(shot,shot['duration']/1000*i/64),target) for i in range(65))
+                except (ValueError,TypeError,KeyError):pass
+            case['path_miss_px']=min(distances,default=None)
         case['id']=identity(primary);case['episode']=self.episode;case['stage']=planned.get('stage','exploración anterior');case['miss_px']=min((math.dist(e,target) for e in ends),default=None) if target else None
         record['cases']=(record.get('cases',[])+[case])[-48:]
         try:self.pending[identity(primary)]={'key':key,'duration':primary['duration'],'end':position(primary,primary['duration']/1000),'created':time.monotonic()}
@@ -196,13 +225,30 @@ class AutonomousLearner:
                 if case:case['ends']=[list(end)];case['has_continuation']=True
                 changed=True
         if changed:self.save()
+    def applicable_model(self,record,wind,wind_angle):
+        # A historical fit is not automatically valid for a new match/regime.
+        local=[s for s in record.get('samples',[]) if s.get('episode')==self.episode and s.get('simple')]
+        for cut in range(max(0,len(local)-12),max(0,len(local)-3)):
+            rows=local[cut:];training=rows[:2];checks=rows[2:]
+            if len(checks)<2 or len({s['power'] for s in checks})<2 or max(s['power'] for s in checks)-min(s['power'] for s in checks)<40:continue
+            candidate=fit(training,minimum=2)
+            if not candidate:continue
+            if not min(s['wind'] for s in rows)<=wind<=max(s['wind'] for s in rows):continue
+            if wind and any(abs((s['wind_angle']-wind_angle+180)%360-180)>5 for s in rows):continue
+            if all(error(candidate,s)<=5 and flight_error(candidate,s) is not None and flight_error(candidate,s)<=12 for s in checks):
+                return candidate,'apuntar con ajuste local comprobado'
+        model=record.get('model') if not record.get('drift') else None
+        if model and local:
+            last=local[-1];projection=flight_error(model,last)
+            if abs(last['wind']-wind)<=1 and (wind==0 or abs((last['wind_angle']-wind_angle+180)%360-180)<=5) and error(model,last)<=5 and projection is not None and projection<=12:return model,'apuntar con modelo propio'
+        return None,'condiciones sin comprobar'
     def plan(self,state,player,probe,actual=False,previous=None):
         hero=next(p for p in state['players'] if str(p['id'])==str(state['heroId']))
         others=[p for p in state['players'] if str(p['id'])!=str(hero['id']) and not p.get('dead') and (hero.get('team') is None or p.get('team')!=hero['team'])]
         if not others:raise RuntimeError('Sin objetivo vivo')
         target=min(others,key=lambda p:math.hypot(p['x']-hero['x'],p['y']-hero['y']))
         key=f"dragonbound:{probe['mobile']}:{probe['shot']}";record=self.records.get(key,{})
-        model=record.get('model') if not record.get('drift') else None
+        model,model_source=self.applicable_model(record,state['wind'],state['windAngle'])
         look=player['look'];body=player.get('body',0);right=target['x']>=hero['x']
         low,high=player['minAngle'],player['maxAngle']
         offsets=[hero.get('muzzleX'),hero.get('muzzleY')]
@@ -229,7 +275,7 @@ class AutonomousLearner:
                     known=all((effects.get(str(w.get('resolvedTypeId') if w.get('resolvedTypeId') is not None else w.get('typeId'))) or {}).get('checked',0)>=3 and (effects.get(str(w.get('resolvedTypeId') if w.get('resolvedTypeId') is not None else w.get('typeId'))) or {}).get('altered',0)==0 for w in crossed)
                     if not known:continue
                     if any(occupied(state.get('terrain'),*p) and math.dist(p,target_xy)>20 for p in path[2:]):blocked=True;continue
-                    result={'power':power,'raw_angle':raw,'heading':world,'elevation':world if right else 180-world,'target':list(target_xy),'stage':'apuntar con modelo propio','model_samples':len(record.get('samples',[])),'approximate':True}
+                    result={'power':power,'raw_angle':raw,'heading':world,'elevation':world if right else 180-world,'target':list(target_xy),'stage':model_source,'model_samples':len(record.get('samples',[])),'approximate':True}
                     self.latest_plan=result;return result
         raw=candidates[0];world=heading(raw,body,look)
         recent=record.get('cases',[])[-1:];needs_move=blocked or bool(recent and recent[0].get('ends') and all(math.dist(e,(hero['x'],hero['y']))<60 for e in recent[0]['ends']))

@@ -22,7 +22,7 @@ def next_probe(records,mobile,wind,attempts=0,available=(0,1,2)):
         return (0 if r.get('candidate') else 1 if not r.get('fit') else 2,coverage,len(samples),mode)
     mode=min(available,key=score);r=records.get(f'dragonbound:{mobile}:{mode}',{})
     seen=[s.get('power') for s in r.get('candidate',{}).get('validation',[]) or r.get('samples',[])+r.get('training_patterns',[])]
-    power=max(POWERS,key=lambda p:(min((abs(p-q) for q in seen),default=400),-POWERS.index(p))) if seen else POWERS[attempts%len(POWERS)]
+    power=min(POWERS,key=lambda p:(sum(abs(p-q)<=12 for q in seen),-min((abs(p-q) for q in seen),default=400),(POWERS.index(p)-attempts)%len(POWERS))) if seen else POWERS[attempts%len(POWERS)]
     return {'mobile':mobile,'shot':mode,'power':power,'angle':ANGLES[attempts%len(ANGLES)],'wind_band':band,'purpose':'validación independiente' if r.get('candidate') else 'ampliar viento' if r.get('fit') else 'medir salida'}
 
 def next_mobile(options,attempted):

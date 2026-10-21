@@ -57,7 +57,7 @@ class LearnerTests(unittest.TestCase):
     def test_plan_works_when_the_entire_lab_solver_is_disabled(self):
         with tempfile.TemporaryDirectory() as tmp:
             learner=AutonomousLearner(Path(tmp)/'learn.json')
-            learner.records['dragonbound:ARMOR:0']={'samples':[],'model':{'scale':2,'offset':20,'gravity':300,'wind_scale':0}}
+            learner.records['dragonbound:ARMOR:0']={'samples':[{**measurement('context',100),'episode':learner.episode,'simple':True,'heading':45,'duration_s':2}],'model':{'scale':2,'offset':20,'gravity':300,'wind_scale':0}}
             state={'heroId':0,'players':[{'id':0,'x':0,'y':0,'muzzleX':None,'muzzleY':None},{'id':1,'x':600,'y':0}],'wind':0,'windAngle':0,'weather':[]}
             player={'look':1,'body':0,'rawAngle':45,'minAngle':10,'maxAngle':70}
             with patch('core.solve',side_effect=AssertionError('Lab cannot be called')):

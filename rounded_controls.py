@@ -31,8 +31,10 @@ class RoundedChoice(tk.Canvas):
                     self.values=new
                 elif k=='font':self.typeface=v
                 elif k=='width':self.units=v
-                else:self.state=v
-        super().configure(width=tkfont.Font(self,font=self.typeface).measure('0')*self.units+36,**kwargs)
+                else:
+                    self.state=v
+                    if v=='disabled' and self.popup:self.close(restore=False)
+        super().configure(width=tkfont.Font(self,font=self.typeface).measure('0')*self.units+36,takefocus=self.state!='disabled',**kwargs)
         self.draw()
     config=configure
     def cget(self,key):
@@ -57,6 +59,7 @@ class RoundedChoice(tk.Canvas):
             try:popup.grab_release();popup.destroy()
             except tk.TclError:pass
             if restore and self.winfo_exists():self.focus_set()
+        return 'break'
     def open(self):
         if self.state=='disabled' or not self.values:return 'break'
         if self.popup:self.close();return 'break'
@@ -66,11 +69,12 @@ class RoundedChoice(tk.Canvas):
         except tk.TclError:pass
         win.transient(self.winfo_toplevel());width=max(self.winfo_width(),150);self.row_height=36;self.visible_count=min(7,len(self.values))
         height=self.visible_count*self.row_height+16
-        x=min(self.winfo_rootx(),self.winfo_screenwidth()-width-8);y=self.winfo_rooty()+self.winfo_height()+5
+        x=max(8,min(self.winfo_rootx(),self.winfo_screenwidth()-width-8));y=self.winfo_rooty()+self.winfo_height()+5
         if y+height>self.winfo_screenheight()-35:y=max(8,self.winfo_rooty()-height-5)
         win.geometry(f'{width}x{height}+{max(8,x)}+{y}')
         canvas=tk.Canvas(win,bg='#010203',highlightthickness=0);canvas.pack(fill='both',expand=True);self.menu_canvas=canvas;self.menu_width=width
         win.bind('<Escape>',lambda e:self.close());win.bind('<Down>',lambda e:self.move(1));win.bind('<Up>',lambda e:self.move(-1));win.bind('<Return>',lambda e:self.choose())
+        win.bind('<Tab>',lambda e:self.traverse(False));win.bind('<Shift-Tab>',lambda e:self.traverse(True))
         win.bind('<Home>',lambda e:self.move(-len(self.values)));win.bind('<End>',lambda e:self.move(len(self.values)))
         win.bind('<MouseWheel>',lambda e:self.move(-1 if e.delta>0 else 1))
         canvas.bind('<Motion>',self.hover);canvas.bind('<ButtonRelease-1>',self.clicked)
@@ -84,6 +88,11 @@ class RoundedChoice(tk.Canvas):
                     if focus is None or focus.winfo_toplevel()!=win:self.close(restore=False)
             win.after_idle(check)
         win.bind('<FocusOut>',lost);self.render_menu();win.deiconify();win.grab_set();win.focus_set();return 'break'
+    def traverse(self,backwards=False):
+        self.close()
+        next_widget=self.tk_focusPrev() if backwards else self.tk_focusNext()
+        if next_widget:next_widget.focus_set()
+        return 'break'
     def render_menu(self):
         c=self.menu_canvas;c.delete('all');height=self.visible_count*self.row_height+16;w=self.menu_width
         self.start=max(0,min(self.start,len(self.values)-self.visible_count))
@@ -111,22 +120,33 @@ class RoundedChoice(tk.Canvas):
     def clicked(self,event):
         if 8<=event.y<8+self.visible_count*self.row_height:self.active=self.start+int((event.y-8)/self.row_height);self.choose()
     def choose(self):
+        if self.state=='disabled':self.close(restore=False);return 'break'
         if not 0<=self.active<len(self.values):self.close();return 'break'
         self.variable.set(self.values[self.active]);self.close();self.event_generate('<<ComboboxSelected>>');return 'break'
 
 class RoundedSwitch(tk.Canvas):
     def __init__(self,master,text='',variable=None,font=('Bahnschrift',12),**kwargs):
-        self.variable=variable or tk.BooleanVar(master);self.text=text;self.typeface=font;self.focused=False
+        self.variable=variable or tk.BooleanVar(master);self.text=text;self.typeface=font;self.focused=False;self.pressed=False
         super().__init__(master,bg=master.cget('bg'),height=34,width=tkfont.Font(master,font=font).measure(text)+64,highlightthickness=0,takefocus=True,cursor='hand2')
         self.trace=self.variable.trace_add('write',lambda *a:self.draw())
-        self.bind('<Configure>',lambda e:self.draw());self.bind('<ButtonRelease-1>',lambda e:self.toggle());self.bind('<space>',lambda e:self.toggle());self.bind('<Return>',lambda e:self.toggle())
+        self.bind('<Configure>',lambda e:self.draw());self.bind('<ButtonPress-1>',self.press);self.bind('<ButtonRelease-1>',self.release);self.bind('<space>',lambda e:self.toggle());self.bind('<Return>',lambda e:self.toggle())
         self.bind('<FocusIn>',lambda e:self.focus(True));self.bind('<FocusOut>',lambda e:self.focus(False));self.bind('<Destroy>',self.destroyed)
     def destroyed(self,e):
         if e.widget is self:
             try:self.variable.trace_remove('write',self.trace)
             except tk.TclError:pass
     def focus(self,on):self.focused=on;self.draw()
-    def toggle(self):self.variable.set(not self.variable.get());return 'break'
+    def press(self,event):
+        self.pressed=str(self.cget('state'))!='disabled'
+        if self.pressed:self.focus_set()
+        return 'break'
+    def release(self,event):
+        pressed=self.pressed;self.pressed=False
+        if pressed and 0<=event.x<self.winfo_width() and 0<=event.y<self.winfo_height():self.toggle()
+        return 'break'
+    def toggle(self):
+        if str(self.cget('state'))!='disabled':self.variable.set(not self.variable.get())
+        return 'break'
     def draw(self):
         self.delete('all');on=self.variable.get()
         rounded(self,2,5,42,24,12,fill=GREEN if on else '#3b5057',outline=TEXT if self.focused else '')

@@ -45,7 +45,7 @@ class TrainingProgressTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             learner=AutonomousLearner(Path(tmp)/'learn.json')
             self.assertEqual(learner.choose_probe('ARMOR',0,2,[0,1,2])['shot'],0)
-            learner.records['dragonbound:ARMOR:0']={'samples':[],'model':{'scale':2}}
+            learner.records['dragonbound:ARMOR:0']={'samples':[{'id':str(i),'power':p,'episode':learner.episode} for i,p in enumerate([100,300,180,360])],'model':{'scale':2}}
             self.assertEqual(learner.choose_probe('ARMOR',0,2,[0,1,2])['shot'],0)
             self.assertEqual(learner.choose_probe('ARMOR',0,3,[0,1,2])['shot'],1)
     def test_empirical_aim_interpolates_only_comparable_bracketing_outcomes(self):

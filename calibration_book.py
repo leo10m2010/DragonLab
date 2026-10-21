@@ -99,7 +99,7 @@ class CalibrationBook:
         self.seen.add(ident)
         if len(self.seen)>4096:self.seen={ident}
         r=math.radians(launch_angle)
-        sample={'power':power,'vx':math.cos(r)*speed,'vy':-math.sin(r)*speed,'ax':ax,'ay':ay,'wind':wind,'wind_angle':angle,'source':'native-shot-start'}
+        sample={'power':power,'vx':math.cos(r)*speed,'vy':-math.sin(r)*speed,'ax':ax,'ay':ay,'wind':wind,'wind_angle':angle,'source':'native-shot-start','duration_s':s.get('duration',0)/1000,'simple_trajectory':not any(s.get(k) for k in ('change','jumps','wave','orbit','path'))}
         key=self.key(clone,name,shot_type);record=self.records.setdefault(key,{'samples':[]})
         sample['sample_id']=ident[1]
         if any(m.get('sample_id')==ident[1] for m in record.get('samples',[])):return []
