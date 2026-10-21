@@ -48,6 +48,23 @@ class GuidedTrainingTests(unittest.TestCase):
         result=browser.adjust_angle(reader,75,threading.Event())
         self.assertTrue(result['limited']);self.assertEqual(result['after'],55)
         browser.key.assert_not_called()
+    def test_reverse_range_uses_up_to_decrease_raw_angle(self):
+        browser=TrainingBrowser.__new__(TrainingBrowser);browser.guard=Mock();browser.key=Mock()
+        reader=Mock();reader.read.side_effect=[{'hero':0,'turn':0,'players':[{'id':0,'rawAngle':v,'minAngle':110,'maxAngle':170}]} for v in [155,150,140,130]]
+        cancel=Mock();cancel.wait.return_value=False
+        result=browser.adjust_angle(reader,130,cancel)
+        self.assertEqual(result['after'],130)
+        self.assertEqual(browser.key.call_args_list[0].args,('up',True))
+        self.assertEqual(browser.key.call_args_list[-1].args,('up',False))
+    def test_unexpected_key_effect_is_detected_and_corrected_before_firing(self):
+        browser=TrainingBrowser.__new__(TrainingBrowser);browser.guard=Mock();browser.key=Mock()
+        reader=Mock();reader.read.side_effect=[{'hero':0,'turn':0,'players':[{'id':0,'rawAngle':v,'minAngle':10,'maxAngle':70}]} for v in [40,41,39,36]]
+        cancel=Mock();cancel.wait.return_value=False
+        result=browser.adjust_angle(reader,35,cancel)
+        self.assertLess(result['after'],result['before'])
+        self.assertIn(('down',False),[c.args for c in browser.key.call_args_list])
+        self.assertIn(('up',True),[c.args for c in browser.key.call_args_list])
+        self.assertEqual(browser.key.call_args_list[-1].args,('up',False))
     def test_settings_bridge_rejects_cancellation_without_touching_tk(self):
         app=Mock();cancel=threading.Event();cancel.set()
         with self.assertRaises(RuntimeError):settings_provider(app)({},cancel)

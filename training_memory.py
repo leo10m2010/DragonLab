@@ -24,7 +24,7 @@ class ActionMemory:
                 if isinstance(data.get('seen'),list):self.seen=[v for v in data['seen'][-256:] if isinstance(v,str)]
         except (OSError,ValueError,TypeError):pass
     def learn(self,probe,release,feedback):
-        lab=release.get('lab') or {};miss=feedback.get('target_distance')
+        lab=release.get('learner') or release.get('lab') or {};miss=feedback.get('target_distance')
         if lab.get('action','apuntar')=='abrir paso' or not lab.get('target') or not isinstance(miss,(int,float)) or not math.isfinite(miss) or miss<0:return False
         angle=lab.get('angle');origin=(release.get('x'),release.get('y'));shot=release.get('shot')
         if not isinstance(angle,(int,float)) or not math.isfinite(angle) or shot not in (0,1,2):return False

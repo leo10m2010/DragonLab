@@ -10,7 +10,11 @@ from training_memory import ActionMemory
 class TrainingController:
     def __init__(self,session):
         self.s=session;self.ledger=TurnLedger();self.current=None;self.blocked=set();self.selected=False;self.queue_at=0;self.failures=0;self.in_game=False;self.power=None
-        self.memory=ActionMemory(session.book_path.parent/'estrategia-entrenamiento.json')
+        self.learner=None
+        if session.autonomous:
+            from autonomous_learning import AutonomousLearner
+            self.learner=AutonomousLearner(session.book_path.parent/'aprendizaje-autonomo.json',session.book_path);session.learner=self.learner
+        self.memory=None if session.autonomous else ActionMemory(session.book_path.parent/'estrategia-entrenamiento.json')
     def within_limits(self,started):
         s=self.s
         return not s.cancel.is_set() and (s.continuous or s.shots<s.max_shots and time.monotonic()-started<s.max_seconds)
@@ -57,6 +61,7 @@ class TrainingController:
         if ui.get('serverEntry'):
             browser.click(ui['serverEntry'],s.cancel);s.publish('Entrando a Avatar Off');s.cancel.wait(.7);return
         if not ui.get('game'):
+            if self.learner:self.learner.pending.clear()
             if self.in_game:self.ledger=TurnLedger()
             self.in_game=False
             self.current=None;self.blocked.clear();browser.client.game=None;browser.client.renderer=None
@@ -74,6 +79,7 @@ class TrainingController:
                 s.publish('Buscando partida 1v1');s.cancel.wait(1);return
             s.publish('Esperando el lobby o la siguiente partida');s.cancel.wait(.5);return
         self.in_game=True;self.queue_at=0;state=browser.sample();key=turn_key(state,ui['url'])
+        if self.learner:self.learner.track(state)
         if key!=self.current:self.current=key;self.blocked.clear()
         if not self.ledger.available(key):
             s.publish('Esperando el próximo turno' if key in self.ledger.used else 'Esperando confirmar tu turno')
@@ -85,11 +91,14 @@ class TrainingController:
         if not available:
             if self.blocked:self.ledger.consume(key);s.publish('Sin modalidad disponible o tiro seguro en este turno')
             s.cancel.wait(.2);return
-        probe=next_probe(s.records(),mobile,state.get('wind',0),s.shots,available);probe['turn_serial']=key[-1]
-        if s.shots%3==2:probe=self.memory.recommend(probe,state,available)
-        s.publish(f"Turno {key[-1]} · {mobile} · tiro {('1','2','SS')[probe['shot']]} · calculando viento y recorrido")
+        probe=next_probe(self.learner.curriculum_records() if self.learner else s.records(),mobile,state.get('wind',0),s.shots,available);probe['turn_serial']=key[-1]
+        if self.memory and s.shots%3==2:probe=self.memory.recommend(probe,state,available)
+        stage='decidiendo con mediciones propias' if self.learner else 'calculando viento y recorrido'
+        s.publish(f"Turno {key[-1]} · {mobile} · tiro {('1','2','SS')[probe['shot']]} · {stage}")
         try:
-            release,observation=browser.shoot(probe,s.cancel,settings_provider=s.settings_provider,before_fire=lambda:self.ledger.consume(key))
+            options={'settings_provider':None if self.learner else s.settings_provider,'before_fire':lambda:self.ledger.consume(key)}
+            if self.learner:options['autonomous']=self.learner
+            release,observation=browser.shoot(probe,s.cancel,**options)
             self.observe(probe,release,observation);self.failures=0;s.last_error=''
         except UnavailableShot as error:
             self.blocked.add(probe['shot']);s.publish(str(error))
@@ -105,9 +114,10 @@ class TrainingController:
         s.cancel.wait(.15)
     def observe(self,probe,release,observation):
         s=self.s;s.shots+=1
+        if self.learner:self.learner.observe(probe,release,observation)
         s.emit({'status':'training-observation','release':release,'observation':observation})
         weather=[{k:w[k] for k in ('typeId','resolvedTypeId','x','size') if isinstance(w.get(k),(int,float))} for w in observation.get('weather',[])[:32] if isinstance(w,dict)]
-        lab=release.get('lab') or {};feedback={}
+        lab=release.get('learner') or release.get('lab') or {};feedback={}
         try:
             if lab.get('target'):
                 from native_paths import position
@@ -117,7 +127,9 @@ class TrainingController:
                     end=position(bullet,bullet['duration']/1000)
                     if end and all(isinstance(v,(int,float)) and math.isfinite(v) for v in end):feedback={'observed_end':list(end),'target_distance':round(math.dist(end,lab['target']),2)};break
         except (ValueError,TypeError,KeyError,IndexError):pass
-        try:self.memory.learn(probe,release,feedback)
+        try:
+            if self.memory:self.memory.learn(probe,release,feedback)
         except (OSError,ValueError,TypeError):pass
-        s.history.append({**probe,'power':lab.get('power',probe['power']),'probe_power':probe['power'],'actual_power':release.get('power'),'actual_angle':release.get('angle'),'turn_serial':release.get('turn_serial'),'movement':release.get('movement'),'angle_change':release.get('angle_change'),'lab':lab,'feedback':feedback,'wind':release.get('wind'),'wind_angle':release.get('windAngle'),'weather':weather});s.history=s.history[-120:]
-        s.publish(f"Tiro {s.shots} · turno {probe['turn_serial']} · ángulo {release.get('angle')}° · Lab {lab.get('power',probe['power'])} → real {release.get('power')}")
+        s.history.append({**probe,'power':lab.get('power',probe['power']),'probe_power':probe['power'],'actual_power':release.get('power'),'actual_angle':release.get('angle'),'turn_serial':release.get('turn_serial'),'movement':release.get('movement'),'angle_change':release.get('angle_change'),'lab':release.get('lab'),'learner':release.get('learner'),'feedback':feedback,'wind':release.get('wind'),'wind_angle':release.get('windAngle'),'weather':weather});s.history=s.history[-120:]
+        source=lab.get('stage','Lab')
+        s.publish(f"Tiro {s.shots} · turno {probe['turn_serial']} · {source} · fuerza {lab.get('power',probe['power'])} → real {release.get('power')}")

@@ -23,20 +23,20 @@ def start_training(app,limit='Continuo'):
     endpoint=getattr(app,'live_endpoint',None) or app.endpoint.get()
     if getattr(app,'last_live',0)==0:endpoint='http://127.0.0.1:9223'
     continuous=limit=='Continuo'
-    app.training_session=TrainingSession(endpoint,app.browser_target,app.book.path,app.events.put,max_shots=60 if continuous else int(limit),continuous=continuous,settings_provider=settings_provider(app))
+    app.training_session=TrainingSession(endpoint,app.browser_target,app.book.path,app.events.put,max_shots=60 if continuous else int(limit),continuous=continuous,autonomous=True)
     app.training_session.start();return app.training_session
 
 def open_training(app):
     win=getattr(app,'training_window',None)
     if win and win.winfo_exists():win.lift();return win
     win=tk.Toplevel(getattr(app,'ui_parent',app.root));app.training_window=win;win.title('DragonLab · Entrenamiento');win.geometry('600x490');win.configure(bg=BG)
-    tk.Label(win,text='Aprender jugando',bg=BG,fg=TEXT,font=('Bahnschrift',23,'bold')).pack(anchor='w',padx=26,pady=(24,10))
+    tk.Label(win,text='Aprender del juego',bg=BG,fg=TEXT,font=('Bahnschrift',23,'bold')).pack(anchor='w',padx=26,pady=(24,10))
     card=RoundedPanel(win,PANEL);card.pack(fill='both',expand=True,padx=24,pady=8)
     tk.Label(card.body,text='DragonBound · Avatar Off',bg=PANEL,fg=GREEN,font=('Bahnschrift',13,'bold')).pack(anchor='w',padx=18,pady=(10,8))
-    tk.Label(card.body,text="""Revisa cada turno, viento, clima y posición para apuntar.
-Si no hay tiro directo, busca un paso corto o abre terreno.
-Continuo juega entre partidas y recupera la conexión.
-Mantiene la PC activa mientras juega; Esc lo detiene.""",justify='left',bg=PANEL,fg=MUTED,font=('Bahnschrift',11)).pack(anchor='w',padx=18,pady=8)
+    tk.Label(card.body,text="""Mide los tiros reales; el Lab no es su referencia.
+Explora fuerzas y ángulos y comprueba lo aprendido.
+Los carros y climas poco medidos pueden fallar al inicio.
+Continuo sigue entre partidas. Esc lo detiene.""",justify='left',bg=PANEL,fg=MUTED,font=('Bahnschrift',11)).pack(anchor='w',padx=18,pady=8)
     row=tk.Frame(card.body,bg=PANEL);row.pack(fill='x',padx=18,pady=8)
     tk.Label(row,text='Duración',bg=PANEL,fg=TEXT,font=('Bahnschrift',11)).pack(side='left')
     limit=tk.StringVar(value='Continuo');RoundedChoice(row,textvariable=limit,values=['Continuo','12','30','60','120'],state='readonly',width=11).pack(side='right')

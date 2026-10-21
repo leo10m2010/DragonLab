@@ -226,6 +226,7 @@ class App:
         return (self.clone_id,self.mobile.get(),self.s.selected_shot,self.target_hero_id,self.auto_target_id,
                 self.s.hero_x,self.s.hero_y,self.s.target_x,self.s.target_y,self.terrain_revision)
     def display_result(self):
+        if self.autonomous_training():return {}
         if getattr(self,'result_context',None)!=self.visual_context():return {}
         if (self.dirty or self.computing) and time.monotonic()-self.last_computed>1.5:return {}
         return self.result
@@ -330,7 +331,11 @@ class App:
         if self.overlay:self.overlay.close();self.overlay=None
     def copy_power(self):
         if self.result.get('reachable'):self.root.clipboard_clear();self.root.clipboard_append(str(self.result['power']))
+    def autonomous_training(self):
+        session=getattr(self,'training_session',None)
+        return bool(session and getattr(session,'autonomous',False) and session.running)
     def draw_force(self):
+        if self.autonomous_training():self.hide_power_guide();return
         from product_status import calibration_label
         label,state=calibration_label(self)
         r={**self.display_result(),'guide_label':label,'guide_state':state};updating=self.dirty or self.computing
@@ -476,7 +481,8 @@ class App:
         self.learning_error=d.get('learning_error','');self.reader_status=d.get("status");self.reader_reason=d.get("reason","");self.weather_current=d.get('weatherCurrent','')
         if d.get('status')=='live':d['players']=self.player_tracker.update(d.get('players',[]))
         else:self.player_tracker.reset()
-        try:self.shot_review.observe(d,replace(self.s,environment=dict(self.s.environment)))
+        try:
+            if not self.autonomous_training():self.shot_review.observe(d,replace(self.s,environment=dict(self.s.environment)))
         except (OSError,ValueError,TypeError,KeyError):pass
         self.observed_paths=self.trails.update(d.get('shots',[]))
         if self.clone_id=='gunbound-world':
@@ -495,7 +501,7 @@ class App:
                     atomic_write(evidence_path,json.dumps(cases,allow_nan=False).encode())
                 except (OSError,ValueError,TypeError):pass
         revision=self.book.revision
-        try:changed=self.book.observe(d,self.clone_id)
+        try:changed=[] if self.autonomous_training() else self.book.observe(d,self.clone_id)
         except (OSError,ValueError,TypeError):changed=[];self.book.message='No se pudo guardar la medición; el perfil actual se conserva'
         if changed or self.book.revision!=revision:self.profile_stamp=None;self.last_fingerprint=None;self.mark()
         self.apply_auto(d)
@@ -633,7 +639,8 @@ class App:
                 finally:event['ready'].set()
                 continue
             if event.get('status')=='training-observation':
-                self.book.observe_training(event.get('observation'),event.get('release'));self.profile_stamp=None;self.mark();continue
+                if not self.autonomous_training():self.book.observe_training(event.get('observation'),event.get('release'))
+                self.profile_stamp=None;self.mark();continue
             if event.get('status')=='fire-gesture':
                 if self.consume_fire_gesture(event.get('gesture')):
                     self.fire_shortcut_count+=1;self.trigger_auto_fire()
@@ -666,7 +673,7 @@ class App:
         if self.last_live and time.monotonic()-self.last_live>4:
             self.status.config(text='●  Esperando datos',fg=MUTED);self.auto_visible=False;self.hide_overlay();self.hide_power_guide()
             if self.power_guide:self.power_guide.draw({},self.s.max_power)
-        if self.dirty and not self.computing:
+        if self.dirty and not self.computing and not self.autonomous_training():
             self.dirty=False;self.compute_generation+=1
             try:
                 settings=replace(self.read(),environment=dict(self.s.environment));profile_required=getattr(self,'profile_required',False);generation=self.compute_generation;context=self.visual_context();self.computing=True

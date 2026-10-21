@@ -2,6 +2,7 @@
 import json,time,math,re
 from cdp import CDP
 from auto_fire import PowerReader
+from training_orientation import desired_look,raw_angle,up_increases_raw
 UI_JS=r"""(()=>{
  const box=e=>{if(!e)return null;const r=e.getBoundingClientRect(),s=getComputedStyle(e);if(r.width<2||r.height<2||s.visibility==='hidden'||s.display==='none')return null;
  const x=r.left+r.width/2,y=r.top+r.height/2,hit=document.elementFromPoint(x,y);return hit&&(hit===e||e.contains(hit))?{x,y}:null};
@@ -57,7 +58,10 @@ class TrainingBrowser:
             if isinstance(hero.get(source),(int,float)) and math.isfinite(hero[source]):bounds[destination]=hero[source]
         requested=target;target=max(bounds.get('low',-180),min(bounds.get('high',180),target))
         if abs(target-initial)<=1:return {'before':initial,'after':initial,'requested':requested,'reached':abs(requested-initial)<=1,'limited':target!=requested}
-        direction='up' if target>initial else 'down';last=initial;changed=time.monotonic();start=changed;stalled=False
+        if not hasattr(self,'angle_key_direction'):self.angle_key_direction={}
+        control_key=getattr(self,'angle_mobile',None)
+        increases=self.angle_key_direction.get(control_key,up_increases_raw(hero))
+        direction='up' if (target>initial)==increases else 'down';last=initial;changed=time.monotonic();start=changed;stalled=False;switched=False
         try:
             self.guard(cancel);self.key(direction,True)
             while time.monotonic()-start<3:
@@ -66,14 +70,21 @@ class TrainingBrowser:
                 if state.get('turn')!=hero_id or state.get('turnNumber')!=serial or state.get('over'):raise RuntimeError('Cambió el turno al ajustar ángulo')
                 value=next((p.get('rawAngle') for p in state.get('players',[]) if p.get('id')==hero_id),None)
                 if not isinstance(value,(int,float)) or not math.isfinite(value):raise RuntimeError('Se perdió la lectura del ángulo')
-                if value!=last:last=value;changed=time.monotonic()
+                if value!=last:
+                    observed_increase=value>last
+                    self.angle_key_direction[control_key]=observed_increase if direction=='up' else not observed_increase
+                    if (target-initial)*(value-last)<0:
+                        if switched:raise RuntimeError('Las teclas no confirman un ajuste estable; no se dispara')
+                        self.key(direction,False);direction='down' if direction=='up' else 'up';self.key(direction,True);switched=True
+                        last=value;changed=time.monotonic();continue
+                    last=value;changed=time.monotonic()
                 if abs(target-value)<=1 or (target-initial)*(target-value)<0:break
                 if time.monotonic()-changed>.65:stalled=True;break
         finally:self.key(direction,False)
         # A limit is acceptable only after observing actual movement. Replan at it.
         if abs(last-initial)<.5:raise RuntimeError('La flecha no cambió el ángulo; no se dispara')
         if stalled:
-            bounds['high' if direction=='up' else 'low']=last;self.angle_limits[key]=bounds
+            bounds['high' if last>initial else 'low']=last;self.angle_limits[key]=bounds
             if len(self.angle_limits)>64:self.angle_limits={key:bounds}
         return {'before':initial,'after':last,'requested':requested,'reached':abs(last-requested)<=1,'limited':stalled}
     def walk(self,reader,plan,cancel,expected_serial=None):
@@ -93,7 +104,19 @@ class TrainingBrowser:
                 if abs(p['x']-origin[0])>=plan['distance'] or time.monotonic()-changed>.25:break
         finally:self.key(plan['direction'],False)
         return {'from':list(origin),'to':[p['x'],p['y']],'direction':plan['direction']}
-    def shoot(self,probe,cancel,settings_provider=None,before_fire=None):
+    def orient(self,reader,right,serial,cancel):
+        state=reader.read();hero=next(p for p in state['players'] if p['id']==state['hero'])
+        desired=desired_look(hero,right)
+        if hero['look']==desired:return hero
+        if state.get('turn')!=state['hero'] or state.get('turnNumber')!=serial:raise RuntimeError('Cambió el turno antes de orientar')
+        direction='right' if desired else 'left'
+        try:
+            self.guard(cancel);self.key(direction,True);cancel.wait(.08)
+        finally:self.key(direction,False)
+        hero=next(p for p in reader.read()['players'] if p['id']==state['hero'])
+        if hero['look']!=desired:raise RuntimeError('El carro no confirmó la orientación de salida')
+        return hero
+    def shoot(self,probe,cancel,settings_provider=None,before_fire=None,autonomous=None):
         self.reader=PowerReader(self.client.endpoint,self.client.target['id']);reader=self.reader
         held=None
         try:
@@ -108,11 +131,28 @@ class TrainingBrowser:
             if s.get('mode')!='space':
                 self.click(self.guard(cancel)['controls'].get('slice_drag_button'),cancel);time.sleep(.08);s=reader.read()
                 if s.get('mode')!='space':raise RuntimeError('No se pudo activar Slice')
-            lab=None;planned_angle=probe['angle'];movement=None
-            if settings_provider:
+            lab=None;independent=None;planned_angle=probe['angle'];movement=None
+            if autonomous:
+                state=self.sample();hero=next(p for p in state['players'] if str(p['id'])==str(state['heroId']))
+                targets=[p for p in state['players'] if str(p['id'])!=str(hero['id']) and not p.get('dead') and (hero.get('team') is None or p.get('team')!=hero['team'])]
+                if not targets:raise RuntimeError('Sin objetivo vivo')
+                target=min(targets,key=lambda p:math.hypot(p['x']-hero['x'],p['y']-hero['y']))
+                self.orient(reader,target['x']>=hero['x'],serial,cancel)
+                fresh=reader.read();player=next(p for p in fresh['players'] if p['id']==hero_id)
+                independent=autonomous.plan(self.sample(),player,probe);planned_angle=independent['raw_angle']
+                if independent.get('needs_move'):
+                    from training_movement import walking_step
+                    plan=walking_step(self.sample(),target['x'])
+                    if plan:
+                        movement=self.walk(reader,plan,cancel,expected_serial=serial)
+                        self.orient(reader,target['x']>=next(p for p in reader.read()['players'] if p['id']==hero_id)['x'],serial,cancel)
+                        player=next(p for p in reader.read()['players'] if p['id']==hero_id)
+                        independent=autonomous.plan(self.sample(),player,probe);planned_angle=independent['raw_angle']
+            elif settings_provider:
                 from training_aim import choose_aim,actual_solution,NoAim
                 settings=settings_provider(self.sample(),cancel)
-                desired=int(settings.target_x>=settings.hero_x)
+                player=next(p for p in reader.read()['players'] if p['id']==hero_id)
+                desired=desired_look(player,settings.target_x>=settings.hero_x)
                 if settings.look!=desired:
                     if reader.read().get('turnNumber')!=serial:raise RuntimeError('Cambió el turno antes de orientar')
                     held='right' if desired else 'left';self.guard(cancel);self.key(held,True);cancel.wait(.08);self.key(held,False);held=None
@@ -121,7 +161,8 @@ class TrainingBrowser:
                 hero=next(p for p in reader.read()['players'] if p['id']==hero_id)
                 body_offset=hero.get('body',0)*(1 if hero.get('look')==0 else -1)
                 limits=(hero['minAngle']+body_offset,hero['maxAngle']+body_offset) if all(isinstance(hero.get(k),(int,float)) for k in ('minAngle','maxAngle')) else None
-                try:planned_angle,lab=choose_aim(settings,probe['angle'],limits)
+                preferred=probe['angle'] if desired==int(settings.target_x>=settings.hero_x) else 180-probe['angle']
+                try:planned_angle,lab=choose_aim(settings,preferred,limits)
                 except NoAim:
                     from training_movement import walking_step
                     plan=walking_step(self.sample(),settings.target_x)
@@ -130,7 +171,8 @@ class TrainingBrowser:
                         if abs(movement['to'][0]-movement['from'][0])<.5:
                             alternative=walking_step(self.sample(),settings.target_x,avoid=plan['direction'])
                             if alternative:movement=self.walk(reader,alternative,cancel,expected_serial=serial);settings=settings_provider(self.sample(),cancel)
-                        desired=int(settings.target_x>=settings.hero_x)
+                        player=next(p for p in reader.read()['players'] if p['id']==hero_id)
+                        desired=desired_look(player,settings.target_x>=settings.hero_x)
                         if settings.look!=desired:
                             if reader.read().get('turnNumber')!=serial:raise RuntimeError('Cambió el turno antes de orientar')
                             held='right' if desired else 'left';self.guard(cancel);self.key(held,True);cancel.wait(.08);self.key(held,False);held=None
@@ -139,16 +181,22 @@ class TrainingBrowser:
                         hero=next(p for p in reader.read()['players'] if p['id']==hero_id)
                         body_offset=hero.get('body',0)*(1 if hero.get('look')==0 else -1)
                         limits=(hero['minAngle']+body_offset,hero['maxAngle']+body_offset) if all(isinstance(hero.get(k),(int,float)) for k in ('minAngle','maxAngle')) else None
-                    planned_angle,lab=choose_aim(settings,probe['angle'],limits,allow_blocked=True)
+                    preferred=probe['angle'] if desired==int(settings.target_x>=settings.hero_x) else 180-probe['angle']
+                    planned_angle,lab=choose_aim(settings,preferred,limits,allow_blocked=True)
                 planned_angle+=hero.get('body',0)*(1 if hero.get('look')==1 else -1)
             self.angle_mobile=probe.get('mobile');angle_change=self.adjust_angle(reader,planned_angle,cancel,expected_serial=serial)
-            if settings_provider:
+            if autonomous:
+                fresh=reader.read();player=next(p for p in fresh['players'] if p['id']==hero_id)
+                independent=autonomous.plan(self.sample(),player,probe,actual=True,previous=independent);probe={**probe,'power':independent['power']}
+            elif settings_provider:
                 settings=settings_provider(self.sample(),cancel);lab=actual_solution(settings,allow_blocked=lab.get('training_action') in ('abrir paso','aproximar'))
                 probe={**probe,'power':lab['power']}
             s=reader.read();hero=next(p for p in s['players'] if p['id']==hero_id)
             release={'hero':hero_id,'x':hero['x'],'y':hero['y'],'shot':target_shot,'angle':hero.get('rawAngle'),'wind':s.get('wind'),'windAngle':s.get('windAngle'),'baseline':[]}
+            release['pose']={k:hero.get(k) for k in ('look','body','minAngle','maxAngle')}
             release['angle_change']=angle_change
             release['movement']=movement;release['turn_serial']=serial
+            if independent:release['learner']=independent
             if lab:release['lab']={'power':lab['power'],'angle':settings.angle,'target':[settings.target_x,settings.target_y],'end':lab.get('end'),'action':lab.get('training_action','apuntar'),'approximate':lab.get('approximate',False)}
             from shot_attribution import identity,attributed_start
             release['baseline']=[identity(p) for p in self.sample().get('shots',[])]
