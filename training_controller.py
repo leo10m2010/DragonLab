@@ -9,7 +9,7 @@ from training_memory import ActionMemory
 
 class TrainingController:
     def __init__(self,session):
-        self.s=session;self.ledger=TurnLedger();self.current=None;self.blocked=set();self.selected=False;self.queue_at=0;self.failures=0;self.in_game=False;self.power=None
+        self.s=session;self.ledger=TurnLedger();self.current=None;self.geometry=None;self.blocked=set();self.selected=False;self.queue_at=0;self.failures=0;self.in_game=False;self.power=None
         self.learner=None
         if session.autonomous:
             from autonomous_learning import AutonomousLearner
@@ -109,15 +109,17 @@ class TrainingController:
         if key!=self.current:self.current=key;self.blocked.clear()
         if not self.ledger.available(key):
             s.publish('Esperando el próximo turno' if key in self.ledger.used else 'Esperando confirmar tu turno')
-            s.cancel.wait(.35);return
+            s.cancel.wait(.10);return
         hero=next(p for p in state['players'] if str(p.get('id'))==str(state['heroId']))
+        geometry=(round(hero['x']/4),round(hero['y']/4),state.get('wind'),state.get('windAngle'))
+        if geometry!=self.geometry:self.blocked.clear();self.geometry=geometry
         mobile=mobile_name(hero.get('mobile'))
         if not mobile:raise RuntimeError('Carro no identificado; sesión detenida')
         if s.objective=='evaluation' and mobile!='ARMOR':s.publish('Esperando el lobby: la prueba solo usa Armor tiro 1');s.cancel.wait(.5);return
         available=[i for i,k in enumerate(('btnShot1','btnShot2','btnShotSS')) if ui['controls'].get(k) and i not in self.blocked]
         if not available:
-            if self.blocked:
-                self.ledger.consume(key);s.publish('Sin modalidad disponible o tiro seguro en este turno')
+            if self.blocked and any(ui['controls'].get(k) for k in ('btnShot1','btnShot2','btnShotSS')):
+                s.publish('Esperando una posición o modalidad con tiro válido')
                 if s.objective=='adaptive':self.trial.turn_skipped(key)
             s.cancel.wait(.2);return
         if s.objective=='evaluation':
@@ -167,7 +169,7 @@ class TrainingController:
             if isinstance(getattr(browser,'last_timing',None),dict):s.last_timing=dict(browser.last_timing)
             if isinstance(getattr(browser,'movement_events',None),list) and browser.movement_events:
                 s.movements.extend(browser.movement_events);s.movements=s.movements[-64:];browser.movement_events.clear()
-        s.cancel.wait(.15)
+        s.cancel.wait(.05)
     def record_error(self,key,reason,kind):
         self.s.errors.append({'turn':key[-1],'reason':reason,'kind':kind,'at':time.time()})
         self.s.errors=self.s.errors[-64:]

@@ -1,3 +1,7 @@
+# DragonLab 0.15.2 · Corrección de salida y estados
+
+El launcher refleja el estado del entrenador. La calibración adaptativa puede ajustar la ganancia de fuerza con una salida nativa compatible; recalcula las colisiones y nunca modifica una evaluación congelada. Revisa turnos cada 100 ms y reintenta modalidades si cambia posición o viento. Teleport continúa pendiente de medición específica.
+
 # DragonLab 0.15.1 · Retroceso, terreno y Camaleón
 
 Cierra la versión anterior y abre Comprobar-Punteria.cmd. Mantiene el juego adaptativo, entrada en segundo plano y límites de 20 o 40 tiros, seis partidas y 15 minutos. Detener cancela desde el panel.

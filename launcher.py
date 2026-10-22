@@ -177,10 +177,11 @@ class Launcher:
         if self.engine and not self.busy:
             from product_status import capture_status
             app=self.engine.app;worker=getattr(app,'worker',None)
-            if worker and worker.is_alive():
+            if worker and worker.is_alive() or getattr(app,'training_session',None):
                 label,message=capture_status(app)
-                self.play_button.config(text=label+' · Pausar')
-                self.status.config(text=message)
+                button=label+' · Pausar'
+                if self.play_button.cget('text')!=button:self.play_button.config(text=button)
+                if self.status.cget('text')!=message:self.status.config(text=message)
         self.root.after(100,self.poll)
     def finish(self,value,error,done):
         self.busy=False;self.login_button.config(state='normal' if self.client else 'disabled');self.update_button.config(state='normal' if self.authenticated else 'disabled')

@@ -79,7 +79,12 @@ class EvaluationTrial:
         if len(self.calibration)>=self.calibration_limit:raise NoAim('Calibración agotada sin modelo aplicable; hace falta controlar las condiciones',reason='calibration-budget')
         if self.prior:
             hypothesis=self.context_candidate['model'] if self.context_candidate else self.prior
-            proposal=self.learner.plan(state,player,probe,actual,previous,model_override=hypothesis)
+            feedback=None
+            if probe.get('adaptive'):
+                from shot_feedback import corrected_hypothesis
+                feedback=corrected_hypothesis(hypothesis,self.learner.records.get(self.key,{}),self.learner.episode,state,player)
+            proposal=self.learner.plan(state,player,probe,actual,previous,model_override=feedback or hypothesis)
+            if feedback:proposal={**proposal,'feedback_case':feedback.get('feedback_id')}
             if proposal.get('stage')=='evaluación con modelo congelado':return {**proposal,'stage':'calibración dirigida provisional','evaluation_phase':'calibration'}
             raise NoAim('Sin ángulo o recorrido libre para la hipótesis actual',reposition=proposal.get('reposition_allowed',False),reason=proposal.get('unavailable_reason','trajectory-unavailable'),recovery=proposal)
         raise NoAim('Sin hipótesis de trayectoria aplicable; no se envía una fuerza arbitraria',reason='missing-model')

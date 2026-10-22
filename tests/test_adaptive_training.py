@@ -74,7 +74,9 @@ class AdaptiveTests(unittest.TestCase):
             b.sample.return_value={'status':'live','heroId':0,'activePlayer':0,'turnSerial':1,'wind':0,'windAngle':0,'players':[{'id':0,'mobile':0,'x':0,'y':0}],'shots':[]}
             b.shoot.side_effect=NoAim('blocked');c.cycle(b);self.assertFalse(c.ledger.used);c.cycle(b)
             self.assertEqual([call.args[0]['shot'] for call in b.shoot.call_args_list],[0,1]);self.assertFalse(c.ledger.used)
-            c.cycle(b);self.assertEqual(len(c.ledger.used),1);self.assertEqual(c.trial.summary()['skipped_turns'],1)
+            c.cycle(b);self.assertFalse(c.ledger.used);self.assertEqual(c.trial.summary()['skipped_turns'],1)
+            b.sample.return_value['players'][0]['x']=8;c.cycle(b)
+            self.assertEqual(b.shoot.call_count,3);self.assertFalse(c.ledger.used)
 
 class DualControls(unittest.TestCase):
     def make(self):
