@@ -45,3 +45,20 @@ class LifecycleTests(unittest.TestCase):
         with self.assertRaises(ValueError):start_training(app,limit='bad')
         self.assertEqual(app.result,{'power':120});self.assertEqual(app.compute_generation,7)
 
+
+    def test_known_profile_loader_waits_but_unknown_dialog_stops(self):
+        from training_controller import TrainingController
+        from training_session import TrainingSession
+        from pathlib import Path
+        import tempfile
+        with tempfile.TemporaryDirectory() as directory:
+            session=TrainingSession('',None,Path(directory)/'book.json',Mock())
+            session.cancel.wait=Mock(return_value=False);session.publish=Mock()
+            controller=TrainingController(session);browser=Mock()
+            browser.guard.return_value={'loading':True,'blocked':True}
+            controller.cycle(browser);browser.sample.assert_not_called()
+            self.assertFalse(controller.ledger.used)
+            controller.loading_since=0
+            with self.assertRaisesRegex(RuntimeError,'un minuto'):controller.cycle(browser)
+            browser.guard.return_value={'blocked':True}
+            with self.assertRaisesRegex(RuntimeError,'aviso del juego'):controller.cycle(browser)

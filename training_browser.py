@@ -11,11 +11,12 @@ UI_JS=r"""(()=>{
  const controls=Object.fromEntries(ids.map(id=>[id,box(document.getElementById(id))]));
  const options=[...document.querySelectorAll('#roomMobileSelect .mobileSelectBtn[data-mobile]')].map(e=>({id:Number(e.dataset.mobile),name:e.querySelector('.mobileName')?.textContent,point:box(e),selected:e.classList.contains('mobileSelectCurrent')})).filter(o=>o.point);
  const alert=document.getElementById('myDialog'),ok=box(document.getElementById('DragonDialogOK'));
+ const loading=!!ok&&/Ingresar\.\.\. Por favor espere/.test(alert?.textContent||'')&&/Cargando/.test(alert?.textContent||'');
  const away=ok&&/Creo que estás ausente/.test(alert?.textContent||'')?ok:null;
  const entries=location.hash===''?[...document.querySelectorAll('span,div')].filter(e=>!e.children.length&&e.textContent.trim()==='Avatar Off').map(box).filter(Boolean):[];
  const dual=document.querySelector('[id^=gameItemSlot].ItemBtn.itemDual');controls.dual=box(dual);
  const selectedItems=[...document.querySelectorAll('[id^=gameItemSlot].ItemBtn.Pressed')].map(e=>({id:e.id,dual:e.classList.contains('itemDual')}));
- return {dualSelected:!!dual?.classList.contains('Pressed'),selectedItems,url:location.href,serverEntry:entries.length===1?entries[0]:null,focused:document.hasFocus(),chat:['INPUT','TEXTAREA','SELECT'].includes(document.activeElement?.tagName)||!!document.activeElement?.isContentEditable,game:!!box(document.getElementById('gameScreen')),controls,options,away,blocked:!!ok&&!away,stop:!!window.__dragonlabTrainingStop?.stopped};
+ return {loading,dualSelected:!!dual?.classList.contains('Pressed'),selectedItems,url:location.href,serverEntry:entries.length===1?entries[0]:null,focused:document.hasFocus(),chat:['INPUT','TEXTAREA','SELECT'].includes(document.activeElement?.tagName)||!!document.activeElement?.isContentEditable,game:!!box(document.getElementById('gameScreen')),controls,options,away,blocked:!!ok&&!away,stop:!!window.__dragonlabTrainingStop?.stopped};
 })()"""
 
 class TurnExpired(RuntimeError):pass

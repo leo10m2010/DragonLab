@@ -9,7 +9,7 @@ from training_memory import ActionMemory
 
 class TrainingController:
     def __init__(self,session):
-        self.s=session;self.ledger=TurnLedger();self.current=None;self.geometry=None;self.blocked=set();self.selected=False;self.queue_at=0;self.failures=0;self.in_game=False;self.power=None
+        self.s=session;self.ledger=TurnLedger();self.current=None;self.geometry=None;self.blocked=set();self.selected=False;self.queue_at=0;self.failures=0;self.in_game=False;self.power=None;self.loading_since=None
         self.learner=None
         if session.autonomous:
             from autonomous_learning import AutonomousLearner
@@ -76,6 +76,11 @@ class TrainingController:
         s=self.s;ui=browser.guard(s.cancel)
         if self.trial and self.trial.done():return False
         if self.power:self.power.hold(True)
+        if ui.get('loading'):
+            if self.loading_since is None:self.loading_since=time.monotonic()
+            if time.monotonic()-self.loading_since>60:raise RuntimeError('La carga del perfil lleva más de un minuto; revisa la conexión del juego')
+            s.publish('Esperando que el juego termine de cargar el perfil');s.cancel.wait(.5);return
+        self.loading_since=None
         if ui.get('blocked'):raise RuntimeError('Hay un aviso del juego. Ciérralo antes de volver a empezar')
         if ui.get('away'):
             browser.click(ui['away'],s.cancel);s.cancel.wait(.3);return

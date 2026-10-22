@@ -1,3 +1,7 @@
+# DragonLab 0.15.4 · Inicio de sesión del juego
+
+Espera la carga conocida del perfil hasta 60 segundos; los avisos desconocidos siguen deteniendo el entrenamiento. Incluye la coordinación de controles de 0.15.3.
+
 # DragonLab 0.15.3 · Asistencia y entrenador coordinados
 
 Cambiar de modo cancela solicitudes pendientes e invalida cálculos anteriores. Q no se mezcla con el entrenamiento; al detenerlo vuelve la guía con un cálculo nuevo. Escape cancela ambas formas de control. Las mediciones conservan sus validaciones independientes.
