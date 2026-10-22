@@ -3,6 +3,7 @@ import json,time,math,re
 from cdp import CDP
 from auto_fire import PowerReader
 from training_orientation import desired_look,raw_angle,up_increases_raw
+from training_aim import NoAim
 UI_JS=r"""(()=>{
  const box=e=>{if(!e)return null;const r=e.getBoundingClientRect(),s=getComputedStyle(e);if(r.width<2||r.height<2||s.visibility==='hidden'||s.display==='none')return null;
  const x=r.left+r.width/2,y=r.top+r.height/2,hit=document.elementFromPoint(x,y);return hit&&(hit===e||e.contains(hit))?{x,y}:null};
@@ -12,7 +13,9 @@ UI_JS=r"""(()=>{
  const alert=document.getElementById('myDialog'),ok=box(document.getElementById('DragonDialogOK'));
  const away=ok&&/Creo que estás ausente/.test(alert?.textContent||'')?ok:null;
  const entries=location.hash===''?[...document.querySelectorAll('span,div')].filter(e=>!e.children.length&&e.textContent.trim()==='Avatar Off').map(box).filter(Boolean):[];
- return {url:location.href,serverEntry:entries.length===1?entries[0]:null,focused:document.hasFocus(),chat:['INPUT','TEXTAREA','SELECT'].includes(document.activeElement?.tagName)||!!document.activeElement?.isContentEditable,game:!!box(document.getElementById('gameScreen')),controls,options,away,blocked:!!ok&&!away,stop:!!window.__dragonlabTrainingStop?.stopped};
+ const dual=document.querySelector('[id^=gameItemSlot].ItemBtn.itemDual');controls.dual=box(dual);
+ const selectedItems=[...document.querySelectorAll('[id^=gameItemSlot].ItemBtn.Pressed')].map(e=>({id:e.id,dual:e.classList.contains('itemDual')}));
+ return {dualSelected:!!dual?.classList.contains('Pressed'),selectedItems,url:location.href,serverEntry:entries.length===1?entries[0]:null,focused:document.hasFocus(),chat:['INPUT','TEXTAREA','SELECT'].includes(document.activeElement?.tagName)||!!document.activeElement?.isContentEditable,game:!!box(document.getElementById('gameScreen')),controls,options,away,blocked:!!ok&&!away,stop:!!window.__dragonlabTrainingStop?.stopped};
 })()"""
 
 class TurnExpired(RuntimeError):pass
@@ -97,7 +100,7 @@ class TrainingBrowser:
         # A limit is acceptable only after observing actual movement. Replan at it.
         if abs(last-initial)<.5:
             if self.seconds_left()<=5:raise TurnExpired('Se agotó el tiempo para ajustar el ángulo')
-            raise RuntimeError('La flecha no cambió el ángulo; no se dispara')
+            raise NoAim('La flecha no cambió el ángulo; no se dispara',reason='angle-unavailable')
         if stalled:
             bounds['high' if last>initial else 'low']=last;self.angle_limits[key]=bounds
             if len(self.angle_limits)>64:self.angle_limits={key:bounds}
@@ -126,11 +129,16 @@ class TrainingBrowser:
         if state.get('turn')!=state['hero'] or state.get('turnNumber')!=serial:raise TurnExpired('Cambió el turno antes de orientar')
         direction='right' if desired else 'left'
         try:
-            self.guard(cancel);self.key(direction,True);cancel.wait(.08)
+            self.guard(cancel);self.key(direction,True)
+            until=time.monotonic()+.6
+            while time.monotonic()<until:
+                if cancel.wait(.025):raise RuntimeError('Orientación detenida')
+                self.guard(cancel);fresh=reader.read()
+                if fresh.get('turn')!=state['hero'] or fresh.get('turnNumber')!=serial:raise TurnExpired('Cambió el turno al orientar')
+                hero=next(p for p in fresh['players'] if p['id']==state['hero'])
+                if hero['look']==desired:return hero
         finally:self.key(direction,False)
-        hero=next(p for p in reader.read()['players'] if p['id']==state['hero'])
-        if hero['look']!=desired:raise RuntimeError('El carro no confirmó la orientación de salida')
-        return hero
+        raise NoAim('El carro no confirmó la orientación de salida',reason='orientation-unconfirmed')
     def plan_with_reposition(self,reader,autonomous,probe,target_x,serial,cancel):
         """At most two supported steps; every attempt replans from the actual pose."""
         from training_aim import NoAim
@@ -158,9 +166,21 @@ class TrainingBrowser:
                 if abs(movement['to'][0]-movement['from'][0])<.5:avoid=step['direction']
                 self.orient(reader,target_x>=movement['to'][0],serial,cancel)
         raise NoAim('No se encontró un ángulo tras dos pasos')
+    def select_dual(self,reader,serial,cancel):
+        self.require_charge_time();state=reader.read();ui=self.guard(cancel)
+        if state.get('turnNumber')!=serial or state.get('turn')!=state.get('hero') or state.get('shot') not in (0,1):raise TurnExpired('DD requiere el mismo turno y bala 1 o 2')
+        if any(not item.get('dual') for item in ui.get('selectedItems',[])):raise NoAim('Hay otro ítem seleccionado',reason='active-item')
+        if not ui.get('controls',{}).get('dual'):return False
+        if not ui.get('dualSelected'):self.click(ui['controls']['dual'],cancel)
+        for _ in range(6):
+            fresh=reader.read()
+            if fresh.get('turnNumber')!=serial or fresh.get('turn')!=fresh.get('hero'):raise TurnExpired('Cambió el turno al seleccionar DD')
+            if self.guard(cancel).get('dualSelected'):return True
+            if cancel.wait(.025):raise RuntimeError('Selección DD cancelada')
+        raise NoAim('El juego no confirmó DD; no se carga',reason='item-unconfirmed')
     def shoot(self,probe,cancel,settings_provider=None,before_fire=None,autonomous=None):
         self.reader=PowerReader(self.client.endpoint,self.client.target['id']);reader=self.reader
-        held=None
+        held=None;dual_selected_here=False;charge_started=False;serial=None
         try:
             ui=self.guard(cancel);s=reader.read()
             if s.get('over') or s.get('turn')!=s.get('hero') or s.get('busy') or s.get('moving'):raise TurnNotReady('Esperando que termine el movimiento o la animación del turno')
@@ -193,7 +213,7 @@ class TrainingBrowser:
                         player=next(p for p in reader.read()['players'] if p['id']==hero_id)
                         independent=autonomous.plan(self.sample(),player,probe);planned_angle=independent['raw_angle']
             elif settings_provider:
-                from training_aim import choose_aim,actual_solution,NoAim
+                from training_aim import choose_aim,actual_solution
                 settings=settings_provider(self.sample(),cancel)
                 player=next(p for p in reader.read()['players'] if p['id']==hero_id)
                 desired=desired_look(player,settings.target_x>=settings.hero_x)
@@ -253,8 +273,12 @@ class TrainingBrowser:
             remaining=fresh.get('turnSeconds')
             if isinstance(remaining,(int,float)) and math.isfinite(remaining):self.turn_deadline=min(self.turn_deadline,time.monotonic()+remaining)
             self.require_charge_time()
+            wants_dual=bool(independent and independent.get('use_dual'))
+            selected=self.guard(cancel).get('selectedItems') or []
+            if selected and not wants_dual:raise NoAim('Hay un ítem activo fuera del plan',reason='active-item')
+            if wants_dual and self.select_dual(reader,serial,cancel):release['item']='dual';dual_selected_here=not selected
             if before_fire:before_fire()
-            held='space';self.key('space',True);start=time.monotonic();charging=False
+            held='space';self.key('space',True);charge_started=True;start=time.monotonic();charging=False
             while time.monotonic()-start<4:
                 self.guard(cancel);s=reader.read()
                 if s.get('turn')!=hero_id or s.get('turnNumber')!=serial or s.get('over'):raise TurnExpired('Terminó el turno durante la carga')
@@ -280,7 +304,13 @@ class TrainingBrowser:
         finally:
             try:
                 if held:self.key(held,False)
-            finally:reader.close();self.reader=None
+            finally:
+                if dual_selected_here and not charge_started and not cancel.is_set():
+                    try:
+                        current=reader.read();ui=self.guard(cancel)
+                        if current.get('turnNumber')==serial and current.get('turn')==current.get('hero') and ui.get('dualSelected'):self.click(ui['controls']['dual'],cancel)
+                    except (RuntimeError,OSError,ConnectionError,TimeoutError):pass
+                reader.close();self.reader=None
     def close(self):
         if getattr(self,'background',False):
             try:self.client.call('Emulation.setFocusEmulationEnabled',{'enabled':False})

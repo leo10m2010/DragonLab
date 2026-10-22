@@ -20,5 +20,10 @@ try {
  assert.deepEqual(await page.evaluate(()=>window.keys),['ArrowUp']);assert.deepEqual(await other.evaluate(()=>window.keys),[]);
  // Chromium may focus the receiving renderer for dispatched input; the user's active page must keep focus.
  assert.equal(await other.evaluate(()=>document.hasFocus()),true);
+ const fs=await import('node:fs/promises');const source=await fs.readFile(new URL('../training_browser.py',import.meta.url),'utf8');const ui=source.match(/UI_JS=r"""([\s\S]*?)"""/)[1];
+ await other.setContent('<div id="gameScreen" style="width:800px;height:600px"></div><div id="gameItemSlot0" class="ItemBtn itemDual" style="width:30px;height:30px"></div><div id="gameItemSlot2" class="ItemBtn itemDualP Pressed" style="width:30px;height:30px"></div>');
+ let items=await other.evaluate(expression=>eval(expression),ui);assert.equal(items.dualSelected,false);assert.equal(items.selectedItems.length,1);assert.equal(items.selectedItems[0].dual,false);assert.ok(items.controls.dual);
+ await other.locator('#gameItemSlot2').evaluate(e=>e.classList.remove('Pressed'));await other.locator('#gameItemSlot0').evaluate(e=>e.classList.add('Pressed'));
+ items=await other.evaluate(expression=>eval(expression),ui);assert.equal(items.dualSelected,true);assert.equal(items.selectedItems[0].dual,true);
  console.log('PASS: background CDP input reaches only its bound target; active tab keeps focus.');
 } finally {await browser.close()}

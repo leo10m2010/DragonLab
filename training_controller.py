@@ -15,11 +15,15 @@ class TrainingController:
             from autonomous_learning import AutonomousLearner
             self.learner=AutonomousLearner(session.book_path.parent/'aprendizaje-autonomo.json',session.book_path);session.learner=self.learner
         self.trial=None;self.battle=None
-        if session.objective=='evaluation':
+        if session.objective in ('evaluation','adaptive'):
             if not self.learner:raise ValueError('La evaluación requiere aprendizaje autónomo')
             from training_evaluation import EvaluationTrial
             from battle_metrics import BattleMetrics
-            self.trial=EvaluationTrial(session.book_path.parent/'evaluacion-punteria.json',self.learner,session.max_shots);session.trial=self.trial
+            if session.objective=='adaptive':
+                from adaptive_training import AdaptiveTrial
+                self.trial=AdaptiveTrial(session.book_path.parent/'evaluacion-adaptativa.json',self.learner,session.max_shots,allow_dual=session.allow_dual)
+            else:self.trial=EvaluationTrial(session.book_path.parent/'evaluacion-punteria.json',self.learner,session.max_shots)
+            session.trial=self.trial
             self.battle=BattleMetrics(session.book_path.parent/'partidas-observadas.json',self.trial.health_result);session.battle=self.battle
         self.memory=None if session.autonomous else ActionMemory(session.book_path.parent/'estrategia-entrenamiento.json')
     def within_limits(self,started):
@@ -86,7 +90,7 @@ class TrainingController:
             self.in_game=False
             self.current=None;self.blocked.clear();browser.client.game=None;browser.client.renderer=None
             if ui['options']:
-                option=next((o for o in ui['options'] if mobile_name(o.get('name'))=='ARMOR'),None) if self.trial else self.learner.choose_mobile(ui['options'],s.mobile_attempts) if self.learner else next_mobile(ui['options'],s.mobile_attempts)
+                option=self.trial.choose_mobile(ui['options'],s.mobile_attempts) if s.objective=='adaptive' else next((o for o in ui['options'] if mobile_name(o.get('name'))=='ARMOR'),None) if self.trial else self.learner.choose_mobile(ui['options'],s.mobile_attempts) if self.learner else next_mobile(ui['options'],s.mobile_attempts)
                 if not option:raise RuntimeError('No hay carros identificables en el selector')
                 browser.click(option['point'],s.cancel);self.selected=True;name=mobile_name(option['name']);s.mobile_attempts[name]=s.mobile_attempts.get(name,0)+1
                 s.publish('Carro elegido: '+name);s.cancel.wait(.4);return
@@ -109,16 +113,21 @@ class TrainingController:
         hero=next(p for p in state['players'] if str(p.get('id'))==str(state['heroId']))
         mobile=mobile_name(hero.get('mobile'))
         if not mobile:raise RuntimeError('Carro no identificado; sesión detenida')
-        if self.trial and mobile!='ARMOR':s.publish('Esperando el lobby: la prueba solo usa Armor tiro 1');s.cancel.wait(.5);return
+        if s.objective=='evaluation' and mobile!='ARMOR':s.publish('Esperando el lobby: la prueba solo usa Armor tiro 1');s.cancel.wait(.5);return
         available=[i for i,k in enumerate(('btnShot1','btnShot2','btnShotSS')) if ui['controls'].get(k) and i not in self.blocked]
         if not available:
-            if self.blocked:self.ledger.consume(key);s.publish('Sin modalidad disponible o tiro seguro en este turno')
+            if self.blocked:
+                self.ledger.consume(key);s.publish('Sin modalidad disponible o tiro seguro en este turno')
+                if s.objective=='adaptive':self.trial.turn_skipped(key)
             s.cancel.wait(.2);return
-        if self.trial:
+        if s.objective=='evaluation':
             if 0 not in available:
                 self.ledger.consume(key);self.trial.skip('Armor tiro 1 no está disponible');s.publish('Tiro 1 no disponible; prueba sin disparo');return
             available=[0]
-        probe=self.trial.probe() if self.trial else self.learner.choose_probe(mobile,state.get('wind',0),s.shots,available) if self.learner else next_probe(s.records(),mobile,state.get('wind',0),s.shots,available)
+        if s.objective=='adaptive':
+            try:probe=self.trial.probe(mobile,state,available)
+            except NoAim as error:self.ledger.consume(key);self.trial.skip(error);self.trial.turn_skipped(key);s.publish(str(error));return
+        else:probe=self.trial.probe() if self.trial else self.learner.choose_probe(mobile,state.get('wind',0),s.shots,available) if self.learner else next_probe(s.records(),mobile,state.get('wind',0),s.shots,available)
         probe['turn_serial']=key[-1]
         if self.memory and s.shots%3==2:probe=self.memory.recommend(probe,state,available)
         stage='decidiendo con mediciones propias' if self.learner else 'calculando viento y recorrido'
@@ -131,7 +140,9 @@ class TrainingController:
         except UnavailableShot as error:
             self.blocked.add(probe['shot']);s.publish(str(error))
         except NoAim as error:
-            if self.trial:
+            if s.objective=='adaptive':
+                self.blocked.add(probe['shot']);self.trial.skip(error);s.publish(str(error)+'; buscando otra modalidad en este turno')
+            elif self.trial:
                 if self.ledger.available(key):self.ledger.consume(key)
                 self.trial.skip(error);s.publish(str(error))
             else:self.blocked.add(probe['shot']);s.publish(str(error)+'; probando otra modalidad')
@@ -161,7 +172,7 @@ class TrainingController:
         self.s.errors=self.s.errors[-64:]
     def observe(self,probe,release,observation):
         s=self.s;s.shots+=1
-        if self.learner:self.learner.observe(probe,release,observation)
+        if self.learner and not release.get('item'):self.learner.observe(probe,release,observation)
         if self.trial:
             token=self.trial.record(release,observation);self.battle.note(release,release.get('learner') or {},observation,token)
         s.emit({'status':'training-observation','release':release,'observation':observation})

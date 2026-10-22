@@ -17,7 +17,7 @@ class EvaluationTests(unittest.TestCase):
         app=SimpleNamespace(clone_id='dragonbound',training_session=None,last_live=0,endpoint=Mock(),browser_target=None,book=SimpleNamespace(path=Path('book.json'),records={}),events=Mock())
         with patch('training_session.TrainingSession') as factory:start_training(app)
         options=factory.call_args.kwargs
-        self.assertEqual(options['objective'],'evaluation');self.assertFalse(options['continuous']);self.assertEqual(options['max_shots'],40)
+        self.assertEqual(options['objective'],'adaptive');self.assertFalse(options['continuous']);self.assertEqual(options['max_shots'],40)
     def test_continuous_evaluation_is_rejected(self):
         with self.assertRaises(ValueError):TrainingSession('',None,'book.json',lambda e:None,continuous=True,objective='evaluation')
     def test_calibration_never_counts_as_a_directed_test(self):

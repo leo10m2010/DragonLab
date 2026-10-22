@@ -44,20 +44,21 @@ def adapted_hypothesis(prior,rows):
     return {'scale':scale,'offset':offset,'gravity':gravity,'wind_scale':k,'source':'local-adaptation-needs-future-checks'}
 
 class EvaluationTrial:
-    def __init__(self,path,learner,max_shots=20):
+    def __init__(self,path,learner,max_shots=20,mobile='ARMOR',shot=0):
+        self.mobile=mobile;self.shot=shot;self.key=f'dragonbound:{mobile}:{shot}'
         self.path=path;self.learner=learner;self.max_shots=max_shots;self.calibration_limit=min(12,max_shots//2);self.calibration=[];self.tests=[];self.skips=[];self.frozen=None;self.episode=None;self.context_candidate=None;self.warmups=0;self.phase='calibration';self.finished=False
-        self.baseline=copy.deepcopy(learner.records.get('dragonbound:ARMOR:0',{}).get('model'));self.prior=measured_prior(learner.records.get('dragonbound:ARMOR:0',{}).get('samples',[]));self.prior_training_ids={s['id'] for s in learner.records.get('dragonbound:ARMOR:0',{}).get('samples',[]) if 'id' in s}
+        self.baseline=copy.deepcopy(learner.records.get(self.key,{}).get('model'));self.prior=measured_prior(learner.records.get(self.key,{}).get('samples',[]));self.prior_training_ids={s['id'] for s in learner.records.get(self.key,{}).get('samples',[]) if 'id' in s}
     def reset_episode(self):
         if self.episode!=self.learner.episode:self.episode=self.learner.episode;self.warmups=0;self.frozen=None;self.context_candidate=None;self.phase='calibration'
     def probe(self):
-        return {'mobile':'ARMOR','shot':0,'power':(100,360,220,300,120,180)[len(self.calibration)%6],'angle':55,'purpose':'prueba controlada Armor 1','wind_band':0}
+        return {'mobile':self.mobile,'shot':self.shot,'power':(100,360,220,300,120,180)[len(self.calibration)%6],'angle':55,'purpose':f'prueba controlada {self.mobile} tiro {self.shot}','wind_band':0}
     def plan(self,state,player,probe,actual=False,previous=None):
         self.reset_episode()
         if not self.frozen and self.warmups>=1:
-            model,source=self.learner.applicable_model(self.learner.records.get('dragonbound:ARMOR:0',{}),state['wind'],state['windAngle'])
+            model,source=self.learner.applicable_model(self.learner.records.get(self.key,{}),state['wind'],state['windAngle'])
             if not model and self.prior:
                 from autonomous_learning import error,flight_error
-                checks=[s for s in self.learner.records.get('dragonbound:ARMOR:0',{}).get('samples',[]) if s.get('episode')==self.episode and s['id'] not in self.prior_training_ids and s.get('simple')]
+                checks=[s for s in self.learner.records.get(self.key,{}).get('samples',[]) if s.get('episode')==self.episode and s['id'] not in self.prior_training_ids and s.get('simple')]
                 if len(checks)>=3 and all(error(self.prior,s)<=5 and flight_error(self.prior,s) is not None and flight_error(self.prior,s)<=12 for s in checks[-3:]):model=self.prior
                 if not model and self.context_candidate:
                     future=[s for s in checks if s['id'] not in self.context_candidate['training_ids']]

@@ -130,7 +130,7 @@ class CalibrationBook:
         return accepted
 
     def observe_training(self,state,release):
-        if not isinstance(state,dict) or not isinstance(release,dict):return []
+        if not isinstance(state,dict) or not isinstance(release,dict) or release.get('item'):return []
         self.note_release(release)
         from shot_attribution import attributed_start,identity
         import hashlib

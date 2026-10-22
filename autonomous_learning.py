@@ -255,6 +255,7 @@ class AutonomousLearner:
         origin=(hero['x']+offsets[0],hero['y']+offsets[1]) if all(isinstance(v,(int,float)) and math.isfinite(v) and abs(v)<200 for v in offsets) else (hero['x'],hero['y'])
         target_xy=(target['x'],target['y'])
         candidates=[player['rawAngle']] if actual else [max(low,min(high,raw_angle(a,body,look,right))) for a in [probe['angle'],35,55,75,25,65]]
+        if not actual and probe.get('prefer_current_angle'):candidates=list(dict.fromkeys([player['rawAngle']]+candidates))
         weather=state.get('weather') or []
         # Nearby repeated native outcomes can be reused without assuming the
         # weather or a multi-projectile pattern follows a ballistic formula.
