@@ -91,6 +91,9 @@ class EvaluationTrial:
     def record(self,release,state):
         phase=(release.get('learner') or {}).get('evaluation_phase')
         token=uuid.uuid4().hex;row={'token':token,'phase':phase,'decision':(release.get('learner') or {}).get('stage'),'power':release.get('power'),'turn':release.get('turn_serial'),'wind':release.get('wind'),'wind_angle':release.get('windAngle'),'path_error_px':None,'health_window_known':False,'enemy_health_drop':None,'candidate_prediction_error_px':None,'baseline_prediction_error_px':None}
+        from weapon_policy import enemy_for
+        target=enemy_for(state,(release.get('learner') or {}).get('target'))
+        row.update(episode=self.learner.episode,target_id=target['id'] if target else None)
         if phase=='calibration':self.calibration.append(row);self.warmups+=1
         elif phase=='evaluation':
             target=(release.get('learner') or {}).get('target');distances=[];owned=[]

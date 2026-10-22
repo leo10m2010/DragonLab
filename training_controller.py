@@ -199,5 +199,6 @@ class TrainingController:
             if self.memory:self.memory.learn(probe,release,feedback)
         except (OSError,ValueError,TypeError):pass
         s.history.append({**probe,'timing':release.get('timing'),'item':release.get('item'),'power':lab.get('power',probe['power']),'probe_power':probe['power'],'actual_power':release.get('power'),'actual_angle':release.get('angle'),'turn_serial':release.get('turn_serial'),'movement':release.get('movement'),'angle_change':release.get('angle_change'),'lab':release.get('lab'),'learner':release.get('learner'),'feedback':feedback,'wind':release.get('wind'),'wind_angle':release.get('windAngle'),'weather':weather});s.history=s.history[-120:]
-        source=lab.get('stage','Lab')
+        modality=('Bala 1','Bala 2','SS')[probe['shot']]+(' + DD' if release.get('item')=='dual' else '')
+        source=modality+' · '+lab.get('stage','Lab')
         s.publish(f"Tiro {s.shots} · turno {probe['turn_serial']} · {source} · fuerza {lab.get('power',probe['power'])} → real {release.get('power')}")

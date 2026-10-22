@@ -32,7 +32,7 @@ class AdaptiveTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             a=AdaptiveTrial(Path(tmp)/'report.json',learner());state={'wind':0,'windAngle':0,'heroId':0,'players':[{'id':0,'x':0,'y':0,'hp':1000,'shield':0},{'id':1,'x':500,'y':0,'hp':50,'shield':0}]}
             for mode,damage in ((0,100),(2,400)):
-                a.profile('ARMOR',mode).tests=[{'health_window_known':True,'enemy_health_drop':damage} for _ in range(3)]
+                a.profile('ARMOR',mode).tests=[{'episode':'game-a','target_id':1,'wind':0,'wind_angle':0,'health_window_known':True,'enemy_health_drop':damage} for _ in range(3)]
             self.assertEqual(a.probe('ARMOR',state,[0,2])['shot'],0)
             with self.assertRaises(NoAim):a.probe('NAK',state,[2])
             self.assertIsNone(a.selected)
@@ -59,10 +59,10 @@ class AdaptiveTests(unittest.TestCase):
     def test_dual_requires_future_aim_and_damage_evidence_and_never_ss(self):
         with tempfile.TemporaryDirectory() as tmp:
             a=AdaptiveTrial(Path(tmp)/'report.json',learner(),allow_dual=True)
-            state={'heroId':0,'players':[{'id':0,'x':0,'y':0,'hp':1000,'shield':0},{'id':1,'x':500,'y':0,'hp':1000,'shield':0}]}
+            state={'heroId':0,'players':[{'id':0,'x':0,'y':0,'hp':1000,'shield':0},{'id':1,'x':500,'y':0,'hp':150,'shield':0}]}
             for shot in (0,2):
                 t=a.profile('ARMOR',shot);t.plan=Mock(return_value={'target':[500,0],'evaluation_phase':'evaluation'})
-                t.tests=[{'path_error_px':5,'health_window_known':True,'enemy_health_drop':100} for _ in range(5)]
+                t.tests=[{'episode':'game-a','target_id':1,'wind':0,'wind_angle':0,'path_error_px':5,'health_window_known':True,'enemy_health_drop':100} for _ in range(5)]
                 self.assertEqual(a.plan(state,{}, {'mobile':'ARMOR','shot':shot})['use_dual'],shot==0)
             a.allow_dual=False;self.assertFalse(a.plan(state,{}, {'mobile':'ARMOR','shot':0})['use_dual'])
             a.allow_dual=True;a.profile('ARMOR',0).tests=[];self.assertFalse(a.plan(state,{}, {'mobile':'ARMOR','shot':0})['use_dual'])

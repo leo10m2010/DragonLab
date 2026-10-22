@@ -5,6 +5,7 @@ from training_evaluation import EvaluationTrial,measured_prior
 from training_aim import NoAim
 from calibration_book import mobile_name
 from local_storage import atomic_write
+from weapon_policy import enemy_for,comparable,damage_evidence,dual_decision
 
 class AdaptiveTrial:
     def __init__(self,path,learner,max_shots=40,allow_dual=False):
@@ -25,18 +26,16 @@ class AdaptiveTrial:
         ready=[s for s in available if self.supported(mobile,s)]
         if not ready:raise NoAim('Sin mediciones aplicables en las modalidades disponibles',reason='missing-model')
         from battle_metrics import health
-        hero=next((p for p in state.get('players',[]) if str(p.get('id'))==str(state.get('heroId'))),None)
-        targets=[p for p in state.get('players',[]) if hero and str(p.get('id'))!=str(hero['id']) and not p.get('dead') and (hero.get('team') is None or p.get('team')!=hero['team'])]
-        target=min(targets,key=lambda p:(p['x']-hero['x'])**2+(p['y']-hero['y'])**2,default=None) if hero else None
+        target=enemy_for(state)
         remaining=health(target) if target else None
         def score(shot):
             trial=self.profile(mobile,shot);record=self.learner.records.get(trial.key,{})
             model,_=self.learner.applicable_model(record,state['wind'],state['windAngle'])
-            known=[r['enemy_health_drop'] for r in trial.tests if r.get('health_window_known') and r.get('enemy_health_drop') is not None]
-            damage=statistics.mean(known) if len(known)>=3 else 0
+            rows=comparable(trial.tests,self.learner.episode,state,target)
+            damage=damage_evidence(rows)
             effective=min(damage,remaining) if remaining is not None else damage
-            reserve_ss=1 if shot==2 and remaining is not None and damage>=remaining and damage>0 else 0
-            return (0 if model else 1,-effective,reserve_ss,len(trial.calibration)+len(trial.tests),len(trial.skips),shot)
+            finishing=remaining is not None and damage>0 and damage>=remaining
+            return (0 if model else 1,0 if finishing else 1,shot==2 if finishing else False,-effective,len(trial.calibration)+len(trial.tests),len(trial.skips),shot)
         shot=min(ready,key=score);trial=self.profile(mobile,shot);self.selected=trial
         return {**trial.probe(),'adaptive':True,'prefer_current_angle':True}
     def plan(self,state,player,probe,actual=False,previous=None):
@@ -47,12 +46,12 @@ class AdaptiveTrial:
                 result=self.excavate(state,player,probe,error)
                 if result:return result
             raise
-        target=result.get('target');enemy=min((p for p in state.get('players',[]) if str(p.get('id'))!=str(state.get('heroId')) and not p.get('dead')),key=lambda p:(p['x']-target[0])**2+(p['y']-target[1])**2,default=None) if target else None
-        known=[r for r in trial.tests if r.get('health_window_known') and (r.get('enemy_health_drop') or 0)>0];errors=[r['path_error_px'] for r in trial.tests if r.get('path_error_px') is not None]
+        enemy=enemy_for(state,result.get('target'))
+        rows=comparable(trial.tests,self.learner.episode,state,enemy)
         from battle_metrics import health
         remaining=health(enemy) if enemy else None
-        dual=bool(self.allow_dual and probe['shot'] in (0,1) and result.get('evaluation_phase')=='evaluation' and len(errors)>=5 and sum(e<=20 for e in errors)/len(errors)>=.8 and len(known)>=3 and remaining is not None and remaining>statistics.median(r['enemy_health_drop'] for r in known))
-        return {**result,'profile':trial.key,'use_dual':dual}
+        dual,reason=dual_decision(rows,remaining,self.allow_dual,probe['shot'],result.get('evaluation_phase'))
+        return {**result,'target_id':enemy['id'] if enemy else None,'profile':trial.key,'use_dual':dual,'item_reason':reason}
     def excavate(self,state,player,probe,error):
         import math
         # Explicit terrain-clearing experiment, never scored as an aimed hit.
@@ -78,7 +77,7 @@ class AdaptiveTrial:
         if (release.get('learner') or {}).get('action')=='abrir paso':
             token=uuid.uuid4().hex;self.recovery_rows.append({'token':token,'profile':key,'action':'abrir paso','power':release.get('power'),'impact':release['learner'].get('impact'),'health_window_known':False,'enemy_health_drop':None,'terrain_opened':None})
         elif release.get('item'):
-            token=uuid.uuid4().hex;self.dual_rows.append({'token':token,'profile':key,'item':release['item'],'power':release.get('power'),'health_window_known':False,'enemy_health_drop':None})
+            token=uuid.uuid4().hex;self.dual_rows.append({'token':token,'profile':key,'item':release['item'],'power':release.get('power'),'shot':release.get('shot'),'episode':self.learner.episode,'target_id':release['learner'].get('target_id'),'wind':release.get('wind'),'wind_angle':release.get('windAngle'),'decision':release['learner'].get('item_reason'),'health_window_known':False,'enemy_health_drop':None})
         else:token=self.profiles[key].record(release,state)
         self.save();return token
     def health_result(self,result):

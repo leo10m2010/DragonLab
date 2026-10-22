@@ -1,3 +1,7 @@
+# DragonLab 0.15.5 · Selección de armas e ítems
+
+Bala 2 participa con su perfil propio. DD se reserva para oportunidades de terminar un objetivo con precisión y daño medidos, usando datos de la misma partida, rival y viento compatible. La última acción y la razón del ítem aparecen en el panel.
+
 # DragonLab 0.15.4 · Inicio de sesión del juego
 
 Espera la carga conocida del perfil hasta 60 segundos; los avisos desconocidos siguen deteniendo el entrenamiento. Incluye la coordinación de controles de 0.15.3.
