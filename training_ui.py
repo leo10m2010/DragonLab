@@ -16,7 +16,7 @@ def settings_provider(app):
         return response['settings']
     return request
 
-def start_training(app,limit='40'):
+def start_training(app,limit='40',background=True):
     if app.clone_id!='dragonbound':raise ValueError('Elige DragonBound en la pantalla principal.')
     if app.training_session and app.training_session.running:return app.training_session
     from training_session import TrainingSession
@@ -24,7 +24,7 @@ def start_training(app,limit='40'):
     if getattr(app,'last_live',0)==0:endpoint='http://127.0.0.1:9223'
     if limit not in ('20','40'):raise ValueError('La prueba admite 20 o 40 tiros como máximo')
     continuous=False
-    app.training_session=TrainingSession(endpoint,app.browser_target,app.book.path,app.events.put,max_shots=60 if continuous else int(limit),continuous=continuous,autonomous=True,objective='evaluation',max_matches=6,max_seconds=900)
+    app.training_session=TrainingSession(endpoint,app.browser_target,app.book.path,app.events.put,max_shots=60 if continuous else int(limit),continuous=continuous,autonomous=True,objective='evaluation',background=background,max_matches=6,max_seconds=900)
     from training_progress import lab_summary
     app.training_session.lab_progress=lab_summary(app.book)
     app.training_session.start();return app.training_session
@@ -68,21 +68,23 @@ def open_training(app):
     tk.Label(content,text='Puntería y autonomía completa: pendientes de evaluación.\nEstos porcentajes no estiman cuánto tiempo falta.',justify='left',bg=BG,fg=MUTED,font=('Bahnschrift',10),wraplength=540).pack(anchor='w',padx=8,pady=(0,8))
     controls=tk.Frame(win,bg=BG);controls.grid(row=3,column=0,sticky='ew',padx=24,pady=6)
     tk.Label(controls,text='Duración',bg=BG,fg=MUTED,font=('Bahnschrift',10)).pack(side='left')
+    tk.Label(controls,text='Modo',bg=BG,fg=MUTED,font=('Bahnschrift',10)).pack(side='left',padx=(16,4))
+    mode=tk.StringVar(value='Segundo plano');mode_choice=RoundedChoice(controls,textvariable=mode,values=['Segundo plano','Juego al frente'],width=16);mode_choice.pack(side='left')
     limit=tk.StringVar(value='40');duration=RoundedChoice(controls,textvariable=limit,values=['20','40'],width=11);duration.pack(side='right')
     actions=tk.Frame(win,bg=BG);actions.grid(row=4,column=0,sticky='ew',padx=24,pady=(4,8))
     def stop():
         if app.training_session:app.training_session.stop()
     def start():
-        try:start_training(app,limit.get())
+        try:start_training(app,limit.get(),background=mode.get()=='Segundo plano')
         except (ValueError,RuntimeError) as error:status.config(text=str(error))
     stop_button=RoundedButton(actions,text='Detener',command=stop);stop_button.pack(side='left')
     start_button=RoundedButton(actions,text='Empezar',command=start,bg=GREEN,fg=BG);start_button.pack(side='right')
-    tk.Label(win,text='Armor · Tiro 1 · Prueba limitada. Esc detiene la sesión.',bg=BG,fg=MUTED,font=('Bahnschrift',10)).grid(row=5,column=0,sticky='w',padx=24,pady=(0,12))
+    tk.Label(win,text='Armor · Tiro 1 · Detener cancela incluso en segundo plano.',bg=BG,fg=MUTED,font=('Bahnschrift',10)).grid(row=5,column=0,sticky='w',padx=24,pady=(0,12))
     def refresh():
         if not win.winfo_exists():return
         session=app.training_session;learner=session.learner if session else None
         running=bool(session and session.running)
-        for control,state in [(start_button,'disabled' if running else 'normal'),(stop_button,'normal' if running else 'disabled'),(duration,'disabled' if running else 'readonly')]:
+        for control,state in [(start_button,'disabled' if running else 'normal'),(stop_button,'normal' if running else 'disabled'),(duration,'disabled' if running else 'readonly'),(mode_choice,'disabled' if running else 'readonly')]:
             if control.cget('state')!=state:control.config(state=state)
         if not session:result_label.config(text='La prueba separa calibración y evaluación.\nSolo considera dirigidos los tiros con una solución comprobada.')
         if session:
@@ -93,7 +95,10 @@ def open_training(app):
                 battle=session.battle.summary() if session.battle else {}
                 labels={'running':'En curso','approved':'Prueba de puntería aprobada','failed':'Prueba no aprobada','insufficient-data':'Faltan tiros dirigidos para evaluar'}
                 median=f"{trial['median_path_error_px']:g} px" if trial['median_path_error_px'] is not None else 'sin mediciones'
-                result_label.config(text=f"{labels[trial['status']]}\nTiros cerca del objetivo: {trial['near_target_shots']}/{trial['directed_test_shots']} · Mediana: {median}\nVentanas con bajada de vida/escudo: {trial['health_drop_windows']}/{trial['known_health_windows']}\nPartidas observadas: {battle.get('wins',0)} ganadas · {battle.get('losses',0)} perdidas · {battle.get('unknown_results',0)} sin resultado confirmado")
+                movements=getattr(session,'movements',[]);recovered=sum(m.get('trajectory_found') is True for m in movements)
+                reasons={'angle-unavailable':'falta ángulo','terrain-blocked':'terreno bloqueado','unknown-weather':'clima sin comprobar','missing-model':'falta modelo','unmeasured-wind':'viento sin medir','wind-out-of-domain':'viento fuera del ajuste','unsafe-ground':'suelo inseguro','calibration-budget':'límite de calibración'}
+                diagnostics=', '.join(f"{reasons.get(k,k)}: {v}" for k,v in trial.get('skip_reasons',{}).items()) or 'sin omisiones'
+                result_label.config(text=f"{labels[trial['status']]}\nTiros cerca del objetivo: {trial['near_target_shots']}/{trial['directed_test_shots']} · Mediana: {median}\nVentanas con bajada de vida/escudo: {trial['health_drop_windows']}/{trial['known_health_windows']}\nPartidas observadas: {battle.get('wins',0)} ganadas · {battle.get('losses',0)} perdidas · {battle.get('unknown_results',0)} sin resultado confirmado\nPasos con trayectoria recuperada: {recovered}/{len(movements)} · {diagnostics}")
             else:result_label.config(text='La prueba separa calibración y evaluación.\nSolo considera dirigidos los tiros con una solución comprobada.')
         report=coverage_report(learner.records if learner else {},app.book.records)
         launch.config(text=f"{report['launch_coverage_percent']:g}% · {report['launch_modes_validated']}/{report['launch_modes_total']} salidas")

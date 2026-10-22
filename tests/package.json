@@ -1,1 +1,1 @@
-{"private":true,"type":"module","scripts":{"test:browser":"node gesture_browser.mjs && node events_browser.mjs && node weather_browser.mjs"},"devDependencies":{"playwright":"1.64.0"}}
+{"private":true,"type":"module","scripts":{"test:browser":"node gesture_browser.mjs && node events_browser.mjs && node weather_browser.mjs && node background_browser.mjs"},"devDependencies":{"playwright":"1.64.0"}}

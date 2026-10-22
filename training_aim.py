@@ -4,8 +4,8 @@ import math,time
 from core import solve
 
 class NoAim(RuntimeError):
-    def __init__(self,message,reposition=False):
-        super().__init__(message);self.reposition=bool(reposition)
+    def __init__(self,message,reposition=False,reason='trajectory-unavailable'):
+        super().__init__(message);self.reposition=bool(reposition);self.reason=reason
 
 def terrain_solution(settings,result):
     power=result.get('guide_power')

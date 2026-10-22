@@ -3,7 +3,7 @@ import math,time
 from calibration_book import mobile_name
 from training_policy import next_probe,next_mobile
 from training_turns import TurnLedger,turn_key
-from training_browser import TrainingBrowser,FocusPause,UnavailableShot,TurnExpired,UnconfirmedShot
+from training_browser import TrainingBrowser,FocusPause,UnavailableShot,TurnExpired,UnconfirmedShot,TurnNotReady
 from training_aim import NoAim
 from training_memory import ActionMemory
 
@@ -32,17 +32,17 @@ class TrainingController:
             while self.within_limits(started):
                 try:
                     if browser is None:
-                        browser=TrainingBrowser(s.endpoint,s.target);browser.arm(focus=first);first=False
+                        browser=TrainingBrowser(s.endpoint,s.target);browser.background=s.background;browser.arm(focus=first and not s.background);first=False
                         if retries:s.last_error=''
                         s.publish('Conexión recuperada' if retries else 'Entrenando en Avatar Off')
                     if self.cycle(browser) is False:break
                     retries=0
                 except FocusPause as error:
-                    if not s.continuous:raise
+                    if not s.continuous and not s.background:raise
                     self.power.hold(False)
                     s.publish(str(error));s.cancel.wait(.5)
                 except (OSError,ConnectionError,TimeoutError) as error:
-                    if not s.continuous:raise
+                    if not s.continuous and not s.background:raise
                     self.power.hold(False)
                     s.last_error=str(error)
                     if browser:
@@ -77,6 +77,8 @@ class TrainingController:
             browser.click(ui['away'],s.cancel);s.cancel.wait(.3);return
         if ui.get('serverEntry'):
             browser.click(ui['serverEntry'],s.cancel);s.publish('Entrando a Avatar Off');s.cancel.wait(.7);return
+        if ui.get('url')=='https://dragonbound.net/':
+            s.publish('Esperando que cargue DragonBound y su sesión');s.cancel.wait(.5);return
         if not ui.get('game'):
             if self.battle:self.battle.end()
             if self.learner:self.learner.pending.clear()
@@ -133,6 +135,8 @@ class TrainingController:
                 if self.ledger.available(key):self.ledger.consume(key)
                 self.trial.skip(error);s.publish(str(error))
             else:self.blocked.add(probe['shot']);s.publish(str(error)+'; probando otra modalidad')
+        except TurnNotReady as error:
+            s.publish(str(error));s.cancel.wait(.15)
         except (TurnExpired,UnconfirmedShot) as error:
             if self.ledger.available(key):self.ledger.consume(key)
             self.failures=0;s.last_error='';self.record_error(key,str(error),'turn-ended' if isinstance(error,TurnExpired) else 'unconfirmed')
@@ -148,6 +152,9 @@ class TrainingController:
             else:
                 s.last_error=str(error);self.failures+=1;self.record_error(key,str(error),'control');s.publish(str(error))
                 if self.failures>=3:raise RuntimeError('Tres fallos de control; último: '+str(error))
+        finally:
+            if isinstance(getattr(browser,'movement_events',None),list) and browser.movement_events:
+                s.movements.extend(browser.movement_events);s.movements=s.movements[-64:];browser.movement_events.clear()
         s.cancel.wait(.15)
     def record_error(self,key,reason,kind):
         self.s.errors.append({'turn':key[-1],'reason':reason,'kind':kind,'at':time.time()})

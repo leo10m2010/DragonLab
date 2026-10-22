@@ -16,22 +16,27 @@ UI_JS=r"""(()=>{
 })()"""
 
 class TurnExpired(RuntimeError):pass
+class TurnNotReady(RuntimeError):pass
 class UnconfirmedShot(RuntimeError):pass
 class UnavailableShot(RuntimeError):pass
 class FocusPause(RuntimeError):pass
 
 class TrainingBrowser:
     def __init__(self,endpoint,target=None):
-        self.client=CDP(endpoint,target_id=target);self.client.sock.settimeout(.5);self.client.terrain_interval=4;self.reader=None
+        self.client=CDP(endpoint,target_id=target)
+        from training_lease import TrainingLease
+        try:self.control_lease=TrainingLease('target:'+self.client.endpoint+':'+self.client.target['id'])
+        except Exception:self.client.close();raise
+        self.movement_events=[];self.client.sock.settimeout(.5);self.client.terrain_interval=4;self.reader=None
     def ui(self):
         state=self.client.call('Runtime.evaluate',{'expression':UI_JS,'returnByValue':True}).get('result',{}).get('value',{})
-        if not re.fullmatch(r'https://dragonbound\.net/#server-8(?:/room-\d+)?/?',state.get('url','')) and not (state.get('url')=='https://dragonbound.net/' and state.get('serverEntry')):raise RuntimeError('El entrenamiento solo está habilitado en Avatar Off, servidor 8')
+        if not re.fullmatch(r'https://dragonbound\.net/#server-8(?:/room-\d+)?/?',state.get('url','')) and state.get('url')!='https://dragonbound.net/':raise RuntimeError('El entrenamiento solo está habilitado en Avatar Off, servidor 8')
         return state
     def guard(self,cancel):
         if cancel.is_set():raise RuntimeError('Entrenamiento detenido')
         ui=self.ui()
         if ui.get('stop'):cancel.set();raise RuntimeError('Esc: entrenamiento detenido')
-        if not ui.get('focused') or ui.get('chat'):raise FocusPause('En pausa: vuelve al juego y cierra el chat para continuar')
+        if ui.get('chat') or not getattr(self,'background',False) and not ui.get('focused'):raise FocusPause('En pausa: vuelve al juego y cierra el chat para continuar')
         return ui
     def click(self,point,cancel):
         self.guard(cancel)
@@ -44,7 +49,8 @@ class TrainingBrowser:
         name,vk,code=codes[key]
         self.client.call('Input.dispatchKeyEvent',{'type':'keyDown' if down else 'keyUp','key':name,'code':code,'windowsVirtualKeyCode':vk,'nativeVirtualKeyCode':vk})
     def arm(self,focus=True):
-        if focus:self.client.call('Page.bringToFront')
+        if getattr(self,'background',False):self.client.call('Emulation.setFocusEmulationEnabled',{'enabled':True})
+        if focus and not getattr(self,'background',False):self.client.call('Page.bringToFront')
         self.client.call('Runtime.evaluate',{'expression':"(()=>{const old=window.__dragonlabTrainingStop;if(old?.handler)window.removeEventListener('keydown',old.handler,true);const s={stopped:false};s.handler=e=>{if(e.isTrusted&&e.key==='Escape')s.stopped=true};window.addEventListener('keydown',s.handler,true);window.__dragonlabTrainingStop=s})()"})
     def sample(self):return self.client.sample()
     def seconds_left(self):
@@ -129,7 +135,8 @@ class TrainingBrowser:
         """At most two supported steps; every attempt replans from the actual pose."""
         from training_aim import NoAim
         from training_movement import walking_step
-        movements=[];avoid=None
+        movements=[];avoid=None;event=None
+        if not hasattr(self,'movement_events'):self.movement_events=[]
         for attempt in range(3):
             self.guard(cancel)
             fresh=reader.read()
@@ -138,12 +145,16 @@ class TrainingBrowser:
             state=self.sample()
             try:
                 result=autonomous.plan(state,player,probe)
+                if event:event.update(trajectory_found=True,reason='solution-found')
                 return result,({'steps':movements,'from':movements[0]['from'],'to':movements[-1]['to']} if movements else None)
             except NoAim as error:
+                if event:event.update(trajectory_found=False,reason=error.reason)
                 if not error.reposition or attempt==2 or self.seconds_left()<8:raise
                 step=walking_step(state,target_x,avoid=avoid)
-                if not step:raise NoAim(str(error)+'; no hay suelo seguro para cambiar de posición') from error
+                if not step:raise NoAim(str(error)+'; no hay suelo seguro para cambiar de posición',reason='unsafe-ground') from error
                 movement=self.walk(reader,step,cancel,expected_serial=serial);movements.append(movement)
+                event={'turn':serial,'from':movement['from'],'to':movement['to'],'direction':movement['direction'],'trajectory_found':None,'reason':'awaiting-replan'}
+                self.movement_events.append(event);self.movement_events=self.movement_events[-64:]
                 if abs(movement['to'][0]-movement['from'][0])<.5:avoid=step['direction']
                 self.orient(reader,target_x>=movement['to'][0],serial,cancel)
         raise NoAim('No se encontró un ángulo tras dos pasos')
@@ -152,7 +163,7 @@ class TrainingBrowser:
         held=None
         try:
             ui=self.guard(cancel);s=reader.read()
-            if s.get('over') or s.get('turn')!=s.get('hero') or s.get('busy') or s.get('moving'):raise RuntimeError('Esperando tu turno sin movimiento')
+            if s.get('over') or s.get('turn')!=s.get('hero') or s.get('busy') or s.get('moving'):raise TurnNotReady('Esperando que termine el movimiento o la animación del turno')
             hero_id=s['hero'];serial=s.get('turnNumber');target_shot=probe['shot']
             remaining=s.get('turnSeconds');self.turn_deadline=time.monotonic()+(remaining if isinstance(remaining,(int,float)) and math.isfinite(remaining) else 8.5)
             self.require_charge_time()
@@ -271,6 +282,11 @@ class TrainingBrowser:
                 if held:self.key(held,False)
             finally:reader.close();self.reader=None
     def close(self):
+        if getattr(self,'background',False):
+            try:self.client.call('Emulation.setFocusEmulationEnabled',{'enabled':False})
+            except Exception:pass
         try:self.client.call('Runtime.evaluate',{'expression':"(()=>{const s=window.__dragonlabTrainingStop;if(s?.handler)window.removeEventListener('keydown',s.handler,true);delete window.__dragonlabTrainingStop})()"})
         except Exception:pass
-        self.client.close()
+        try:self.client.close()
+        finally:
+            if getattr(self,'control_lease',None):self.control_lease.close()

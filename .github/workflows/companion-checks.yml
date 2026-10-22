@@ -23,4 +23,4 @@ jobs:
       - run: npm ci --prefix tests --ignore-scripts --no-audit --no-fund
       - run: npx playwright install --with-deps chromium
         working-directory: tests
-      - run: npm run test:browser --prefix tests
+      - run: xvfb-run -a npm run test:browser --prefix tests

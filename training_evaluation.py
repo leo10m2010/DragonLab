@@ -70,17 +70,17 @@ class EvaluationTrial:
                     if candidate:self.context_candidate={'model':candidate,'training_ids':{s['id'] for s in checks}}
             if model:self.frozen={'model':copy.deepcopy(model),'wind':state['wind'],'angle':state['windAngle']};self.phase='evaluation'
         if self.frozen:
-            if abs(state['wind']-self.frozen['wind'])>1 or state['wind'] and abs((state['windAngle']-self.frozen['angle']+180)%360-180)>5:raise NoAim('El viento queda fuera del ajuste congelado; no se envía una carga de prueba')
+            if abs(state['wind']-self.frozen['wind'])>1 or state['wind'] and abs((state['windAngle']-self.frozen['angle']+180)%360-180)>5:raise NoAim('El viento queda fuera del ajuste congelado; no se envía una carga de prueba',reason='wind-out-of-domain')
             plan=self.learner.plan(state,player,probe,actual,previous,model_override=self.frozen['model'])
-            if plan.get('stage')!='evaluación con modelo congelado':raise NoAim('Sin trayectoria comprobada para esta geometría o clima; no se dispara',reposition=plan.get('reposition_allowed',False))
+            if plan.get('stage')!='evaluación con modelo congelado':raise NoAim('Sin trayectoria comprobada para esta geometría o clima; no se dispara',reposition=plan.get('reposition_allowed',False),reason=plan.get('unavailable_reason','trajectory-unavailable'))
             return {**plan,'evaluation_phase':'evaluation'}
-        if len(self.calibration)>=self.calibration_limit:raise NoAim('Calibración agotada sin modelo aplicable; hace falta controlar las condiciones')
+        if len(self.calibration)>=self.calibration_limit:raise NoAim('Calibración agotada sin modelo aplicable; hace falta controlar las condiciones',reason='calibration-budget')
         if self.prior:
             hypothesis=self.context_candidate['model'] if self.context_candidate else self.prior
             proposal=self.learner.plan(state,player,probe,actual,previous,model_override=hypothesis)
             if proposal.get('stage')=='evaluación con modelo congelado':return {**proposal,'stage':'calibración dirigida provisional','evaluation_phase':'calibration'}
-            raise NoAim('Sin ángulo o recorrido libre para la hipótesis actual',reposition=proposal.get('reposition_allowed',False))
-        raise NoAim('Sin hipótesis de trayectoria aplicable; no se envía una fuerza arbitraria')
+            raise NoAim('Sin ángulo o recorrido libre para la hipótesis actual',reposition=proposal.get('reposition_allowed',False),reason=proposal.get('unavailable_reason','trajectory-unavailable'))
+        raise NoAim('Sin hipótesis de trayectoria aplicable; no se envía una fuerza arbitraria',reason='missing-model')
     def record(self,release,state):
         phase=(release.get('learner') or {}).get('evaluation_phase')
         token=uuid.uuid4().hex;row={'token':token,'phase':phase,'decision':(release.get('learner') or {}).get('stage'),'power':release.get('power'),'turn':release.get('turn_serial'),'wind':release.get('wind'),'wind_angle':release.get('windAngle'),'path_error_px':None,'health_window_known':False,'enemy_health_drop':None,'candidate_prediction_error_px':None,'baseline_prediction_error_px':None}
@@ -102,7 +102,7 @@ class EvaluationTrial:
     def health_result(self,result):
         row=next((r for r in self.tests+self.calibration if r['token']==result['token']),None)
         if row:row['health_window_known']=result['known'];row['enemy_health_drop']=result['enemy_health_drop'];self.save()
-    def skip(self,reason):self.skips.append({'reason':str(reason),'at':time.time()});self.skips=self.skips[-12:];self.save()
+    def skip(self,reason):self.skips.append({'reason':str(reason),'code':getattr(reason,'reason','unclassified'),'at':time.time()});self.skips=self.skips[-12:];self.save()
     def done(self):return len(self.tests)>=12 or len(self.calibration)+len(self.tests)>=self.max_shots or len(self.skips)>=6
     def summary(self):
         errors=[r['path_error_px'] for r in self.tests if r['path_error_px'] is not None];known=[r for r in self.tests if r['health_window_known']];damaged=[r for r in known if (r['enemy_health_drop'] or 0)>0]
@@ -113,6 +113,6 @@ class EvaluationTrial:
         current=statistics.mean(r['candidate_prediction_error_px'] for r in paired) if paired else None
         improvement=round((previous-current)*100/previous,1) if previous is not None and previous>1e-6 else None
         status='approved' if approved else 'insufficient-data' if self.finished and not enough else 'failed' if self.finished else 'running'
-        return {'status':status,'approved':approved,'calibration_shots':len(self.calibration),'directed_test_shots':len(self.tests),'skipped_turns':len(self.skips),'near_target_shots':near,'near_target_rate':round(near*100/len(errors),1) if errors else None,'median_path_error_px':round(statistics.median(errors),2) if errors else None,'known_health_windows':len(known),'health_drop_windows':len(damaged),'exploration_budget':self.calibration_limit,'minimum_directed_tests':10,'paired_prediction_tests':len(paired),'prediction_error_improvement_percent':improvement,'prediction_improvement_proven':len(paired)>=10 and improvement is not None and improvement>=10,'full_autonomy_proven':False}
+        return {'status':status,'approved':approved,'calibration_shots':len(self.calibration),'directed_test_shots':len(self.tests),'skipped_turns':len(self.skips),'skip_reasons':{code:sum(s.get('code')==code for s in self.skips) for code in sorted({s.get('code','unclassified') for s in self.skips})},'near_target_shots':near,'near_target_rate':round(near*100/len(errors),1) if errors else None,'median_path_error_px':round(statistics.median(errors),2) if errors else None,'known_health_windows':len(known),'health_drop_windows':len(damaged),'exploration_budget':self.calibration_limit,'minimum_directed_tests':10,'paired_prediction_tests':len(paired),'prediction_error_improvement_percent':improvement,'prediction_improvement_proven':len(paired)>=10 and improvement is not None and improvement>=10,'full_autonomy_proven':False}
     def save(self):atomic_write(self.path,json.dumps({'schema':1,'summary':self.summary(),'calibration':self.calibration,'tests':self.tests,'skips':self.skips},allow_nan=False).encode())
     def finish(self):self.finished=True;self.save()
