@@ -163,8 +163,10 @@ class App:
         if not fit and self.clone_id=='gunbound-world' and not self.book.records.get(self.book.key(self.clone_id,self.s.mobile,self.s.selected_shot),{}).get('drift_pending'):
             from gunbound_profiles import measured_profile
             fit=measured_profile(self.s.mobile,self.s.selected_shot,self.s.wind)
+        if self.s.mobile=='RANDOMIZER':fit=None
         self.active_measured_profile=bool(fit)
-        self.profile_required=self.clone_id=='gunbound-world' and not fit
+        self.profile_required=self.s.mobile=='RANDOMIZER' or self.clone_id=='gunbound-world' and not fit
+        self.profile_missing_reason='Camaleón: el proyectil cambia; no está identificado antes del tiro.' if self.s.mobile=='RANDOMIZER' else 'GunBound World: falta calibrar fuerza para este vehículo, tiro y viento.'
         if fit and fit.get('native_euler_step'):self.s.environment['nativeEulerStep']=fit['native_euler_step']
         else:self.s.environment.pop('nativeEulerStep',None)
         if not fit:fit=self.book.provisional(self.clone_id,self.s.mobile,self.s.selected_shot,self.s.wind,self.s.wind_angle)
@@ -680,14 +682,14 @@ class App:
         if self.dirty and not self.computing and not self.autonomous_training():
             self.dirty=False;self.compute_generation+=1
             try:
-                settings=replace(self.read(),environment=dict(self.s.environment));profile_required=getattr(self,'profile_required',False);generation=self.compute_generation;context=self.visual_context();self.computing=True
+                settings=replace(self.read(),environment=dict(self.s.environment));profile_required=getattr(self,'profile_required',False);missing_reason=getattr(self,'profile_missing_reason','Falta un perfil aplicable.');generation=self.compute_generation;context=self.visual_context();self.computing=True
                 self.power.config(text='…')
                 self.draw_force()
                 if self.overlay:self.draw_overlay()
                 preview_power=self.current_game_power if isinstance(self.current_game_power,(int,float)) and 1<=self.current_game_power<=settings.max_power else None
-                def calculate(settings=settings,generation=generation,preview_power=preview_power,context=context,profile_required=profile_required):
+                def calculate(settings=settings,generation=generation,preview_power=preview_power,context=context,profile_required=profile_required,missing_reason=missing_reason):
                     try:
-                        started=time.perf_counter();result={'reachable':False,'reason':'GunBound World: falta calibrar fuerza para este vehículo, tiro y viento.'} if profile_required else solve(settings);solve_seconds=time.perf_counter()-started
+                        started=time.perf_counter();result={'reachable':False,'reason':missing_reason} if profile_required else solve(settings);solve_seconds=time.perf_counter()-started
                         if not result.get('reachable') and not result.get('blocked') and preview_power:
                             from physics_extensions import trajectory
                             preview=trajectory(settings,preview_power,step=.06,include_deployment=True)
@@ -709,7 +711,7 @@ class App:
             except OSError:pass
 
     def compute(self):
-        self.compute_generation+=1;self.result=solve(self.read());self.result_context=self.visual_context();self.show_result();return self.result
+        self.compute_generation+=1;self.result={'reachable':False,'reason':getattr(self,'profile_missing_reason','Falta un perfil aplicable.')} if getattr(self,'profile_required',False) else solve(self.read());self.result_context=self.visual_context();self.show_result();return self.result
     def show_result(self,error=None):
         if not self.has_position_data and self.auto_enabled:
             self.result={};self.power.config(text='—');self.details.config(text='Abre el juego e inicia una partida.\nLa guía aparecerá automáticamente.');self.draw();self.draw_force();return

@@ -164,6 +164,7 @@ class TrainingController:
                 s.last_error=str(error);self.failures+=1;self.record_error(key,str(error),'control');s.publish(str(error))
                 if self.failures>=3:raise RuntimeError('Tres fallos de control; último: '+str(error))
         finally:
+            if isinstance(getattr(browser,'last_timing',None),dict):s.last_timing=dict(browser.last_timing)
             if isinstance(getattr(browser,'movement_events',None),list) and browser.movement_events:
                 s.movements.extend(browser.movement_events);s.movements=s.movements[-64:];browser.movement_events.clear()
         s.cancel.wait(.15)
@@ -190,6 +191,6 @@ class TrainingController:
         try:
             if self.memory:self.memory.learn(probe,release,feedback)
         except (OSError,ValueError,TypeError):pass
-        s.history.append({**probe,'power':lab.get('power',probe['power']),'probe_power':probe['power'],'actual_power':release.get('power'),'actual_angle':release.get('angle'),'turn_serial':release.get('turn_serial'),'movement':release.get('movement'),'angle_change':release.get('angle_change'),'lab':release.get('lab'),'learner':release.get('learner'),'feedback':feedback,'wind':release.get('wind'),'wind_angle':release.get('windAngle'),'weather':weather});s.history=s.history[-120:]
+        s.history.append({**probe,'timing':release.get('timing'),'item':release.get('item'),'power':lab.get('power',probe['power']),'probe_power':probe['power'],'actual_power':release.get('power'),'actual_angle':release.get('angle'),'turn_serial':release.get('turn_serial'),'movement':release.get('movement'),'angle_change':release.get('angle_change'),'lab':release.get('lab'),'learner':release.get('learner'),'feedback':feedback,'wind':release.get('wind'),'wind_angle':release.get('windAngle'),'weather':weather});s.history=s.history[-120:]
         source=lab.get('stage','Lab')
         s.publish(f"Tiro {s.shots} · turno {probe['turn_serial']} · {source} · fuerza {lab.get('power',probe['power'])} → real {release.get('power')}")

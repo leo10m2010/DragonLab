@@ -142,7 +142,7 @@ class TrainingBrowser:
     def plan_with_reposition(self,reader,autonomous,probe,target_x,serial,cancel):
         """At most two supported steps; every attempt replans from the actual pose."""
         from training_aim import NoAim
-        from training_movement import walking_step
+        from training_movement import choose_reposition
         movements=[];avoid=None;event=None
         if not hasattr(self,'movement_events'):self.movement_events=[]
         for attempt in range(3):
@@ -152,20 +152,37 @@ class TrainingBrowser:
             player=next(p for p in fresh['players'] if p['id']==fresh['hero'])
             state=self.sample()
             try:
-                result=autonomous.plan(state,player,probe)
+                result=self.timed_plan(autonomous,state,player,probe)
                 if event:event.update(trajectory_found=True,reason='solution-found')
                 return result,({'steps':movements,'from':movements[0]['from'],'to':movements[-1]['to']} if movements else None)
             except NoAim as error:
                 if event:event.update(trajectory_found=False,reason=error.reason)
-                if not error.reposition or attempt==2 or self.seconds_left()<8:raise
-                step=walking_step(state,target_x,avoid=avoid)
-                if not step:raise NoAim(str(error)+'; no hay suelo seguro para cambiar de posición',reason='unsafe-ground') from error
+                if not error.reposition or attempt==2 or self.seconds_left()<8:
+                    recover=getattr(autonomous,'excavate',None)
+                    candidate=recover(state,player,probe,error) if callable(recover) and self.seconds_left()>=5 else None
+                    if isinstance(candidate,dict):return candidate,({'steps':movements,'from':movements[0]['from'],'to':movements[-1]['to']} if movements else None)
+                    raise
+                def evaluate(hypothetical,step):
+                    simulated={**player,'x':step['expected_to'][0],'y':step['expected_to'][1],'body':step['expected_body']}
+                    try:
+                        candidate=self.timed_plan(autonomous,hypothetical,simulated,probe)
+                        return candidate.get('stage') in ('evaluación con modelo congelado','calibración dirigida provisional')
+                    except NoAim:return False
+                step=choose_reposition(state,target_x,error.reason,avoid=avoid,evaluate=evaluate)
+                if not step:
+                    recover=getattr(autonomous,'excavate',None);candidate=recover(state,player,probe,error) if callable(recover) else None
+                    if isinstance(candidate,dict):return candidate,({'steps':movements,'from':movements[0]['from'],'to':movements[-1]['to']} if movements else None)
+                    raise NoAim(str(error)+'; no hay suelo seguro para cambiar de posición',reason='unsafe-ground') from error
                 movement=self.walk(reader,step,cancel,expected_serial=serial);movements.append(movement)
-                event={'turn':serial,'from':movement['from'],'to':movement['to'],'direction':movement['direction'],'trajectory_found':None,'reason':'awaiting-replan'}
+                event={'selection':step.get('selection'),'turn':serial,'from':movement['from'],'to':movement['to'],'direction':movement['direction'],'trajectory_found':None,'reason':'awaiting-replan'}
                 self.movement_events.append(event);self.movement_events=self.movement_events[-64:]
                 if abs(movement['to'][0]-movement['from'][0])<.5:avoid=step['direction']
                 self.orient(reader,target_x>=movement['to'][0],serial,cancel)
         raise NoAim('No se encontró un ángulo tras dos pasos')
+    def timed_plan(self,autonomous,*args,**kwargs):
+        started=time.perf_counter()
+        try:return autonomous.plan(*args,**kwargs)
+        finally:self.planning_ms=getattr(self,'planning_ms',0)+(time.perf_counter()-started)*1000
     def select_dual(self,reader,serial,cancel):
         self.require_charge_time();state=reader.read();ui=self.guard(cancel)
         if state.get('turnNumber')!=serial or state.get('turn')!=state.get('hero') or state.get('shot') not in (0,1):raise TurnExpired('DD requiere el mismo turno y bala 1 o 2')
@@ -180,7 +197,7 @@ class TrainingBrowser:
         raise NoAim('El juego no confirmó DD; no se carga',reason='item-unconfirmed')
     def shoot(self,probe,cancel,settings_provider=None,before_fire=None,autonomous=None):
         self.reader=PowerReader(self.client.endpoint,self.client.target['id']);reader=self.reader
-        held=None;dual_selected_here=False;charge_started=False;serial=None
+        held=None;dual_selected_here=False;charge_started=False;serial=None;self.planning_ms=0;preparing_at=time.perf_counter()
         try:
             ui=self.guard(cancel);s=reader.read()
             if s.get('over') or s.get('turn')!=s.get('hero') or s.get('busy') or s.get('moving'):raise TurnNotReady('Esperando que termine el movimiento o la animación del turno')
@@ -251,12 +268,13 @@ class TrainingBrowser:
             self.angle_mobile=probe.get('mobile');angle_change=self.adjust_angle(reader,planned_angle,cancel,expected_serial=serial)
             if autonomous:
                 fresh=reader.read();player=next(p for p in fresh['players'] if p['id']==hero_id)
-                independent=autonomous.plan(self.sample(),player,probe,actual=True,previous=independent);probe={**probe,'power':independent['power']}
+                independent=self.timed_plan(autonomous,self.sample(),player,probe,actual=True,previous=independent);probe={**probe,'power':independent['power']}
             elif settings_provider:
                 settings=settings_provider(self.sample(),cancel);lab=actual_solution(settings,allow_blocked=lab.get('training_action') in ('abrir paso','aproximar'))
                 probe={**probe,'power':lab['power']}
             s=reader.read();hero=next(p for p in s['players'] if p['id']==hero_id)
             release={'hero':hero_id,'x':hero['x'],'y':hero['y'],'shot':target_shot,'angle':hero.get('rawAngle'),'wind':s.get('wind'),'windAngle':s.get('windAngle'),'baseline':[]}
+            release['timing']={'planning_ms':round(self.planning_ms,2),'preparation_ms':round((time.perf_counter()-preparing_at)*1000,2)}
             release['pose']={k:hero.get(k) for k in ('look','body','minAngle','maxAngle')}
             release['angle_change']=angle_change
             release['movement']=movement;release['turn_serial']=serial
@@ -302,6 +320,7 @@ class TrainingBrowser:
                 time.sleep(.025)
             raise UnconfirmedShot('Tiro liberado, pero sin salida propia confirmada; no se usará para calibrar')
         finally:
+            self.last_timing={'planning_ms':round(self.planning_ms,2),'attempt_ms':round((time.perf_counter()-preparing_at)*1000,2)}
             try:
                 if held:self.key(held,False)
             finally:

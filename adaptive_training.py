@@ -8,12 +8,13 @@ from local_storage import atomic_write
 
 class AdaptiveTrial:
     def __init__(self,path,learner,max_shots=40,allow_dual=False):
-        self.path=Path(path);self.learner=learner;self.max_shots=max_shots;self.allow_dual=allow_dual;self.dual_rows=[];self.profiles={};self.selected=None;self.attempts=[];self.omitted_turns=[];self.finished=False
+        self.path=Path(path);self.learner=learner;self.max_shots=max_shots;self.allow_dual=allow_dual;self.dual_rows=[];self.recovery_rows=[];self.profiles={};self.selected=None;self.attempts=[];self.omitted_turns=[];self.finished=False
     def profile(self,mobile,shot):
         key=f'dragonbound:{mobile}:{shot}'
         if key not in self.profiles:self.profiles[key]=EvaluationTrial(self.path.parent/f'evaluacion-{mobile}-{shot}.json',self.learner,self.max_shots,mobile,shot)
         return self.profiles[key]
     def supported(self,mobile,shot):
+        if mobile=='RANDOMIZER':return False
         record=self.learner.records.get(f'dragonbound:{mobile}:{shot}',{})
         return not record.get('multi_projectile') and bool(record.get('model') or measured_prior(record.get('samples',[])))
     def choose_mobile(self,options,attempted):
@@ -40,21 +41,49 @@ class AdaptiveTrial:
         return {**trial.probe(),'adaptive':True,'prefer_current_angle':True}
     def plan(self,state,player,probe,actual=False,previous=None):
         trial=self.profile(probe['mobile'],probe['shot']);self.selected=trial
-        result=trial.plan(state,player,probe,actual,previous)
+        try:result=trial.plan(state,player,probe,actual,previous)
+        except NoAim as error:
+            if actual and previous and previous.get('action')=='abrir paso':
+                result=self.excavate(state,player,probe,error)
+                if result:return result
+            raise
         target=result.get('target');enemy=min((p for p in state.get('players',[]) if str(p.get('id'))!=str(state.get('heroId')) and not p.get('dead')),key=lambda p:(p['x']-target[0])**2+(p['y']-target[1])**2,default=None) if target else None
         known=[r for r in trial.tests if r.get('health_window_known') and (r.get('enemy_health_drop') or 0)>0];errors=[r['path_error_px'] for r in trial.tests if r.get('path_error_px') is not None]
         from battle_metrics import health
         remaining=health(enemy) if enemy else None
         dual=bool(self.allow_dual and probe['shot'] in (0,1) and result.get('evaluation_phase')=='evaluation' and len(errors)>=5 and sum(e<=20 for e in errors)/len(errors)>=.8 and len(known)>=3 and remaining is not None and remaining>statistics.median(r['enemy_health_drop'] for r in known))
         return {**result,'profile':trial.key,'use_dual':dual}
+    def excavate(self,state,player,probe,error):
+        import math
+        # Explicit terrain-clearing experiment, never scored as an aimed hit.
+        if probe['mobile'] not in ('ARMOR','ICE','MAGE','TRICO') or probe['shot']!=0:return None
+        trial=self.profile(probe['mobile'],probe['shot'])
+        if not trial.frozen or error.reason!='terrain-blocked' or not isinstance(error.recovery,dict):return None
+        hero=next((p for p in state.get('players',[]) if str(p['id'])==str(state.get('heroId'))),None)
+        if not hero:return None
+        origin=(hero['x'],hero['y']);choices=[]
+        for candidate in error.recovery.get('blocked_plans',[]):
+            impact=candidate['impact'];target=candidate['target']
+            if math.dist(origin,impact)<90 or abs(impact[0]-hero['x'])<70:continue
+            if math.dist(impact,target)>math.dist(origin,target)-30:continue
+            allies=[p for p in state.get('players',[]) if str(p['id'])!=str(hero['id']) and hero.get('team') is not None and p.get('team')==hero['team'] and not p.get('dead')]
+            if any(math.dist((p['x'],p['y']),impact)<90 for p in allies):continue
+            choices.append(candidate)
+        if not choices:return None
+        best=min(choices,key=lambda c:abs(c['raw_angle']-player['rawAngle']))
+        return {**best,'stage':'abrir paso: experimento sobre terreno','action':'abrir paso','evaluation_phase':'recovery','profile':trial.key,'use_dual':False,'approximate':True,'expected_terrain_impact':best['impact']}
     def record(self,release,state):
         key=(release.get('learner') or {}).get('profile')
         if key not in self.profiles:raise ValueError('El tiro no identifica su perfil adaptativo')
-        if release.get('item'):
+        if (release.get('learner') or {}).get('action')=='abrir paso':
+            token=uuid.uuid4().hex;self.recovery_rows.append({'token':token,'profile':key,'action':'abrir paso','power':release.get('power'),'impact':release['learner'].get('impact'),'health_window_known':False,'enemy_health_drop':None,'terrain_opened':None})
+        elif release.get('item'):
             token=uuid.uuid4().hex;self.dual_rows.append({'token':token,'profile':key,'item':release['item'],'power':release.get('power'),'health_window_known':False,'enemy_health_drop':None})
         else:token=self.profiles[key].record(release,state)
         self.save();return token
     def health_result(self,result):
+        for row in self.recovery_rows:
+            if row['token']==result['token']:row.update(health_window_known=result['known'],enemy_health_drop=result['enemy_health_drop'],terrain_opened=result.get('terrain_opened'))
         for row in self.dual_rows:
             if row['token']==result['token']:row.update(health_window_known=result['known'],enemy_health_drop=result['enemy_health_drop'])
         for trial in self.profiles.values():trial.health_result(result)
@@ -65,13 +94,13 @@ class AdaptiveTrial:
     def turn_skipped(self,key):
         if key not in self.omitted_turns:self.omitted_turns.append(key)
         self.omitted_turns=self.omitted_turns[-128:];self.save()
-    def done(self):return sum(len(t.calibration)+len(t.tests) for t in self.profiles.values())+len(self.dual_rows)>=self.max_shots
+    def done(self):return sum(len(t.calibration)+len(t.tests) for t in self.profiles.values())+len(self.dual_rows)+len(self.recovery_rows)>=self.max_shots
     def summary(self):
         reports={k:t.summary() for k,t in self.profiles.items()};tests=[row for t in self.profiles.values() for row in t.tests];errors=[row['path_error_px'] for row in tests if row['path_error_px'] is not None]
         known=[row for row in tests if row['health_window_known']];damaged=[row for row in known if (row['enemy_health_drop'] or 0)>0]
         reasons={code:sum(a['code']==code for a in self.attempts) for code in sorted({a['code'] for a in self.attempts})}
-        return {'status':'complete' if self.finished else 'running','approved':False,'adaptive':True,'calibration_shots':sum(len(t.calibration) for t in self.profiles.values()),'directed_test_shots':len(tests),'skipped_turns':len(self.omitted_turns),'rejected_modes':len(self.attempts),'skip_reasons':reasons,'near_target_shots':sum(e<=20 for e in errors),'near_target_rate':round(sum(e<=20 for e in errors)*100/len(errors),1) if errors else None,'median_path_error_px':round(statistics.median(errors),2) if errors else None,'known_health_windows':len(known),'health_drop_windows':len(damaged),'exploration_budget':sum(t.calibration_limit for t in self.profiles.values()),'minimum_directed_tests':10,'prediction_improvement_proven':False,'full_autonomy_proven':False,'profiles':reports,'dual_uses':len(self.dual_rows)}
-    def save(self):atomic_write(self.path,json.dumps({'schema':1,'summary':self.summary(),'attempts':self.attempts,'dual_observations':self.dual_rows},allow_nan=False).encode())
+        return {'status':'complete' if self.finished else 'running','approved':False,'adaptive':True,'calibration_shots':sum(len(t.calibration) for t in self.profiles.values()),'directed_test_shots':len(tests),'skipped_turns':len(self.omitted_turns),'rejected_modes':len(self.attempts),'skip_reasons':reasons,'near_target_shots':sum(e<=20 for e in errors),'near_target_rate':round(sum(e<=20 for e in errors)*100/len(errors),1) if errors else None,'median_path_error_px':round(statistics.median(errors),2) if errors else None,'known_health_windows':len(known),'health_drop_windows':len(damaged),'exploration_budget':sum(t.calibration_limit for t in self.profiles.values()),'minimum_directed_tests':10,'prediction_improvement_proven':False,'full_autonomy_proven':False,'profiles':reports,'dual_uses':len(self.dual_rows),'terrain_attempts':len(self.recovery_rows),'terrain_openings_observed':sum(r['terrain_opened'] is True for r in self.recovery_rows)}
+    def save(self):atomic_write(self.path,json.dumps({'schema':1,'summary':self.summary(),'attempts':self.attempts,'dual_observations':self.dual_rows,'terrain_recovery':self.recovery_rows},allow_nan=False).encode())
     def finish(self):
         self.finished=True
         for trial in self.profiles.values():trial.finish()

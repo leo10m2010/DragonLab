@@ -7,7 +7,7 @@ def mobile_name(value):
     if isinstance(value,int) and 0<=value<len(PROFILES):return list(PROFILES)[value]
     if isinstance(value,str):
         name=value.upper().replace('.','').replace(' ','')
-        name={'JFROG':'FROG','RAONLAUNCHER':'RAON'}.get(name,name)
+        name={'JFROG':'FROG','RAONLAUNCHER':'RAON','CAMALEON':'RANDOMIZER','CHAMELEON':'RANDOMIZER'}.get(name,name)
         return name if name in PROFILES else None
     return None
 
@@ -20,12 +20,14 @@ class CalibrationBook:
         except (OSError,ValueError,TypeError):pass
     def key(self,clone,mobile,shot):return f'{clone}:{mobile}:{shot}'
     def profile(self,clone,mobile,shot,wind):
+        if mobile=='RANDOMIZER':return None
         record=self.records.get(self.key(clone,mobile,shot),{})
         fit=record.get('fit')
         if record.get('drift_pending'):return None
         if not fit or (not fit.get('wind_observed') and wind!=0):return None
         return fit
     def confidence(self,clone,mobile,shot,wind):
+        if mobile=='RANDOMIZER':return {'label':'Arma variable · falta identificar proyectil','count':0,'level':'low'}
         record=self.records.get(self.key(clone,mobile,shot),{});fit=self.profile(clone,mobile,shot,wind)
         count=len(record.get('samples',[]))
         if record.get('drift_pending'):return {'label':'Recalibrando','count':count,'level':'low'}
@@ -43,6 +45,7 @@ class CalibrationBook:
         import statistics
         return statistics.median(s['gravity'] for s in samples)
     def acceleration(self,clone,mobile,shot,wind,angle):
+        if mobile=='RANDOMIZER':return None
         return None
     def save(self):
         from local_storage import atomic_write
@@ -101,6 +104,9 @@ class CalibrationBook:
         r=math.radians(launch_angle)
         sample={'power':power,'vx':math.cos(r)*speed,'vy':-math.sin(r)*speed,'ax':ax,'ay':ay,'wind':wind,'wind_angle':angle,'source':'native-shot-start','duration_s':s.get('duration',0)/1000,'simple_trajectory':not any(s.get(k) for k in ('change','jumps','wave','orbit','path'))}
         key=self.key(clone,name,shot_type);record=self.records.setdefault(key,{'samples':[]})
+        if name=='RANDOMIZER':
+            from variable_projectiles import record_variant
+            record_variant(record,s,{'power':power,'wind':wind,'windAngle':angle});self.message=record['status'];self.save();return []
         sample['sample_id']=ident[1]
         if any(m.get('sample_id')==ident[1] for m in record.get('samples',[])):return []
         record['samples']=(record['samples']+[sample])[-48:];record['updated']=time.time()
@@ -156,7 +162,8 @@ class CalibrationBook:
         # independent evidence for replacing a running calibration.
         from learning_guard import update
         before=sum(bool(r.get('candidate')) for r in self.records.values())
-        for record in self.records.values():
+        for key,record in self.records.items():
+            if ':RANDOMIZER:' in key:continue
             samples=record.get('samples',[])
             if samples:update(record,samples[-1])
         self.save()
@@ -170,6 +177,7 @@ class CalibrationBook:
             if any(r.get('drift_pending') for r in modes):status='Revisando cambio de física'
             elif any(r.get('fit') for r in modes):
                 status=' · '.join(f'{label}: '+('con viento' if r.get('fit',{}).get('wind_observed') else 'sin viento' if r.get('fit') else 'pendiente') for label,r in zip(('1','2','SS'),modes))
+            if name=='RANDOMIZER':status='Arma variable · variantes por proyectil'
             rows.append((name,status,count))
         return rows
     def import_samples(self,data,clone='dragonbound'):

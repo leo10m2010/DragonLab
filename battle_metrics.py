@@ -23,7 +23,7 @@ class BattleMetrics:
             if others:target=min(others,key=lambda p:(p['x']-plan['target'][0])**2+(p['y']-plan['target'][1])**2)['id']
         before=release.get('health_before') or {str(p['id']):health(p) for p in players}
         durations=[s.get('duration',0)/1000 for s in state.get('shots',[]) if s.get('native')]
-        self.pending.append({'token':token,'hero':hero,'target':target,'turn':release.get('turn_serial'),'before':before,'expires':time.monotonic()+min(20,max(durations,default=2)+2),'ambiguous':False,'baseline':release.get('baseline',[])})
+        self.pending.append({'token':token,'hero':hero,'target':target,'turn':release.get('turn_serial'),'before':before,'expires':time.monotonic()+min(20,max(durations,default=2)+2),'ambiguous':False,'terrain_impact':plan.get('expected_terrain_impact'),'baseline':release.get('baseline',[])})
     def observe(self,state):
         if state.get('status')!='live':return
         if not self.game:
@@ -49,6 +49,10 @@ class BattleMetrics:
         target=str(item['target']);before=item['before'].get(target);current=after.get(target)
         known=not item['ambiguous'] and before is not None and current is not None
         row={'token':item['token'],'game':self.game['id'] if self.game else None,'known':known,'enemy_health_drop':max(0,before-current) if known else None,'attribution':'own-shot-window' if known else 'unknown','confirmed_impact':False}
+        impact=item.get('terrain_impact');row['terrain_opened']=None
+        if known and impact and (state or {}).get('terrain'):
+            from autonomous_learning import occupied
+            row['terrain_opened']=not occupied(state['terrain'],*impact)
         self.windows.append(row);self.windows=self.windows[-300:];self.callback(row);self.save()
     def end(self,state=None):
         if not self.game:return
