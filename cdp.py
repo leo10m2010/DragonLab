@@ -6,7 +6,8 @@ class CDP:
         p=urllib.parse.urlparse(endpoint)
         if p.hostname not in ('127.0.0.1','localhost','::1') or p.scheme!='http':
             raise ValueError('La conexión al navegador debe ser local')
-        with urllib.request.urlopen(endpoint+'/json/list',timeout=2) as r:targets=json.load(r)
+        from loopback_http import get_json
+        targets=get_json(endpoint)
         target=next((t for t in targets if t.get('type')=='page' and (t.get('id')==target_id if target_id is not None else urllib.parse.urlparse(t.get('url','')).hostname==hostname)),None)
         if not target:raise RuntimeError('La página seleccionada no está abierta en el navegador de depuración')
         self.target={k:target.get(k) for k in ('id','title','url')}

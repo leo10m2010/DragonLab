@@ -346,6 +346,9 @@ class Launcher:
         self.root.destroy()
 
 def main():
+    if '--connection-check' in sys.argv:
+        from training_diagnostics import connection_check
+        connection_check(pathlib.Path(sys.argv[sys.argv.index('--connection-check')+1]));return
     import time
     instance=SingleInstance('DragonLab.Launcher') if '--check' not in sys.argv else None
     if instance and not instance.primary and '--handoff' in sys.argv:

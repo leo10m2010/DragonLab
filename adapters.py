@@ -29,8 +29,8 @@ def list_browser_pages(endpoint='http://127.0.0.1:9222'):
     parsed = urllib.parse.urlparse(endpoint)
     if parsed.scheme != 'http' or parsed.hostname not in ('127.0.0.1', 'localhost', '::1'):
         raise ValueError('La conexión al navegador debe ser local')
-    with urllib.request.urlopen(endpoint.rstrip('/') + '/json/list', timeout=2) as response:
-        targets = json.load(response)
+    from loopback_http import get_json
+    targets=get_json(endpoint)
     return [{k: t.get(k, '') for k in ('id', 'title', 'url')} for t in targets
             if t.get('type') == 'page' and t.get('webSocketDebuggerUrl')]
 

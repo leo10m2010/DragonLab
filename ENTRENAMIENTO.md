@@ -1,3 +1,7 @@
+# DragonLab 0.15.6 · Conexión local unificada
+
+Corrige el fallo del ejecutable al inicializar HTTPS para una conexión local HTTP. Conserva toda la selección de bala 2/DD y la coordinación de controles anteriores.
+
 # DragonLab 0.15.5 · Selección de armas e ítems
 
 Bala 2 participa con su perfil propio. DD se reserva para oportunidades de terminar un objetivo con precisión y daño medidos, usando datos de la misma partida, rival y viento compatible. La última acción y la razón del ítem aparecen en el panel.
