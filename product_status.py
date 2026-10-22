@@ -5,8 +5,11 @@ from strength_guide import guide_power
 def capture_status(app):
     session=getattr(app,'training_session',None)
     if session is not None:
-        if session.running:return 'Entrenando',session.status+f' · {session.shots} tiros'
-        if session.status!='Preparado':return 'Entrenamiento detenido',session.status
+        if session.running:
+            stopping=bool(getattr(session,'cancel',None) and session.cancel.is_set())
+            return ('Deteniendo' if stopping else 'Entrenando'),('Soltando controles y guardando mediciones…' if stopping else session.status+f' · {session.shots} tiros')
+        worker=getattr(app,'worker',None)
+        if session.status!='Preparado' and not (worker and worker.is_alive()):return 'Entrenamiento detenido',session.status
     if getattr(app,'fire_busy',False):return 'Aplicando tiro','Aplicando la fuerza con controles de Windows…'
     if time.monotonic()<getattr(app,'notice_until',0) and getattr(app,'last_fire_message',None):return 'Atajo',app.last_fire_message
     if getattr(app,'last_error',None):return 'Revisar guía','La guía encontró un error; vuelve a conectar.'

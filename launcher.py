@@ -312,7 +312,8 @@ class Launcher:
     def toggle_game(self):
         if self.busy or time.monotonic()<self.opening_until:return
         worker=getattr(self.engine.app,'worker',None) if self.engine else None
-        if worker and worker.is_alive():
+        session=getattr(self.engine.app,'training_session',None) if self.engine else None
+        if worker and worker.is_alive() or session and session.running:
             self.stop_engine();self.play_button.config(text='Jugar →')
             self.status.config(text='Guía pausada. El juego sigue abierto.')
         else:self.play()

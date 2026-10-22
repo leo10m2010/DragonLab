@@ -56,7 +56,7 @@ class App:
         from ui_shell import build
         build(self,prefs)
         self.root.protocol('WM_DELETE_WINDOW',self.close)
-        root.bind('<Control-s>',lambda e:self.save_session());root.bind('<Escape>',lambda e:(self.fire_cancel.set(),setattr(self,'pending_fire',None),self.hide_overlay(),self.hide_power_guide()))
+        root.bind('<Control-s>',lambda e:self.save_session());root.bind('<Escape>',lambda e:(self.cancel_actions(),self.hide_overlay(),self.hide_power_guide()))
         self.profile_path=BASE/'perfiles.json'
         try:self.profiles=json.loads(self.profile_path.read_text(encoding='utf-8'))
         except (OSError,ValueError):pass
@@ -86,6 +86,9 @@ class App:
                 self.pending_fire=None;self.fire_notice('El cálculo cambió; vuelve a pulsar el atajo')
             elif not self.dirty and not self.computing:
                 self.pending_fire=None;self.trigger_auto_fire()
+    def cancel_actions(self):
+        from control_lifecycle import cancel_actions
+        cancel_actions(self)
     def trigger_auto_fire(self):
         if getattr(self,'training_session',None) and self.training_session.running:
             self.fire_notice('Entrenamiento activo: detén la sesión para usar el atajo');return
@@ -625,6 +628,8 @@ class App:
         finally:
             self.root.after(40 if self.game_visible else 150,self.tick)
     def tick_once(self):
+        from control_lifecycle import sync_control_mode
+        sync_control_mode(self)
         pending=[]
         while not self.events.empty():pending.append(self.events.get_nowait())
         live=[e for e in pending if e.get('status') not in ('calculated','target-shortcut','fire-shortcut','fire-gesture','fire-finished','fire-confirmed','cancel-shortcut','training-observation','training-settings')]
@@ -652,8 +657,7 @@ class App:
                     self.fire_shortcut_count+=1;self.trigger_auto_fire()
                 continue
             if event.get('status')=='cancel-shortcut':
-                self.pending_fire=None;self.fire_cancel.set()
-                if getattr(self,'training_session',None):self.training_session.stop()
+                self.cancel_actions()
                 continue
             if event.get('status')=='fire-shortcut':
                 self.fire_shortcut_count+=1

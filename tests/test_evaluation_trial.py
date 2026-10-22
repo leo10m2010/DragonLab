@@ -14,7 +14,7 @@ class EvaluationTests(unittest.TestCase):
         return learner
     def test_default_product_starts_a_finite_evaluation_instead_of_continuous_catalog(self):
         from training_ui import start_training
-        app=SimpleNamespace(clone_id='dragonbound',training_session=None,last_live=0,endpoint=Mock(),browser_target=None,book=SimpleNamespace(path=Path('book.json'),records={}),events=Mock())
+        app=SimpleNamespace(fire_cancel=__import__('threading').Event(),clone_id='dragonbound',training_session=None,last_live=0,endpoint=Mock(),browser_target=None,book=SimpleNamespace(path=Path('book.json'),records={}),events=Mock())
         with patch('training_session.TrainingSession') as factory:start_training(app)
         options=factory.call_args.kwargs
         self.assertEqual(options['objective'],'adaptive');self.assertFalse(options['continuous']);self.assertEqual(options['max_shots'],40)

@@ -23,6 +23,8 @@ def start_training(app,limit='40',background=True,objective='adaptive'):
     endpoint=getattr(app,'live_endpoint',None) or app.endpoint.get()
     if getattr(app,'last_live',0)==0:endpoint='http://127.0.0.1:9223'
     if limit not in ('20','40'):raise ValueError('La prueba admite 20 o 40 tiros como máximo')
+    from control_lifecycle import prepare_training
+    prepare_training(app)
     continuous=False
     app.training_session=TrainingSession(endpoint,app.browser_target,app.book.path,app.events.put,max_shots=60 if continuous else int(limit),continuous=continuous,autonomous=True,objective=objective,background=background,allow_dual=True,max_matches=6,max_seconds=900)
     from training_progress import lab_summary

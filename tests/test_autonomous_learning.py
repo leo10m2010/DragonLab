@@ -112,7 +112,7 @@ class LearnerTests(unittest.TestCase):
         from types import SimpleNamespace
         from unittest.mock import Mock
         from training_ui import start_training
-        app=SimpleNamespace(clone_id='dragonbound',training_session=None,endpoint=Mock(),last_live=0,browser_target=None,book=SimpleNamespace(path=Path('book.json')),events=Mock())
+        app=SimpleNamespace(fire_cancel=__import__('threading').Event(),clone_id='dragonbound',training_session=None,endpoint=Mock(),last_live=0,browser_target=None,book=SimpleNamespace(path=Path('book.json')),events=Mock())
         with patch('training_session.TrainingSession') as factory:
             start_training(app)
             self.assertTrue(factory.call_args.kwargs['autonomous'])

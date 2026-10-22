@@ -1,3 +1,7 @@
+# DragonLab 0.15.3 · Asistencia y entrenador coordinados
+
+Cambiar de modo cancela solicitudes pendientes e invalida cálculos anteriores. Q no se mezcla con el entrenamiento; al detenerlo vuelve la guía con un cálculo nuevo. Escape cancela ambas formas de control. Las mediciones conservan sus validaciones independientes.
+
 # DragonLab 0.15.2 · Corrección de salida y estados
 
 El launcher refleja el estado del entrenador. La calibración adaptativa puede ajustar la ganancia de fuerza con una salida nativa compatible; recalcula las colisiones y nunca modifica una evaluación congelada. Revisa turnos cada 100 ms y reintenta modalidades si cambia posición o viento. Teleport continúa pendiente de medición específica.
