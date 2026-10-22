@@ -94,8 +94,7 @@ class EvaluationTrial:
         from weapon_policy import enemy_for
         target=enemy_for(state,(release.get('learner') or {}).get('target'))
         row.update(episode=self.learner.episode,target_id=target['id'] if target else None)
-        if phase=='calibration':self.calibration.append(row);self.warmups+=1
-        elif phase=='evaluation':
+        if phase in ('calibration','evaluation'):
             target=(release.get('learner') or {}).get('target');distances=[];owned=[]
             for shot in state.get('shots',[]):
                 if identity(shot) in release.get('baseline',[]) or not (attributed_start(state,shot,release) or {}).get('learnable'):continue
@@ -103,10 +102,11 @@ class EvaluationTrial:
                 try:distances.extend(math.dist(position(shot,shot['duration']/1000*i/100),target) for i in range(101))
                 except (TypeError,ValueError,KeyError):continue
             row['path_error_px']=min(distances,default=None)
-            if len(owned)==1:
+            if phase=='evaluation' and len(owned)==1:
                 row['candidate_prediction_error_px']=prediction_error(self.frozen['model'] if self.frozen else None,owned[0],release['power'],release['wind'],release['windAngle'])
                 row['baseline_prediction_error_px']=prediction_error(self.baseline,owned[0],release['power'],release['wind'],release['windAngle'])
-            self.tests.append(row)
+            if phase=='evaluation':self.tests.append(row)
+            else:self.calibration.append(row);self.warmups+=1
         else:raise ValueError('El tiro no indica si es calibración o evaluación')
         self.save();return token
     def health_result(self,result):

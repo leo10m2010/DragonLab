@@ -9,7 +9,7 @@ from weapon_policy import enemy_for,comparable,damage_evidence,dual_decision
 
 class AdaptiveTrial:
     def __init__(self,path,learner,max_shots=40,allow_dual=False):
-        self.path=Path(path);self.learner=learner;self.max_shots=max_shots;self.allow_dual=allow_dual;self.dual_rows=[];self.recovery_rows=[];self.profiles={};self.selected=None;self.attempts=[];self.omitted_turns=[];self.finished=False
+        self.path=Path(path);self.learner=learner;self.max_shots=max_shots;self.allow_dual=allow_dual;self.dual_rows=[];self.recovery_rows=[];self.weather_rows=[];self.profiles={};self.selected=None;self.attempts=[];self.omitted_turns=[];self.finished=False
     def profile(self,mobile,shot):
         key=f'dragonbound:{mobile}:{shot}'
         if key not in self.profiles:self.profiles[key]=EvaluationTrial(self.path.parent/f'evaluacion-{mobile}-{shot}.json',self.learner,self.max_shots,mobile,shot)
@@ -31,17 +31,21 @@ class AdaptiveTrial:
         def score(shot):
             trial=self.profile(mobile,shot);record=self.learner.records.get(trial.key,{})
             model,_=self.learner.applicable_model(record,state['wind'],state['windAngle'])
-            rows=comparable(trial.tests,self.learner.episode,state,target)
+            rows=comparable(trial.tests+trial.calibration,self.learner.episode,state,target)
             damage=damage_evidence(rows)
             effective=min(damage,remaining) if remaining is not None else damage
             finishing=remaining is not None and damage>0 and damage>=remaining
-            return (0 if model else 1,0 if finishing else 1,shot==2 if finishing else False,-effective,len(trial.calibration)+len(trial.tests),len(trial.skips),shot)
+            focus=0 if not trial.frozen and 0<trial.warmups<6 else 1
+            return (0 if model else 1,0 if finishing else 1,shot==2 if finishing else False,-effective,focus,len(trial.calibration)+len(trial.tests),len(trial.skips),shot)
         shot=min(ready,key=score);trial=self.profile(mobile,shot);self.selected=trial
         return {**trial.probe(),'adaptive':True,'prefer_current_angle':True}
     def plan(self,state,player,probe,actual=False,previous=None):
         trial=self.profile(probe['mobile'],probe['shot']);self.selected=trial
         try:result=trial.plan(state,player,probe,actual,previous)
         except NoAim as error:
+            from weather_practice import weather_probe
+            candidate=weather_probe(error,self.learner.records.get(trial.key,{}),self.weather_rows,self.learner.episode,trial.key)
+            if candidate:return candidate
             if actual and previous and previous.get('action')=='abrir paso':
                 result=self.excavate(state,player,probe,error)
                 if result:return result
@@ -74,13 +78,17 @@ class AdaptiveTrial:
     def record(self,release,state):
         key=(release.get('learner') or {}).get('profile')
         if key not in self.profiles:raise ValueError('El tiro no identifica su perfil adaptativo')
-        if (release.get('learner') or {}).get('action')=='abrir paso':
+        if (release.get('learner') or {}).get('action')=='medir clima':
+            token=uuid.uuid4().hex;self.weather_rows.append({'token':token,'episode':self.learner.episode,'profile':key,'weather_kinds':release['learner']['weather_kinds'],'power':release.get('power'),'health_window_known':False,'enemy_health_drop':None})
+        elif (release.get('learner') or {}).get('action')=='abrir paso':
             token=uuid.uuid4().hex;self.recovery_rows.append({'token':token,'profile':key,'action':'abrir paso','power':release.get('power'),'impact':release['learner'].get('impact'),'health_window_known':False,'enemy_health_drop':None,'terrain_opened':None})
         elif release.get('item'):
             token=uuid.uuid4().hex;self.dual_rows.append({'token':token,'profile':key,'item':release['item'],'power':release.get('power'),'shot':release.get('shot'),'episode':self.learner.episode,'target_id':release['learner'].get('target_id'),'wind':release.get('wind'),'wind_angle':release.get('windAngle'),'decision':release['learner'].get('item_reason'),'health_window_known':False,'enemy_health_drop':None})
         else:token=self.profiles[key].record(release,state)
         self.save();return token
     def health_result(self,result):
+        for row in self.weather_rows:
+            if row['token']==result['token']:row.update(health_window_known=result['known'],enemy_health_drop=result['enemy_health_drop'])
         for row in self.recovery_rows:
             if row['token']==result['token']:row.update(health_window_known=result['known'],enemy_health_drop=result['enemy_health_drop'],terrain_opened=result.get('terrain_opened'))
         for row in self.dual_rows:
@@ -89,17 +97,19 @@ class AdaptiveTrial:
         self.save()
     def skip(self,reason):
         if self.selected:self.selected.skip(reason)
-        self.attempts.append({'code':getattr(reason,'reason','unclassified'),'reason':str(reason),'profile':self.selected.key if self.selected else None});self.attempts=self.attempts[-128:];self.save()
+        self.attempts.append({'code':getattr(reason,'reason','unclassified'),'reason':str(reason),'profile':self.selected.key if self.selected else None,'turn':getattr(reason,'turn_serial',None)});self.attempts=self.attempts[-128:];self.save()
     def turn_skipped(self,key):
         if key not in self.omitted_turns:self.omitted_turns.append(key)
         self.omitted_turns=self.omitted_turns[-128:];self.save()
-    def done(self):return sum(len(t.calibration)+len(t.tests) for t in self.profiles.values())+len(self.dual_rows)+len(self.recovery_rows)>=self.max_shots
+    def turn_recovered(self,key):
+        if key in self.omitted_turns:self.omitted_turns.remove(key)
+    def done(self):return sum(len(t.calibration)+len(t.tests) for t in self.profiles.values())+len(self.dual_rows)+len(self.recovery_rows)+len(self.weather_rows)>=self.max_shots
     def summary(self):
         reports={k:t.summary() for k,t in self.profiles.items()};tests=[row for t in self.profiles.values() for row in t.tests];errors=[row['path_error_px'] for row in tests if row['path_error_px'] is not None]
         known=[row for row in tests if row['health_window_known']];damaged=[row for row in known if (row['enemy_health_drop'] or 0)>0]
         reasons={code:sum(a['code']==code for a in self.attempts) for code in sorted({a['code'] for a in self.attempts})}
-        return {'status':'complete' if self.finished else 'running','approved':False,'adaptive':True,'calibration_shots':sum(len(t.calibration) for t in self.profiles.values()),'directed_test_shots':len(tests),'skipped_turns':len(self.omitted_turns),'rejected_modes':len(self.attempts),'skip_reasons':reasons,'near_target_shots':sum(e<=20 for e in errors),'near_target_rate':round(sum(e<=20 for e in errors)*100/len(errors),1) if errors else None,'median_path_error_px':round(statistics.median(errors),2) if errors else None,'known_health_windows':len(known),'health_drop_windows':len(damaged),'exploration_budget':sum(t.calibration_limit for t in self.profiles.values()),'minimum_directed_tests':10,'prediction_improvement_proven':False,'full_autonomy_proven':False,'profiles':reports,'dual_uses':len(self.dual_rows),'terrain_attempts':len(self.recovery_rows),'terrain_openings_observed':sum(r['terrain_opened'] is True for r in self.recovery_rows)}
-    def save(self):atomic_write(self.path,json.dumps({'schema':1,'summary':self.summary(),'attempts':self.attempts,'dual_observations':self.dual_rows,'terrain_recovery':self.recovery_rows},allow_nan=False).encode())
+        return {'status':'complete' if self.finished else 'running','approved':False,'adaptive':True,'calibration_shots':sum(len(t.calibration) for t in self.profiles.values()),'directed_test_shots':len(tests),'skipped_turns':len(self.omitted_turns),'rejected_modes':len(self.attempts),'skip_reasons':reasons,'near_target_shots':sum(e<=20 for e in errors),'near_target_rate':round(sum(e<=20 for e in errors)*100/len(errors),1) if errors else None,'median_path_error_px':round(statistics.median(errors),2) if errors else None,'known_health_windows':len(known),'health_drop_windows':len(damaged),'exploration_budget':sum(t.calibration_limit for t in self.profiles.values()),'minimum_directed_tests':10,'prediction_improvement_proven':False,'full_autonomy_proven':False,'profiles':reports,'weather_practice_shots':len(self.weather_rows),'dual_uses':len(self.dual_rows),'terrain_attempts':len(self.recovery_rows),'terrain_openings_observed':sum(r['terrain_opened'] is True for r in self.recovery_rows)}
+    def save(self):atomic_write(self.path,json.dumps({'schema':1,'summary':self.summary(),'attempts':self.attempts,'dual_observations':self.dual_rows,'terrain_recovery':self.recovery_rows,'weather_practice':self.weather_rows},allow_nan=False).encode())
     def finish(self):
         self.finished=True
         for trial in self.profiles.values():trial.finish()

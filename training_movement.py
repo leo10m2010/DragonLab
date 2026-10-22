@@ -24,15 +24,18 @@ def walking_step(state,target_x,avoid=None,prefer='towards'):
         if safe:return {'direction':direction,'distance':14,'max_drop':14,'expected_to':[x+side*14,ground-support],'expected_body':math.degrees(math.atan2(ground-(y+support),side*14)) if side>0 else math.degrees(math.atan2((y+support)-ground,14))}
     return None
 
-def choose_reposition(state,target_x,reason,avoid=None,evaluate=None):
+def choose_reposition(state,target_x,reason,avoid=None,evaluate=None,visited=None):
     """Compare both supported directions; a blocked muzzle prefers retreat."""
     import copy
     preferred='away' if reason=='terrain-blocked' else 'towards'
     first=walking_step(state,target_x,avoid=avoid,prefer=preferred)
     if not first:return None
-    if not evaluate:return first
     alternatives=[first];other=walking_step(state,target_x,avoid=first['direction'],prefer=preferred)
     if other and other['direction']!=avoid:alternatives.append(other)
+    alternatives=[step for step in alternatives if not any(math.dist(step['expected_to'],point)<7 for point in (visited or []))]
+    if not alternatives:return None
+    first=alternatives[0]
+    if not evaluate:return first
     for step in alternatives:
         hypothetical=copy.deepcopy(state);hero=next(p for p in hypothetical['players'] if p['id']==hypothetical['heroId'])
         hero['x'],hero['y']=step['expected_to'];hero['body']=step['expected_body']

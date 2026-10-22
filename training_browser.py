@@ -145,6 +145,8 @@ class TrainingBrowser:
         from training_aim import NoAim
         from training_movement import choose_reposition
         movements=[];avoid=None;event=None
+        if getattr(self,'movement_turn',None)!=serial:
+            self.movement_turn=serial;self.turn_steps=0;self.visited_positions=[]
         if not hasattr(self,'movement_events'):self.movement_events=[]
         for attempt in range(3):
             self.guard(cancel)
@@ -158,7 +160,7 @@ class TrainingBrowser:
                 return result,({'steps':movements,'from':movements[0]['from'],'to':movements[-1]['to']} if movements else None)
             except NoAim as error:
                 if event:event.update(trajectory_found=False,reason=error.reason)
-                if not error.reposition or attempt==2 or self.seconds_left()<8:
+                if not error.reposition or self.turn_steps>=2 or attempt==2 or self.seconds_left()<8:
                     recover=getattr(autonomous,'excavate',None)
                     candidate=recover(state,player,probe,error) if callable(recover) and self.seconds_left()>=5 else None
                     if isinstance(candidate,dict):return candidate,({'steps':movements,'from':movements[0]['from'],'to':movements[-1]['to']} if movements else None)
@@ -169,12 +171,13 @@ class TrainingBrowser:
                         candidate=self.timed_plan(autonomous,hypothetical,simulated,probe)
                         return candidate.get('stage') in ('evaluación con modelo congelado','calibración dirigida provisional')
                     except NoAim:return False
-                step=choose_reposition(state,target_x,error.reason,avoid=avoid,evaluate=evaluate)
+                step=choose_reposition(state,target_x,error.reason,avoid=avoid,evaluate=evaluate,visited=self.visited_positions)
                 if not step:
                     recover=getattr(autonomous,'excavate',None);candidate=recover(state,player,probe,error) if callable(recover) else None
                     if isinstance(candidate,dict):return candidate,({'steps':movements,'from':movements[0]['from'],'to':movements[-1]['to']} if movements else None)
                     raise NoAim(str(error)+'; no hay suelo seguro para cambiar de posición',reason='unsafe-ground') from error
                 movement=self.walk(reader,step,cancel,expected_serial=serial);movements.append(movement)
+                self.turn_steps+=1;self.visited_positions.append(movement['from'])
                 event={'selection':step.get('selection'),'turn':serial,'from':movement['from'],'to':movement['to'],'direction':movement['direction'],'trajectory_found':None,'reason':'awaiting-replan'}
                 self.movement_events.append(event);self.movement_events=self.movement_events[-64:]
                 if abs(movement['to'][0]-movement['from'][0])<.5:avoid=step['direction']

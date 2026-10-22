@@ -1,3 +1,7 @@
+# DragonLab 0.15.7 · Turnos y armas
+
+Ver LAUNCHER-0.15.7.md para el análisis de la sesión y los cambios. El movimiento comparte presupuesto entre balas; la selección puede usar daño provisional sin certificar puntería. Los ensayos de clima son finitos, separados y sin DD.
+
 # DragonLab 0.15.6 · Conexión local unificada
 
 Corrige el fallo del ejecutable al inicializar HTTPS para una conexión local HTTP. Conserva toda la selección de bala 2/DD y la coordinación de controles anteriores.

@@ -93,7 +93,7 @@ class TrainingController:
             if self.learner:self.learner.pending.clear()
             if self.in_game:self.ledger=TurnLedger();self.failures=0
             self.in_game=False
-            self.current=None;self.blocked.clear();browser.client.game=None;browser.client.renderer=None
+            self.current=None;self.blocked.clear();browser.movement_turn=None;browser.client.game=None;browser.client.renderer=None
             if ui['options']:
                 option=self.trial.choose_mobile(ui['options'],s.mobile_attempts) if s.objective=='adaptive' else next((o for o in ui['options'] if mobile_name(o.get('name'))=='ARMOR'),None) if self.trial else self.learner.choose_mobile(ui['options'],s.mobile_attempts) if self.learner else next_mobile(ui['options'],s.mobile_attempts)
                 if not option:raise RuntimeError('No hay carros identificables en el selector')
@@ -133,7 +133,8 @@ class TrainingController:
             available=[0]
         if s.objective=='adaptive':
             try:probe=self.trial.probe(mobile,state,available)
-            except NoAim as error:self.ledger.consume(key);self.trial.skip(error);self.trial.turn_skipped(key);s.publish(str(error));return
+            except NoAim as error:
+                error.turn_serial=key[-1];self.blocked.update(available);self.trial.skip(error);self.trial.turn_skipped(key);s.publish(str(error));s.cancel.wait(.2);return
         else:probe=self.trial.probe() if self.trial else self.learner.choose_probe(mobile,state.get('wind',0),s.shots,available) if self.learner else next_probe(s.records(),mobile,state.get('wind',0),s.shots,available)
         probe['turn_serial']=key[-1]
         if self.memory and s.shots%3==2:probe=self.memory.recommend(probe,state,available)
@@ -147,6 +148,7 @@ class TrainingController:
         except UnavailableShot as error:
             self.blocked.add(probe['shot']);s.publish(str(error))
         except NoAim as error:
+            error.turn_serial=key[-1]
             if s.objective=='adaptive':
                 self.blocked.add(probe['shot']);self.trial.skip(error);s.publish(str(error)+'; buscando otra modalidad en este turno')
             elif self.trial:
@@ -180,6 +182,7 @@ class TrainingController:
         self.s.errors=self.s.errors[-64:]
     def observe(self,probe,release,observation):
         s=self.s;s.shots+=1
+        if s.objective=='adaptive' and self.trial:self.trial.turn_recovered(self.current)
         if self.learner and not release.get('item'):self.learner.observe(probe,release,observation)
         if self.trial:
             token=self.trial.record(release,observation);self.battle.note(release,release.get('learner') or {},observation,token)
