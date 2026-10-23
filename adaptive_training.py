@@ -9,7 +9,7 @@ from weapon_policy import enemy_for,comparable,damage_evidence,dual_decision
 
 class AdaptiveTrial:
     def __init__(self,path,learner,max_shots=40,allow_dual=False):
-        self.path=Path(path);self.learner=learner;self.max_shots=max_shots;self.allow_dual=allow_dual;self.dual_rows=[];self.recovery_rows=[];self.weather_rows=[];self.profiles={};self.selected=None;self.attempts=[];self.omitted_turns=[];self.finished=False
+        self.path=Path(path);self.learner=learner;self.max_shots=max_shots;self.allow_dual=allow_dual;self.dual_rows=[];self.recovery_rows=[];self.weather_rows=[];self.profiles={};self.selected=None;self.attempts=[];self.omitted_turns=[];self.finished=False;self.focus_mobile=None;self.focus_modes={}
     def profile(self,mobile,shot):
         key=f'dragonbound:{mobile}:{shot}'
         if key not in self.profiles:self.profiles[key]=EvaluationTrial(self.path.parent/f'evaluacion-{mobile}-{shot}.json',self.learner,self.max_shots,mobile,shot)
@@ -20,11 +20,21 @@ class AdaptiveTrial:
         return not record.get('multi_projectile') and bool(record.get('model') or measured_prior(record.get('samples',[])))
     def choose_mobile(self,options,attempted):
         choices=[o for o in options if mobile_name(o.get('name')) and o.get('name')!='Random' and any(self.supported(mobile_name(o['name']),s) for s in range(3))]
-        return min(choices,key=lambda o:(attempted.get(mobile_name(o['name']),0),-sum(self.supported(mobile_name(o['name']),s) for s in range(3)),o.get('id',999))) if choices else None
+        focused=next((o for o in choices if mobile_name(o['name'])==self.focus_mobile),None)
+        if focused:return focused
+        priority={'ARMOR':0,'ICE':1,'MAGE':2}
+        chosen=min(choices,key=lambda o:(priority.get(mobile_name(o['name']),3),attempted.get(mobile_name(o['name']),0),-sum(self.supported(mobile_name(o['name']),s) for s in (0,1)),o.get('id',999))) if choices else None
+        if chosen:self.focus_mobile=mobile_name(chosen['name'])
+        return chosen
     def probe(self,mobile,state,available):
         self.selected=None
         ready=[s for s in available if self.supported(mobile,s)]
         if not ready:raise NoAim('Sin mediciones aplicables en las modalidades disponibles',reason='missing-model')
+        if mobile not in self.focus_modes:self.focus_modes[mobile]=next((mode for mode in (0,1,2) if mode in ready),ready[0])
+        focus_mode=self.focus_modes[mobile]
+        if len(self.profile(mobile,focus_mode).tests)>=10:
+            next_mode=next((mode for mode in ready if len(self.profile(mobile,mode).tests)<10),focus_mode)
+            self.focus_modes[mobile]=focus_mode=next_mode
         from battle_metrics import health
         target=enemy_for(state)
         remaining=health(target) if target else None
@@ -36,7 +46,7 @@ class AdaptiveTrial:
             effective=min(damage,remaining) if remaining is not None else damage
             finishing=remaining is not None and damage>0 and damage>=remaining
             focus=0 if not trial.frozen and 0<trial.warmups<6 else 1
-            return (0 if model else 1,0 if finishing else 1,shot==2 if finishing else False,-effective,focus,len(trial.calibration)+len(trial.tests),len(trial.skips),shot)
+            return (0 if model else 1,0 if finishing else 1,shot==2 if finishing else False,-effective,0 if shot==focus_mode else 1,focus,len(trial.calibration)+len(trial.tests),len(trial.skips),shot)
         shot=min(ready,key=score);trial=self.profile(mobile,shot);self.selected=trial
         # A few directed alternate arcs provide a real spread of forces.
         # They still require a clear calculated path; no arbitrary charge.
@@ -112,7 +122,7 @@ class AdaptiveTrial:
         reports={k:t.summary() for k,t in self.profiles.items()};tests=[row for t in self.profiles.values() for row in t.tests];errors=[row['path_error_px'] for row in tests if row['path_error_px'] is not None]
         known=[row for row in tests if row['health_window_known']];damaged=[row for row in known if (row['enemy_health_drop'] or 0)>0]
         reasons={code:sum(a['code']==code for a in self.attempts) for code in sorted({a['code'] for a in self.attempts})}
-        return {'status':'complete' if self.finished else 'running','approved':False,'adaptive':True,'calibration_shots':sum(len(t.calibration) for t in self.profiles.values()),'directed_test_shots':len(tests),'skipped_turns':len(self.omitted_turns),'rejected_modes':len(self.attempts),'skip_reasons':reasons,'near_target_shots':sum(e<=20 for e in errors),'near_target_rate':round(sum(e<=20 for e in errors)*100/len(errors),1) if errors else None,'median_path_error_px':round(statistics.median(errors),2) if errors else None,'known_health_windows':len(known),'health_drop_windows':len(damaged),'exploration_budget':sum(t.calibration_limit for t in self.profiles.values()),'minimum_directed_tests':10,'prediction_improvement_proven':False,'full_autonomy_proven':False,'profiles':reports,'weather_practice_shots':len(self.weather_rows),'dual_uses':len(self.dual_rows),'terrain_attempts':len(self.recovery_rows),'terrain_openings_observed':sum(r['terrain_opened'] is True for r in self.recovery_rows)}
+        return {'status':'complete' if self.finished else 'running','approved':False,'adaptive':True,'focus_mobile':self.focus_mobile,'focus_modes':dict(self.focus_modes),'calibration_shots':sum(len(t.calibration) for t in self.profiles.values()),'directed_test_shots':len(tests),'skipped_turns':len(self.omitted_turns),'rejected_modes':len(self.attempts),'skip_reasons':reasons,'near_target_shots':sum(e<=20 for e in errors),'near_target_rate':round(sum(e<=20 for e in errors)*100/len(errors),1) if errors else None,'median_path_error_px':round(statistics.median(errors),2) if errors else None,'known_health_windows':len(known),'health_drop_windows':len(damaged),'exploration_budget':sum(t.calibration_limit for t in self.profiles.values()),'minimum_directed_tests':10,'prediction_improvement_proven':False,'full_autonomy_proven':False,'profiles':reports,'weather_practice_shots':len(self.weather_rows),'dual_uses':len(self.dual_rows),'terrain_attempts':len(self.recovery_rows),'terrain_openings_observed':sum(r['terrain_opened'] is True for r in self.recovery_rows)}
     def save(self):atomic_write(self.path,json.dumps({'schema':1,'summary':self.summary(),'attempts':self.attempts,'dual_observations':self.dual_rows,'terrain_recovery':self.recovery_rows,'weather_practice':self.weather_rows},allow_nan=False).encode())
     def finish(self):
         self.finished=True

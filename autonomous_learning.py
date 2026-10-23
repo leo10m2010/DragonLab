@@ -4,34 +4,31 @@ from bisect import bisect_right
 from pathlib import Path
 from training_orientation import heading,raw_angle
 from local_storage import atomic_write
+from wind_models import acceleration as wind_acceleration,fit_acceleration,components,domain as wind_domain,supported as wind_supported
 
-def fit(samples,minimum=4):
-    if len(samples)<minimum or len({s['power'] for s in samples})<(2 if minimum==2 else 3) or max(s['power'] for s in samples)-min(s['power'] for s in samples)<80:return None
+def fit(samples,minimum=4,wind_mode=None):
+    if len(samples)<minimum or len({s['power'] for s in samples})<(2 if minimum==2 else 3) or max(s['power'] for s in samples)-min(s['power'] for s in samples)<40:return None
     powers=[s['power'] for s in samples];speeds=[s['speed'] for s in samples];pbar=statistics.mean(powers);vbar=statistics.mean(speeds)
     denominator=sum((p-pbar)**2 for p in powers)
     scale=sum((p-pbar)*(v-vbar) for p,v in zip(powers,speeds))/denominator;offset=vbar-scale*pbar
-    xs=[s['wind']*math.cos(math.radians(s['wind_angle'])) for s in samples];ys=[s['wind']*math.sin(math.radians(s['wind_angle'])) for s in samples]
-    ybar=statistics.mean(ys);abar=statistics.mean(s['ay'] for s in samples)
-    denominator=sum(x*x for x in xs)+sum((y-ybar)**2 for y in ys)
-    coupling=(sum(x*s['ax'] for x,s in zip(xs,samples))-sum((y-ybar)*(s['ay']-abar) for y,s in zip(ys,samples)))/denominator if denominator>1e-6 else None
-    gravity=abar+(coupling or 0)*ybar
-    if not .01<scale<30 or not 0<gravity<10000 or coupling is not None and not 0<=coupling<100:return None
-    model={'scale':scale,'offset':offset,'gravity':gravity,'wind_scale':coupling,'count':len(samples),'source':'observed-native-launches'}
+    wind_fit=fit_acceleration(samples,mode=wind_mode)
+    if not wind_fit or not .01<scale<30:return None
+    model={'scale':scale,'offset':offset,**wind_fit,'count':len(samples),'source':'observed-native-launches'}
     if max(error(model,s) for s in samples)>8:return None
     return model
 
 def error(model,sample):
     if model['wind_scale'] is None and sample['wind']!=0:return math.inf
-    k=model['wind_scale'] or 0;r=math.radians(sample['wind_angle'])
-    return max(abs(model['scale']*sample['power']+model['offset']-sample['speed']),math.hypot(k*sample['wind']*math.cos(r)-sample['ax'],model['gravity']-k*sample['wind']*math.sin(r)-sample['ay']))
+    ax,ay=wind_acceleration(model,sample['wind'],sample['wind_angle'])
+    return max(abs(model['scale']*sample['power']+model['offset']-sample['speed']),math.hypot(ax-sample['ax'],ay-sample['ay']))
 
 def flight_error(model,sample):
     duration=sample.get('duration_s');angle=sample.get('heading')
     if not all(isinstance(v,(int,float)) and math.isfinite(v) for v in (duration,angle)) or not 0<duration<=20:return None
     if model['wind_scale'] is None and sample['wind']:return math.inf
-    k=model['wind_scale'] or 0;r=math.radians(sample['wind_angle']);a=math.radians(angle)
+    ax,ay=wind_acceleration(model,sample['wind'],sample['wind_angle']);a=math.radians(angle)
     ds=model['scale']*sample['power']+model['offset']-sample['speed']
-    dax=k*sample['wind']*math.cos(r)-sample['ax'];day=model['gravity']-k*sample['wind']*math.sin(r)-sample['ay']
+    dax=ax-sample['ax'];day=ay-sample['ay']
     return max(math.hypot(ds*math.cos(a)*t+.5*dax*t*t,-ds*math.sin(a)*t+.5*day*t*t) for t in (duration*i/8 for i in range(1,9)))
 
 def occupied(terrain,x,y):
@@ -44,8 +41,8 @@ def occupied(terrain,x,y):
     return bisect_right(rows[iy],ix)%2==1
 
 def predicted_path(model,origin,world,power,wind,wind_angle,duration):
-    a=math.radians(world);w=math.radians(wind_angle);speed=model['scale']*power+model['offset'];k=model['wind_scale'] or 0
-    vx=speed*math.cos(a);vy=-speed*math.sin(a);ax=k*wind*math.cos(w);ay=model['gravity']-k*wind*math.sin(w)
+    a=math.radians(world);speed=model['scale']*power+model['offset']
+    vx=speed*math.cos(a);vy=-speed*math.sin(a);ax,ay=wind_acceleration(model,wind,wind_angle)
     travel_bound=abs(speed)*duration+.5*math.hypot(ax,ay)*duration*duration
     count=max(2,min(4000,max(math.ceil(duration/.04),math.ceil(travel_bound/3))))
     return [(origin[0]+vx*t+.5*ax*t*t,origin[1]+vy*t+.5*ay*t*t) for t in (duration*i/count for i in range(count+1))]
@@ -57,8 +54,16 @@ class AutonomousLearner:
             saved=json.loads(self.path.read_text(encoding='utf-8'))
             if saved.get('schema')==1 and isinstance(saved.get('records'),dict):self.records=saved['records']
         except (OSError,ValueError,TypeError,AttributeError):pass
+        self.wind_mode_hints={}
         for key,record in self.records.items():
             if key.startswith('dragonbound:RANDOMIZER:'):record['variable_projectiles']=True
+            groups={}
+            for sample in record.get('samples',[]):
+                if sample.get('simple'):groups.setdefault(sample.get('episode','legacy'),[]).append(sample)
+            for group in reversed(list(groups.values())):
+                if len(group)<4:continue
+                hint=fit_acceleration(group)
+                if hint and hint['acceleration_max_error']<=2:self.wind_mode_hints[key]=hint['wind_mode'];break
         if not self.records and seed_path:self.seed(seed_path)
     def seed(self,path):
         # Import raw attributed measurements only. Never copy a fit or prediction.
@@ -79,10 +84,11 @@ class AutonomousLearner:
     def progress(self):
         from training_progress import coverage_report
         records=list(self.records.values());cases=[c for r in records for c in r.get('cases',[])]
-        aimed=[c for c in cases if c.get('stage') in ('apuntar con modelo propio','repetir experiencia real compatible','afinar con dos tiros reales','apuntar con ajuste local comprobado')]
+        aimed=[c for c in cases if c.get('stage') in ('apuntar con modelo propio','repetir experiencia real compatible','afinar con dos tiros reales','apuntar con ajuste local comprobado','evaluación con modelo congelado')]
         tested=[e for r in records for e in r.get('model_tests',[])]
         coverage=coverage_report(self.records);coverage.pop('modes')
-        return {**coverage,'measured_launches':sum(sum(not str(s.get('id','')).startswith('seed:') for s in r.get('samples',[])) for r in records),
+        local=[r['last_local_validation'] for r in records if (r.get('last_local_validation') or {}).get('episode')==self.episode]
+        return {**coverage,'current_match_validated_modes':len(local),'median_local_flight_error_px':round(statistics.median(r['median_flight_error_px'] for r in local),3) if local else None,'measured_launches':sum(sum(not str(s.get('id','')).startswith('seed:') for s in r.get('samples',[])) for r in records),
                 'validated_launch_modes':sum(bool(r.get('model')) and not r.get('drift') and not r.get('variable_projectiles') for r in records),
                 'candidate_modes':sum(bool(r.get('candidate')) for r in records),
                 'retained_aimed_shots':len(aimed),'retained_exploration_shots':len(cases)-len(aimed),
@@ -126,27 +132,26 @@ class AutonomousLearner:
         record=self.records.setdefault(key,{'samples':[]});samples=record['samples']
         if any(s['id']==sample['id'] for s in samples):return False
         candidate=record.get('candidate')
+        if candidate and candidate.get('episode')!=sample.get('episode'):record.pop('candidate',None);candidate=None
         if not seed and candidate:
             projected=flight_error(candidate['model'],sample)
-            if error(candidate['model'],sample)<=8 and (projected is None or projected<=12):
+            if error(candidate['model'],sample)<=5 and (projected is None or projected<=12):
                 candidate.setdefault('validation',[]).append({'power':sample['power'],'id':sample['id']})
-                if len(candidate['validation'])>=3:record['model']=candidate['model'];record['drift']=False;record.pop('candidate',None)
+                checks=candidate['validation'];powers=[c['power'] for c in checks]
+                if len(checks)>=3 and len(set(powers))>=2 and max(powers)-min(powers)>=40:
+                    checked_ids=set(candidate['trained_ids'])|{c['id'] for c in checks}
+                    checked=[s for s in samples+[sample] if s['id'] in checked_ids]
+                    candidate['model']['wind_domain']=wind_domain(checked,candidate['model'].get('wind_mode','smooth'))
+                    record['model']=candidate['model'];record['drift']=False;record.pop('candidate',None)
             else:record.pop('candidate',None)
         if not seed and record.get('model'):
             record['bad']=record.get('bad',0)+1 if error(record['model'],sample)>12 or (flight_error(record['model'],sample) or 0)>25 else 0
             if record['bad']>=3:record['drift']=True
         record['samples']=(samples+[sample])[-96:]
         if not record.get('candidate') and (not record.get('model') or record.get('drift')):
-            model=fit(record['samples'])
-            training=record['samples']
-            if not model:
-                fresh=[s for s in record['samples'] if not s['id'].startswith('seed:')]
-                model=fit(fresh);training=fresh
-                if not model:
-                    for cut in range(1,max(1,len(fresh)-5)):
-                        model=fit(fresh[cut:])
-                        if model:training=fresh[cut:];break
-            if model:record['candidate']={'model':model,'validation':[],'trained_ids':[s['id'] for s in training]}
+            training=[s for s in record['samples'] if s.get('episode')==sample.get('episode') and s.get('simple',True) and (seed or not str(s['id']).startswith('seed:'))]
+            model=fit(training)
+            if model:record['candidate']={'model':model,'episode':sample.get('episode'),'validation':[],'trained_ids':[s['id'] for s in training]}
         return True
     def observe(self,probe,release,state):
         from shot_attribution import attributed_start,identity
@@ -241,11 +246,17 @@ class AutonomousLearner:
         for cut in range(max(0,len(local)-12),max(0,len(local)-3)):
             rows=local[cut:];training=rows[:2];checks=rows[2:]
             if len(checks)<2 or len({s['power'] for s in checks})<2 or max(s['power'] for s in checks)-min(s['power'] for s in checks)<40:continue
-            candidate=fit(training,minimum=2)
+            mode=self.wind_mode_hints.get(next((k for k,v in self.records.items() if v is record),''),(record.get('model') or {}).get('wind_mode'))
+            candidate=fit(training,minimum=2,wind_mode=mode)
             if not candidate:continue
-            if not min(s['wind'] for s in rows)<=wind<=max(s['wind'] for s in rows):continue
-            if wind and any(abs((s['wind_angle']-wind_angle+180)%360-180)>5 for s in rows):continue
+            candidate['wind_domain']=wind_domain(rows,candidate.get('wind_mode','smooth'))
+            if candidate.get('wind_mode')=='floor':
+                if not wind_supported(candidate,wind,wind_angle):continue
+            else:
+                if not min(s['wind'] for s in rows)<=wind<=max(s['wind'] for s in rows):continue
+                if wind and any(abs((s['wind_angle']-wind_angle+180)%360-180)>5 for s in rows):continue
             if all(error(candidate,s)<=5 and flight_error(candidate,s) is not None and flight_error(candidate,s)<=12 for s in checks):
+                record['last_local_validation']={'episode':self.episode,'training_ids':[s['id'] for s in training],'validation_ids':[s['id'] for s in checks],'model':dict(candidate),'median_flight_error_px':statistics.median(flight_error(candidate,s) for s in checks)}
                 return candidate,'apuntar con ajuste local comprobado'
         model=record.get('model') if not record.get('drift') else None
         if model and local:
@@ -350,7 +361,7 @@ class AutonomousLearner:
     @staticmethod
     def solve_observed(model,origin,target,world,wind,wind_angle,details=False):
         if model['wind_scale'] is None and wind:return None
-        k=model['wind_scale'] or 0;r=math.radians(wind_angle);ax=k*wind*math.cos(r);ay=model['gravity']-k*wind*math.sin(r)
+        ax,ay=wind_acceleration(model,wind,wind_angle)
         direction=(math.cos(math.radians(world)),-math.sin(math.radians(world)));dx=target[0]-origin[0];dy=target[1]-origin[1]
         denominator=ax*direction[1]-ay*direction[0];numerator=2*(dx*direction[1]-dy*direction[0])
         if abs(denominator)<1e-9 or numerator/denominator<=0:return None

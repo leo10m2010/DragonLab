@@ -8,6 +8,7 @@ def compatible_fit(profiles,book,clone,mobile,shot,wind):
     recent=samples[-1]
     for profile in sorted(profiles,key=lambda p:p.get('id',0),reverse=True):
         fit=profile.get('fit',{})
+        if fit.get('wind_mode','smooth') not in ('smooth','floor'):continue
         if (profile.get('clone'),profile.get('mobile'),profile.get('shot'))!=(clone,mobile,shot):continue
         if not all(isinstance(fit.get(k),(int,float)) and math.isfinite(fit[k]) for k in ('gravity','power_scale','speed_offset')):continue
         if abs(fit['gravity']-recent['ay'])>1:continue

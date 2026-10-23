@@ -105,7 +105,8 @@ def open_training(app):
                 last=session.history[-1] if session.history else {}
                 action=(('Bala 1','Bala 2','SS')[last['shot']]+(' + DD' if last.get('item')=='dual' else '')) if last.get('shot') in (0,1,2) else 'esperando tiro'
                 decision=(last.get('learner') or {}).get('item_reason','')
-                result_label.config(text=f"{labels[trial['status']]}\nTiros cerca del objetivo: {trial['near_target_shots']}/{trial['directed_test_shots']} · Mediana: {median}\nVentanas con bajada de vida/escudo: {trial['health_drop_windows']}/{trial['known_health_windows']}\nPartidas observadas: {battle.get('wins',0)} ganadas · {battle.get('losses',0)} perdidas · {battle.get('unknown_results',0)} sin resultado confirmado\nPasos con trayectoria recuperada: {recovered}/{len(movements)} · {diagnostics}\nModalidades probadas: {len(trial.get('profiles',{})) or 1} · DD confirmados: {trial.get('dual_uses',0)} · Mediciones de clima: {trial.get('weather_practice_shots',0)}\nAbrir paso: {trial.get('terrain_attempts',0)} intentos · {trial.get('terrain_openings_observed',0)} puntos abiertos observados · Cálculo: {timing_text}\nÚltima acción: {action} · {decision}")
+                focus=trial.get('focus_mobile') or 'por elegir'
+                result_label.config(text=f"{labels[trial['status']]} · Foco: {focus}\nTiros cerca del objetivo: {trial['near_target_shots']}/{trial['directed_test_shots']} · Mediana: {median}\nVentanas con bajada de vida/escudo: {trial['health_drop_windows']}/{trial['known_health_windows']}\nPartidas observadas: {battle.get('wins',0)} ganadas · {battle.get('losses',0)} perdidas · {battle.get('unknown_results',0)} sin resultado confirmado\nPasos con trayectoria recuperada: {recovered}/{len(movements)} · {diagnostics}\nModalidades probadas: {len(trial.get('profiles',{})) or 1} · DD confirmados: {trial.get('dual_uses',0)} · Mediciones de clima: {trial.get('weather_practice_shots',0)}\nAbrir paso: {trial.get('terrain_attempts',0)} intentos · {trial.get('terrain_openings_observed',0)} puntos abiertos observados · Cálculo: {timing_text}\nÚltima acción: {action} · {decision}")
             else:result_label.config(text='La prueba separa calibración y evaluación.\nSolo considera dirigidos los tiros con una solución comprobada.')
         report=coverage_report(learner.records if learner else {},app.book.records)
         launch.config(text=f"{report['launch_coverage_percent']:g}% · {report['launch_modes_validated']}/{report['launch_modes_total']} salidas")
@@ -119,7 +120,8 @@ def open_training(app):
             lines.append(f"{('Tiro 1','Tiro 2','SS')[mode['shot']]} · {mode['status']}{check}{suffix}")
         details.config(text='\n'.join(lines))
         progress=learner.progress() if learner else {};shared=session.lab_progress if session else {}
-        evidence.config(text=f"Mediciones: {progress.get('measured_launches',0)} · Con experiencia: {progress.get('retained_aimed_shots',0)} · Exploración: {progress.get('retained_exploration_shots',0)}\nReemplazos del Lab con menor error comprobado: {shared.get('measured_lab_improvements',0)}")
+        local_error=progress.get('median_local_flight_error_px');local_text=f"{local_error:g} px" if local_error is not None else 'pendiente'
+        evidence.config(text=f"Comprobados en esta partida: {progress.get('current_match_validated_modes',0)} · Error de proyección: {local_text}\nMediciones: {progress.get('measured_launches',0)} · Con experiencia: {progress.get('retained_aimed_shots',0)} · Exploración: {progress.get('retained_exploration_shots',0)}\nReemplazos del Lab con menor error comprobado: {shared.get('measured_lab_improvements',0)}")
         win.after(700,refresh)
     def close():stop();win.destroy()
     win.protocol('WM_DELETE_WINDOW',close);win.bind('<Escape>',lambda e:stop());refresh();return win

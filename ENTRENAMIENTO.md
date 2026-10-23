@@ -1,3 +1,7 @@
+# DragonLab 0.15.9 · Aprendizaje de la física
+
+Se corrige el modelo del viento con evidencia histórica separada y se concentra la práctica. Ver REVISION-APRENDIZAJE-0.15.9.md para resultados y límites de la comprobación.
+
 # DragonLab 0.15.8 · Controles y evidencia
 
 Confirma controles nativos y vuelve a comprobar el objetivo antes de cargar. Mantiene el presupuesto de movimiento al reconectar y exige comprobaciones compatibles con el viento actual antes de validar modelos. Ver LAUNCHER-0.15.8.md.

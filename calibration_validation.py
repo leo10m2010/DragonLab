@@ -1,6 +1,7 @@
 """Independent leave-one-out validation for measured launch parameters."""
 import math
 from physics_extensions import fit_calibration
+from wind_models import acceleration
 
 def validated_fit(samples):
     for s in samples:
@@ -11,12 +12,14 @@ def validated_fit(samples):
     fit=fit_calibration(samples);speeds=[];accelerations=[]
     for i,measurement in enumerate(samples):
         training=samples[:i]+samples[i+1:]
-        try:trial=fit_calibration(training)
+        # Refit physical parameters in the selected model, including when a
+        # four-shot fit leaves only three measurements in a holdout fold.
+        try:trial=fit_calibration(training,wind_mode=fit['wind_mode'])
         except ValueError:continue
         speeds.append(abs(math.hypot(measurement['vx'],measurement['vy'])-(trial['power_scale']*measurement['power']+trial['speed_offset'])))
-        wx=measurement['wind']*math.cos(math.radians(measurement['wind_angle']));wy=measurement['wind']*math.sin(math.radians(measurement['wind_angle']))
         if trial['wind_scale'] is not None or measurement['wind']==0:
-            k=trial['wind_scale'] or 0;accelerations.append(math.hypot(measurement['ax']-k*wx,measurement['ay']-(trial['gravity']-k*wy)))
+            ax,ay=acceleration(trial,measurement['wind'],measurement['wind_angle'])
+            accelerations.append(math.hypot(measurement['ax']-ax,measurement['ay']-ay))
     fit['holdout_speed_error']=max(speeds) if speeds else None
     fit['holdout_acceleration_error']=max(accelerations) if accelerations else None
     if fit['speed_rmse']>3 or fit['acceleration_max_error']>5 or (speeds and max(speeds)>5) or (accelerations and max(accelerations)>5):raise ValueError('Las muestras no pasan la comprobación independiente de velocidad y viento')

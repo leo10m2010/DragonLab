@@ -8,6 +8,7 @@ import math
 import statistics
 from bisect import bisect_right
 from dataclasses import replace
+from wind_models import components,fit_acceleration
 
 EPS=1e-7
 
@@ -366,11 +367,11 @@ def solve_extended(s):
             result.update(blocked=True,guide_power=reference['power'],preview_power=reference['power'],preview_paths=[[(p[0],p[1]) for p in path] for path in blocked_trace['display_paths']],reason='El terreno bloquea la salida o el recorrido; ajusta el ángulo.')
     return result
 
-def fit_calibration(samples):
+def fit_calibration(samples,wind_mode=None):
     """Fit speed scale/offset, gravity and wind coupling from measured starts.
 
-    Each sample: power,vx,vy,ax,ay,wind,wind_angle. Uses least squares, median
-    gravity, and reports residuals; caller decides whether to apply the fit.
+    Each sample: power,vx,vy,ax,ay,wind,wind_angle. Uses least squares and
+    measured wind features; caller decides whether to apply the fit.
     """
     valid=[]
     for sample in samples:
@@ -381,22 +382,13 @@ def fit_calibration(samples):
     denominator=sum((x-meanx)**2 for x in powers)
     if denominator<EPS:raise ValueError('Las muestras necesitan potencias distintas')
     scale=sum((x-meanx)*(y-meany) for x,y in zip(powers,speeds))/denominator;offset=meany-scale*meanx
-    wx=[math.cos(math.radians(p['wind_angle']))*p['wind'] for p in valid]
-    wy=[math.sin(math.radians(p['wind_angle']))*p['wind'] for p in valid]
-    mean_wy=statistics.mean(wy);mean_ay=statistics.mean(p['ay'] for p in valid)
-    # Joint least squares: ax=k*wx, ay=g-k*wy. Centering the vertical
-    # component removes unknown g and allows varying vertical winds to fit k.
-    denom=sum(x*x for x in wx)+sum((y-mean_wy)**2 for y in wy)
-    numerator=sum(x*p['ax'] for x,p in zip(wx,valid))-sum((y-mean_wy)*(p['ay']-mean_ay) for y,p in zip(wy,valid))
-    coupling=numerator/denom if denom>EPS else None
-    if coupling is None and abs(mean_wy)>EPS:raise ValueError('Falta variar el viento para separar gravedad y aceleración vertical')
-    gravities=[p['ay']+(y*coupling if coupling is not None else 0) for p,y in zip(valid,wy)]
-    gravity=statistics.median(gravities)
-    if scale<=0 or gravity<=0 or (coupling is not None and coupling<0):raise ValueError('Las muestras no producen una calibración física válida')
+    wind_fit=fit_acceleration(valid,mode=wind_mode)
+    if wind_fit is None:raise ValueError('Las muestras no producen una calibración física válida o falta variar el viento')
+    coupling=wind_fit['wind_scale']
+    gravities=[p['ay']+components(p['wind'],p['wind_angle'],wind_fit['wind_mode'])[1]*(coupling or 0) for p in valid]
+    if scale<=0:raise ValueError('Las muestras no producen una calibración física válida')
     residual=math.sqrt(statistics.mean((y-(scale*x+offset))**2 for x,y in zip(powers,speeds)))
-    errors=[math.hypot(p['ax']-x*(coupling or 0),p['ay']-(gravity-y*(coupling or 0))) for p,x,y in zip(valid,wx,wy)]
-    return {'power_scale':scale,'speed_offset':offset,'gravity':gravity,'wind_scale':coupling,
+    return {'power_scale':scale,'speed_offset':offset,**wind_fit,
             'sample_count':len(valid),'speed_rmse':residual,'gravity_spread':max(gravities)-min(gravities),
-            'acceleration_rmse':math.sqrt(statistics.mean(e*e for e in errors)),'acceleration_max_error':max(errors),
             'power_range':[min(powers),max(powers)],'wind_range':[min(p['wind'] for p in valid),max(p['wind'] for p in valid)],
             'wind_observed':coupling is not None}

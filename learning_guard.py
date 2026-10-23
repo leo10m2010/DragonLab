@@ -1,6 +1,7 @@
 """Shadow launch fits, independent future observations and reversible promotion."""
 import math,time,json,hashlib
 from calibration_validation import current_fit
+from wind_models import acceleration as wind_acceleration
 
 def sample_id(sample):
     return sample.get('sample_id') or hashlib.sha256(json.dumps(sample,sort_keys=True).encode()).hexdigest()[:24]
@@ -9,13 +10,13 @@ def errors(fit,sample):
     if not fit:return None
     k=fit.get('wind_scale')
     if sample['wind'] and (k is None or not fit.get('wind_observed')):return None
-    k=k or 0;a=math.radians(sample['wind_angle'])
+    ax,ay=wind_acceleration(fit,sample['wind'],sample['wind_angle'])
     speed=abs(math.hypot(sample['vx'],sample['vy'])-(fit['power_scale']*sample['power']+fit['speed_offset']))
-    acceleration=math.hypot(sample['ax']-k*sample['wind']*math.cos(a),sample['ay']-(fit['gravity']-k*sample['wind']*math.sin(a)))
+    acceleration=math.hypot(sample['ax']-ax,sample['ay']-ay)
     path_error=None;duration=sample.get('duration_s')
     if sample.get('simple_trajectory') and isinstance(duration,(int,float)) and math.isfinite(duration) and 0<duration<=20:
         angle=math.atan2(-sample['vy'],sample['vx']);ds=fit['power_scale']*sample['power']+fit['speed_offset']-math.hypot(sample['vx'],sample['vy'])
-        dax=k*sample['wind']*math.cos(a)-sample['ax'];day=fit['gravity']-k*sample['wind']*math.sin(a)-sample['ay']
+        dax=ax-sample['ax'];day=ay-sample['ay']
         path_error=max(math.hypot(ds*math.cos(angle)*t+.5*dax*t*t,-ds*math.sin(angle)*t+.5*day*t*t) for t in (duration*i/8 for i in range(1,9)))
     return {'speed':speed,'acceleration':acceleration,'trajectory':path_error,'score':speed/5+acceleration/5+(path_error/12 if path_error is not None else 0)}
 
@@ -64,7 +65,7 @@ def update(record,sample):
     if not record.get('candidate'):
         try:fit,cut=current_fit(record.get('samples',[]))
         except ValueError:return None
-        if active and all(abs((fit.get(k) or 0)-(active.get(k) or 0))<1e-8 for k in ('power_scale','speed_offset','gravity','wind_scale')):return None
+        if active and fit.get('wind_mode','smooth')==active.get('wind_mode','smooth') and all(abs((fit.get(k) or 0)-(active.get(k) or 0))<1e-8 for k in ('power_scale','speed_offset','gravity','wind_scale')):return None
         training=record['samples'][cut:]
         record['candidate']={'fit':fit,'training_ids':[sample_id(x) for x in training],'validation':[],'created':time.time()}
         record['status']='Aprendiendo: comprobando ajuste nuevo'

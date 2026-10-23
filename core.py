@@ -5,6 +5,7 @@ and application code are original. Special projectiles need calibration.
 """
 from dataclasses import dataclass, asdict, field, replace, fields
 import math
+from wind_models import acceleration as wind_acceleration
 
 # name: gravity, wind coupling, speed per UI power, muzzle angle, muzzle radius
 PROFILES = {
@@ -38,6 +39,7 @@ class Settings:
     target_y:float=420
     gravity:float=73.5
     wind_scale:float=.74
+    wind_mode:str='smooth'
     power_scale:float=1
     body_angle:float=0
     muzzle:bool=True
@@ -55,6 +57,7 @@ class Settings:
 
 def finite_settings(s):
     if s.mobile not in PROFILES:raise ValueError('Vehículo desconocido')
+    if s.wind_mode not in ('smooth','floor'):raise ValueError('Modelo de viento desconocido')
     for descriptor in fields(s):
         key=descriptor.name;value=getattr(s,key)
         if isinstance(value,(int,float)) and not math.isfinite(value):
@@ -97,8 +100,7 @@ def launch(s):
 def acceleration(s):
     observed=s.environment.get('observedAcceleration')
     if isinstance(observed,(list,tuple)) and len(observed)==2 and all(isinstance(v,(int,float)) and math.isfinite(v) for v in observed):return tuple(observed)
-    a=math.radians(s.wind_angle)
-    return math.cos(a)*s.wind*s.wind_scale,s.gravity-math.sin(a)*s.wind*s.wind_scale
+    return wind_acceleration({'gravity':s.gravity,'wind_scale':s.wind_scale,'wind_mode':s.wind_mode},s.wind,s.wind_angle)
 
 def point(s,power,t):
     x,y,side=launch(s);a=math.radians(s.angle+s.angle_offset);ax,ay=acceleration(s)

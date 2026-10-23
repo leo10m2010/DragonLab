@@ -1,0 +1,2142 @@
+{
+  "schema": 1,
+  "scope": "Observed native launch and duration; does not test aiming, terrain or win rate",
+  "selection_episodes": 24,
+  "groups": [
+    {
+      "profile": "dragonbound:ARMOR:0",
+      "training": [
+        {
+          "power": 179,
+          "speed": 423,
+          "ax": -9,
+          "ay": 390,
+          "wind": 3,
+          "wind_angle": 113,
+          "duration_s": 2.625,
+          "heading": 130,
+          "simple": true,
+          "episode": "0",
+          "id": "0"
+        },
+        {
+          "power": 359,
+          "speed": 848,
+          "ax": -5,
+          "ay": 394,
+          "wind": 2,
+          "wind_angle": 113,
+          "duration_s": 1.5,
+          "heading": 126,
+          "simple": true,
+          "episode": "0",
+          "id": "1"
+        },
+        {
+          "power": 99,
+          "speed": 234,
+          "ax": -5,
+          "ay": 398,
+          "wind": 1,
+          "wind_angle": 113,
+          "duration_s": 1.025,
+          "heading": 126,
+          "simple": true,
+          "episode": "0",
+          "id": "2"
+        }
+      ],
+      "future": [
+        {
+          "power": 299,
+          "speed": 707,
+          "ax": -5,
+          "ay": 398,
+          "wind": 1,
+          "wind_angle": 113,
+          "duration_s": 0.175,
+          "heading": 126,
+          "simple": true,
+          "episode": "0",
+          "id": "3"
+        }
+      ]
+    },
+    {
+      "profile": "dragonbound:ARMOR:0",
+      "training": [
+        {
+          "power": 299,
+          "speed": 707,
+          "ax": 19,
+          "ay": 363,
+          "wind": 13,
+          "wind_angle": 67,
+          "duration_s": 3.05,
+          "heading": 54,
+          "simple": true,
+          "episode": "1",
+          "id": "0"
+        },
+        {
+          "power": 99,
+          "speed": 234,
+          "ax": 19,
+          "ay": 363,
+          "wind": 13,
+          "wind_angle": 67,
+          "duration_s": 0.875,
+          "heading": 54,
+          "simple": true,
+          "episode": "1",
+          "id": "1"
+        },
+        {
+          "power": 179,
+          "speed": 423,
+          "ax": 15,
+          "ay": 363,
+          "wind": 12,
+          "wind_angle": 67,
+          "duration_s": 1.6,
+          "heading": 50,
+          "simple": true,
+          "episode": "1",
+          "id": "2"
+        }
+      ],
+      "future": [
+        {
+          "power": 219,
+          "speed": 518,
+          "ax": 19,
+          "ay": 355,
+          "wind": 15,
+          "wind_angle": 67,
+          "duration_s": 2.275,
+          "heading": 56,
+          "simple": true,
+          "episode": "1",
+          "id": "3"
+        },
+        {
+          "power": 119,
+          "speed": 281,
+          "ax": 19,
+          "ay": 355,
+          "wind": 15,
+          "wind_angle": 67,
+          "duration_s": 1.275,
+          "heading": 54,
+          "simple": true,
+          "episode": "1",
+          "id": "4"
+        },
+        {
+          "power": 319,
+          "speed": 754,
+          "ax": 19,
+          "ay": 355,
+          "wind": 15,
+          "wind_angle": 67,
+          "duration_s": 0.225,
+          "heading": 36,
+          "simple": true,
+          "episode": "1",
+          "id": "5"
+        }
+      ]
+    },
+    {
+      "profile": "dragonbound:LIGHTNING:0",
+      "training": [
+        {
+          "power": 119,
+          "speed": 303,
+          "ax": 30,
+          "ay": 493,
+          "wind": 21,
+          "wind_angle": 291,
+          "duration_s": 0.525,
+          "heading": 148,
+          "simple": true,
+          "episode": "2",
+          "id": "0"
+        },
+        {
+          "power": 359,
+          "speed": 913,
+          "ax": 30,
+          "ay": 488,
+          "wind": 20,
+          "wind_angle": 291,
+          "duration_s": 0.275,
+          "heading": 148,
+          "simple": true,
+          "episode": "2",
+          "id": "1"
+        },
+        {
+          "power": 219,
+          "speed": 557,
+          "ax": 26,
+          "ay": 480,
+          "wind": 18,
+          "wind_angle": 291,
+          "duration_s": 0.4,
+          "heading": 148,
+          "simple": true,
+          "episode": "2",
+          "id": "2"
+        }
+      ],
+      "future": [
+        {
+          "power": 299,
+          "speed": 761,
+          "ax": 21,
+          "ay": 471,
+          "wind": 15,
+          "wind_angle": 291,
+          "duration_s": 2.05,
+          "heading": 131,
+          "simple": true,
+          "episode": "2",
+          "id": "3"
+        },
+        {
+          "power": 179,
+          "speed": 455,
+          "ax": -75,
+          "ay": 349,
+          "wind": 21,
+          "wind_angle": 141,
+          "duration_s": 2.025,
+          "heading": 131,
+          "simple": true,
+          "episode": "2",
+          "id": "4"
+        },
+        {
+          "power": 319,
+          "speed": 812,
+          "ax": -35,
+          "ay": 336,
+          "wind": 18,
+          "wind_angle": 115,
+          "duration_s": 2.025,
+          "heading": 131,
+          "simple": true,
+          "episode": "2",
+          "id": "5"
+        },
+        {
+          "power": 99,
+          "speed": 252,
+          "ax": -5,
+          "ay": 379,
+          "wind": 7,
+          "wind_angle": 98,
+          "duration_s": 0.075,
+          "heading": 144,
+          "simple": true,
+          "episode": "2",
+          "id": "6"
+        }
+      ]
+    },
+    {
+      "profile": "dragonbound:LIGHTNING:0",
+      "training": [
+        {
+          "power": 219,
+          "speed": 541,
+          "ax": 21,
+          "ay": 341,
+          "wind": 16,
+          "wind_angle": 69,
+          "duration_s": 0.725,
+          "heading": 19,
+          "simple": true,
+          "episode": "3",
+          "id": "0"
+        },
+        {
+          "power": 99,
+          "speed": 245,
+          "ax": -18,
+          "ay": 415,
+          "wind": 4,
+          "wind_angle": 218,
+          "duration_s": 0.9,
+          "heading": 54,
+          "simple": true,
+          "episode": "3",
+          "id": "1"
+        },
+        {
+          "power": 241,
+          "speed": 595,
+          "ax": -14,
+          "ay": 410,
+          "wind": 3,
+          "wind_angle": 218,
+          "duration_s": 2.275,
+          "heading": 54,
+          "simple": true,
+          "episode": "3",
+          "id": "2"
+        }
+      ],
+      "future": [
+        {
+          "power": 179,
+          "speed": 442,
+          "ax": -14,
+          "ay": 410,
+          "wind": 3,
+          "wind_angle": 218,
+          "duration_s": 0.075,
+          "heading": 34,
+          "simple": true,
+          "episode": "3",
+          "id": "3"
+        },
+        {
+          "power": 119,
+          "speed": 294,
+          "ax": -5,
+          "ay": 406,
+          "wind": 1,
+          "wind_angle": 218,
+          "duration_s": 0.125,
+          "heading": 34,
+          "simple": true,
+          "episode": "3",
+          "id": "4"
+        },
+        {
+          "power": 263,
+          "speed": 650,
+          "ax": -5,
+          "ay": 406,
+          "wind": 1,
+          "wind_angle": 218,
+          "duration_s": 0.375,
+          "heading": 34,
+          "simple": true,
+          "episode": "3",
+          "id": "5"
+        },
+        {
+          "power": 319,
+          "speed": 788,
+          "ax": 0,
+          "ay": 401,
+          "wind": 0,
+          "wind_angle": 218,
+          "duration_s": 0.2,
+          "heading": 36,
+          "simple": true,
+          "episode": "3",
+          "id": "6"
+        },
+        {
+          "power": 119,
+          "speed": 294,
+          "ax": -14,
+          "ay": 410,
+          "wind": 3,
+          "wind_angle": 218,
+          "duration_s": 0.25,
+          "heading": 36,
+          "simple": true,
+          "episode": "3",
+          "id": "7"
+        },
+        {
+          "power": 265,
+          "speed": 655,
+          "ax": -18,
+          "ay": 415,
+          "wind": 4,
+          "wind_angle": 218,
+          "duration_s": 1.9,
+          "heading": 47,
+          "simple": true,
+          "episode": "3",
+          "id": "8"
+        }
+      ]
+    },
+    {
+      "profile": "dragonbound:LIGHTNING:0",
+      "training": [
+        {
+          "power": 99,
+          "speed": 240,
+          "ax": 0,
+          "ay": 397,
+          "wind": 0,
+          "wind_angle": 48,
+          "duration_s": 0.725,
+          "heading": 39,
+          "simple": true,
+          "episode": "4",
+          "id": "0"
+        },
+        {
+          "power": 359,
+          "speed": 869,
+          "ax": -5,
+          "ay": 464,
+          "wind": 15,
+          "wind_angle": 267,
+          "duration_s": 1.975,
+          "heading": 39,
+          "simple": true,
+          "episode": "4",
+          "id": "1"
+        },
+        {
+          "power": 219,
+          "speed": 530,
+          "ax": -5,
+          "ay": 460,
+          "wind": 14,
+          "wind_angle": 267,
+          "duration_s": 1.5,
+          "heading": 40,
+          "simple": true,
+          "episode": "4",
+          "id": "2"
+        }
+      ],
+      "future": [
+        {
+          "power": 299,
+          "speed": 724,
+          "ax": -5,
+          "ay": 451,
+          "wind": 12,
+          "wind_angle": 267,
+          "duration_s": 2.4,
+          "heading": 40,
+          "simple": true,
+          "episode": "4",
+          "id": "3"
+        },
+        {
+          "power": 319,
+          "speed": 772,
+          "ax": -5,
+          "ay": 446,
+          "wind": 11,
+          "wind_angle": 267,
+          "duration_s": 2.25,
+          "heading": 40,
+          "simple": true,
+          "episode": "4",
+          "id": "4"
+        },
+        {
+          "power": 119,
+          "speed": 288,
+          "ax": -5,
+          "ay": 442,
+          "wind": 10,
+          "wind_angle": 267,
+          "duration_s": 0.775,
+          "heading": 36,
+          "simple": true,
+          "episode": "4",
+          "id": "5"
+        },
+        {
+          "power": 359,
+          "speed": 869,
+          "ax": -5,
+          "ay": 433,
+          "wind": 8,
+          "wind_angle": 267,
+          "duration_s": 0.175,
+          "heading": 36,
+          "simple": true,
+          "episode": "4",
+          "id": "6"
+        },
+        {
+          "power": 219,
+          "speed": 530,
+          "ax": -5,
+          "ay": 437,
+          "wind": 9,
+          "wind_angle": 267,
+          "duration_s": 1.5,
+          "heading": 36,
+          "simple": true,
+          "episode": "4",
+          "id": "7"
+        },
+        {
+          "power": 179,
+          "speed": 433,
+          "ax": -5,
+          "ay": 442,
+          "wind": 10,
+          "wind_angle": 267,
+          "duration_s": 1.175,
+          "heading": 36,
+          "simple": true,
+          "episode": "4",
+          "id": "8"
+        },
+        {
+          "power": 119,
+          "speed": 288,
+          "ax": -5,
+          "ay": 446,
+          "wind": 11,
+          "wind_angle": 267,
+          "duration_s": 0.85,
+          "heading": 36,
+          "simple": true,
+          "episode": "4",
+          "id": "9"
+        },
+        {
+          "power": 319,
+          "speed": 772,
+          "ax": 0,
+          "ay": 397,
+          "wind": 0,
+          "wind_angle": 281,
+          "duration_s": 0.15,
+          "heading": 34,
+          "simple": true,
+          "episode": "4",
+          "id": "10"
+        }
+      ]
+    },
+    {
+      "profile": "dragonbound:LIGHTNING:1",
+      "training": [
+        {
+          "power": 119,
+          "speed": 294,
+          "ax": -9,
+          "ay": 410,
+          "wind": 2,
+          "wind_angle": 218,
+          "duration_s": 0.8,
+          "heading": 46,
+          "simple": true,
+          "episode": "5",
+          "id": "0"
+        },
+        {
+          "power": 359,
+          "speed": 887,
+          "ax": 0,
+          "ay": 401,
+          "wind": 0,
+          "wind_angle": 218,
+          "duration_s": 0.1,
+          "heading": 34,
+          "simple": true,
+          "episode": "5",
+          "id": "1"
+        },
+        {
+          "power": 220,
+          "speed": 543,
+          "ax": -9,
+          "ay": 410,
+          "wind": 2,
+          "wind_angle": 218,
+          "duration_s": 0.05,
+          "heading": 47,
+          "simple": true,
+          "episode": "5",
+          "id": "2"
+        }
+      ],
+      "future": [
+        {
+          "power": 299,
+          "speed": 739,
+          "ax": -18,
+          "ay": 415,
+          "wind": 4,
+          "wind_angle": 218,
+          "duration_s": 2.15,
+          "heading": 47,
+          "simple": true,
+          "episode": "5",
+          "id": "3"
+        }
+      ]
+    },
+    {
+      "profile": "dragonbound:ADUKA:0",
+      "training": [
+        {
+          "power": 100,
+          "speed": 242,
+          "ax": 12,
+          "ay": 364,
+          "wind": 10,
+          "wind_angle": 69,
+          "duration_s": 0.3,
+          "heading": 51,
+          "simple": true,
+          "episode": "6",
+          "id": "0"
+        },
+        {
+          "power": 219,
+          "speed": 530,
+          "ax": 16,
+          "ay": 356,
+          "wind": 12,
+          "wind_angle": 69,
+          "duration_s": 2.05,
+          "heading": 51,
+          "simple": true,
+          "episode": "6",
+          "id": "1"
+        },
+        {
+          "power": 299,
+          "speed": 724,
+          "ax": 16,
+          "ay": 352,
+          "wind": 13,
+          "wind_angle": 69,
+          "duration_s": 1.95,
+          "heading": 51,
+          "simple": true,
+          "episode": "6",
+          "id": "2"
+        }
+      ],
+      "future": [
+        {
+          "power": 179,
+          "speed": 433,
+          "ax": 4,
+          "ay": 433,
+          "wind": 8,
+          "wind_angle": 279,
+          "duration_s": 1.625,
+          "heading": 56,
+          "simple": true,
+          "episode": "6",
+          "id": "3"
+        },
+        {
+          "power": 319,
+          "speed": 772,
+          "ax": 4,
+          "ay": 433,
+          "wind": 8,
+          "wind_angle": 279,
+          "duration_s": 0.225,
+          "heading": 55,
+          "simple": true,
+          "episode": "6",
+          "id": "4"
+        },
+        {
+          "power": 119,
+          "speed": 288,
+          "ax": 4,
+          "ay": 437,
+          "wind": 9,
+          "wind_angle": 279,
+          "duration_s": 0.15,
+          "heading": 36,
+          "simple": true,
+          "episode": "6",
+          "id": "5"
+        },
+        {
+          "power": 359,
+          "speed": 869,
+          "ax": 4,
+          "ay": 437,
+          "wind": 9,
+          "wind_angle": 279,
+          "duration_s": 0.1,
+          "heading": 36,
+          "simple": true,
+          "episode": "6",
+          "id": "6"
+        }
+      ]
+    },
+    {
+      "profile": "dragonbound:ADUKA:0",
+      "training": [
+        {
+          "power": 119,
+          "speed": 296,
+          "ax": -83,
+          "ay": 372,
+          "wind": 21,
+          "wind_angle": 156,
+          "duration_s": 1.5,
+          "heading": 56,
+          "simple": true,
+          "episode": "7",
+          "id": "0"
+        },
+        {
+          "power": 359,
+          "speed": 887,
+          "ax": -79,
+          "ay": 372,
+          "wind": 20,
+          "wind_angle": 156,
+          "duration_s": 0.875,
+          "heading": 56,
+          "simple": true,
+          "episode": "7",
+          "id": "1"
+        },
+        {
+          "power": 220,
+          "speed": 543,
+          "ax": -79,
+          "ay": 372,
+          "wind": 20,
+          "wind_angle": 156,
+          "duration_s": 1.75,
+          "heading": 56,
+          "simple": true,
+          "episode": "7",
+          "id": "2"
+        }
+      ],
+      "future": [
+        {
+          "power": 299,
+          "speed": 739,
+          "ax": 8,
+          "ay": 470,
+          "wind": 16,
+          "wind_angle": 279,
+          "duration_s": 1.0,
+          "heading": 56,
+          "simple": true,
+          "episode": "7",
+          "id": "3"
+        }
+      ]
+    },
+    {
+      "profile": "dragonbound:ADUKA:0",
+      "training": [
+        {
+          "power": 299,
+          "speed": 724,
+          "ax": -75,
+          "ay": 385,
+          "wind": 18,
+          "wind_angle": 183,
+          "duration_s": 2.325,
+          "heading": 124,
+          "simple": true,
+          "episode": "8",
+          "id": "0"
+        },
+        {
+          "power": 100,
+          "speed": 242,
+          "ax": -25,
+          "ay": 385,
+          "wind": 6,
+          "wind_angle": 186,
+          "duration_s": 1.225,
+          "heading": 124,
+          "simple": true,
+          "episode": "8",
+          "id": "1"
+        },
+        {
+          "power": 180,
+          "speed": 436,
+          "ax": -38,
+          "ay": 281,
+          "wind": 26,
+          "wind_angle": 110,
+          "duration_s": 3.65,
+          "heading": 124,
+          "simple": true,
+          "episode": "8",
+          "id": "2"
+        }
+      ],
+      "future": [
+        {
+          "power": 359,
+          "speed": 869,
+          "ax": -38,
+          "ay": 281,
+          "wind": 26,
+          "wind_angle": 110,
+          "duration_s": 2.175,
+          "heading": 124,
+          "simple": true,
+          "episode": "8",
+          "id": "3"
+        },
+        {
+          "power": 219,
+          "speed": 530,
+          "ax": -38,
+          "ay": 285,
+          "wind": 25,
+          "wind_angle": 110,
+          "duration_s": 3.2,
+          "heading": 124,
+          "simple": true,
+          "episode": "8",
+          "id": "4"
+        },
+        {
+          "power": 320,
+          "speed": 775,
+          "ax": -38,
+          "ay": 289,
+          "wind": 24,
+          "wind_angle": 110,
+          "duration_s": 2.4,
+          "heading": 124,
+          "simple": true,
+          "episode": "8",
+          "id": "5"
+        },
+        {
+          "power": 152,
+          "speed": 368,
+          "ax": -38,
+          "ay": 289,
+          "wind": 24,
+          "wind_angle": 110,
+          "duration_s": 1.85,
+          "heading": 144,
+          "simple": true,
+          "episode": "8",
+          "id": "6"
+        },
+        {
+          "power": 359,
+          "speed": 869,
+          "ax": -34,
+          "ay": 293,
+          "wind": 23,
+          "wind_angle": 110,
+          "duration_s": 0.275,
+          "heading": 145,
+          "simple": true,
+          "episode": "8",
+          "id": "7"
+        },
+        {
+          "power": 220,
+          "speed": 533,
+          "ax": -34,
+          "ay": 293,
+          "wind": 23,
+          "wind_angle": 110,
+          "duration_s": 0.5,
+          "heading": 145,
+          "simple": true,
+          "episode": "8",
+          "id": "8"
+        },
+        {
+          "power": 119,
+          "speed": 288,
+          "ax": -34,
+          "ay": 297,
+          "wind": 22,
+          "wind_angle": 110,
+          "duration_s": 1.175,
+          "heading": 145,
+          "simple": true,
+          "episode": "8",
+          "id": "9"
+        },
+        {
+          "power": 119,
+          "speed": 288,
+          "ax": -34,
+          "ay": 297,
+          "wind": 22,
+          "wind_angle": 110,
+          "duration_s": 0.95,
+          "heading": 144,
+          "simple": true,
+          "episode": "8",
+          "id": "10"
+        },
+        {
+          "power": 320,
+          "speed": 775,
+          "ax": -34,
+          "ay": 293,
+          "wind": 23,
+          "wind_angle": 110,
+          "duration_s": 0.25,
+          "heading": 106,
+          "simple": true,
+          "episode": "8",
+          "id": "11"
+        }
+      ]
+    },
+    {
+      "profile": "dragonbound:ASATE:0",
+      "training": [
+        {
+          "power": 359,
+          "speed": 840,
+          "ax": -5,
+          "ay": 441,
+          "wind": 4,
+          "wind_angle": 268,
+          "duration_s": 2.05,
+          "heading": 129,
+          "simple": true,
+          "episode": "9",
+          "id": "0"
+        },
+        {
+          "power": 99,
+          "speed": 232,
+          "ax": -5,
+          "ay": 446,
+          "wind": 5,
+          "wind_angle": 268,
+          "duration_s": 0.725,
+          "heading": 129,
+          "simple": true,
+          "episode": "9",
+          "id": "1"
+        },
+        {
+          "power": 219,
+          "speed": 515,
+          "ax": -5,
+          "ay": 441,
+          "wind": 4,
+          "wind_angle": 268,
+          "duration_s": 1.55,
+          "heading": 129,
+          "simple": true,
+          "episode": "9",
+          "id": "2"
+        }
+      ],
+      "future": [
+        {
+          "power": 300,
+          "speed": 702,
+          "ax": -5,
+          "ay": 446,
+          "wind": 5,
+          "wind_angle": 268,
+          "duration_s": 0.1,
+          "heading": 126,
+          "simple": true,
+          "episode": "9",
+          "id": "3"
+        }
+      ]
+    },
+    {
+      "profile": "dragonbound:ASATE:0",
+      "training": [
+        {
+          "power": 99,
+          "speed": 236,
+          "ax": -67,
+          "ay": 330,
+          "wind": 25,
+          "wind_angle": 129,
+          "duration_s": 1.1,
+          "heading": 54,
+          "simple": true,
+          "episode": "10",
+          "id": "0"
+        },
+        {
+          "power": 359,
+          "speed": 848,
+          "ax": -71,
+          "ay": 326,
+          "wind": 26,
+          "wind_angle": 129,
+          "duration_s": 3.625,
+          "heading": 54,
+          "simple": true,
+          "episode": "10",
+          "id": "1"
+        },
+        {
+          "power": 220,
+          "speed": 520,
+          "ax": -67,
+          "ay": 330,
+          "wind": 25,
+          "wind_angle": 129,
+          "duration_s": 2.525,
+          "heading": 54,
+          "simple": true,
+          "episode": "10",
+          "id": "2"
+        }
+      ],
+      "future": [
+        {
+          "power": 299,
+          "speed": 707,
+          "ax": -63,
+          "ay": 338,
+          "wind": 23,
+          "wind_angle": 129,
+          "duration_s": 4.5,
+          "heading": 54,
+          "simple": true,
+          "episode": "10",
+          "id": "3"
+        },
+        {
+          "power": 179,
+          "speed": 423,
+          "ax": -58,
+          "ay": 338,
+          "wind": 22,
+          "wind_angle": 129,
+          "duration_s": 1.95,
+          "heading": 54,
+          "simple": true,
+          "episode": "10",
+          "id": "4"
+        },
+        {
+          "power": 319,
+          "speed": 754,
+          "ax": 24,
+          "ay": 491,
+          "wind": 20,
+          "wind_angle": 288,
+          "duration_s": 2.7,
+          "heading": 52,
+          "simple": true,
+          "episode": "10",
+          "id": "5"
+        },
+        {
+          "power": 119,
+          "speed": 281,
+          "ax": 24,
+          "ay": 491,
+          "wind": 20,
+          "wind_angle": 288,
+          "duration_s": 0.6,
+          "heading": 36,
+          "simple": true,
+          "episode": "10",
+          "id": "6"
+        },
+        {
+          "power": 359,
+          "speed": 848,
+          "ax": -38,
+          "ay": 421,
+          "wind": 9,
+          "wind_angle": 193,
+          "duration_s": 2.075,
+          "heading": 36,
+          "simple": true,
+          "episode": "10",
+          "id": "7"
+        },
+        {
+          "power": 219,
+          "speed": 518,
+          "ax": -42,
+          "ay": 421,
+          "wind": 10,
+          "wind_angle": 193,
+          "duration_s": 0.1,
+          "heading": 34,
+          "simple": true,
+          "episode": "10",
+          "id": "8"
+        },
+        {
+          "power": 180,
+          "speed": 425,
+          "ax": -149,
+          "ay": 272,
+          "wind": 49,
+          "wind_angle": 137,
+          "duration_s": 0.125,
+          "heading": 34,
+          "simple": true,
+          "episode": "10",
+          "id": "9"
+        },
+        {
+          "power": 119,
+          "speed": 281,
+          "ax": -149,
+          "ay": 276,
+          "wind": 48,
+          "wind_angle": 137,
+          "duration_s": 0.3,
+          "heading": 34,
+          "simple": true,
+          "episode": "10",
+          "id": "10"
+        },
+        {
+          "power": 99,
+          "speed": 234,
+          "ax": -137,
+          "ay": 284,
+          "wind": 44,
+          "wind_angle": 137,
+          "duration_s": 0.85,
+          "heading": 39,
+          "simple": true,
+          "episode": "10",
+          "id": "11"
+        },
+        {
+          "power": 299,
+          "speed": 707,
+          "ax": -125,
+          "ay": 297,
+          "wind": 41,
+          "wind_angle": 137,
+          "duration_s": 0.625,
+          "heading": 39,
+          "simple": true,
+          "episode": "10",
+          "id": "12"
+        },
+        {
+          "power": 359,
+          "speed": 848,
+          "ax": -121,
+          "ay": 301,
+          "wind": 39,
+          "wind_angle": 137,
+          "duration_s": 4.575,
+          "heading": 59,
+          "simple": true,
+          "episode": "10",
+          "id": "13"
+        },
+        {
+          "power": 119,
+          "speed": 284,
+          "ax": -116,
+          "ay": 305,
+          "wind": 37,
+          "wind_angle": 137,
+          "duration_s": 1.525,
+          "heading": 57,
+          "simple": true,
+          "episode": "10",
+          "id": "14"
+        },
+        {
+          "power": 301,
+          "speed": 711,
+          "ax": -116,
+          "ay": 305,
+          "wind": 37,
+          "wind_angle": 137,
+          "duration_s": 0.05,
+          "heading": 56,
+          "simple": true,
+          "episode": "10",
+          "id": "15"
+        },
+        {
+          "power": 99,
+          "speed": 234,
+          "ax": -104,
+          "ay": 313,
+          "wind": 34,
+          "wind_angle": 137,
+          "duration_s": 1.1,
+          "heading": 66,
+          "simple": true,
+          "episode": "10",
+          "id": "16"
+        },
+        {
+          "power": 319,
+          "speed": 754,
+          "ax": -104,
+          "ay": 317,
+          "wind": 33,
+          "wind_angle": 137,
+          "duration_s": 3.625,
+          "heading": 56,
+          "simple": true,
+          "episode": "10",
+          "id": "17"
+        },
+        {
+          "power": 219,
+          "speed": 518,
+          "ax": 28,
+          "ay": 359,
+          "wind": 15,
+          "wind_angle": 60,
+          "duration_s": 2.0,
+          "heading": 56,
+          "simple": true,
+          "episode": "10",
+          "id": "18"
+        },
+        {
+          "power": 179,
+          "speed": 423,
+          "ax": 24,
+          "ay": 363,
+          "wind": 13,
+          "wind_angle": 60,
+          "duration_s": 0.2,
+          "heading": 52,
+          "simple": true,
+          "episode": "10",
+          "id": "19"
+        }
+      ]
+    },
+    {
+      "profile": "dragonbound:ASATE:0",
+      "training": [
+        {
+          "power": 319,
+          "speed": 732,
+          "ax": 0,
+          "ay": 408,
+          "wind": 0,
+          "wind_angle": 256,
+          "duration_s": 1.45,
+          "heading": 50,
+          "simple": true,
+          "episode": "11",
+          "id": "0"
+        },
+        {
+          "power": 99,
+          "speed": 227,
+          "ax": -5,
+          "ay": 413,
+          "wind": 1,
+          "wind_angle": 256,
+          "duration_s": 1.05,
+          "heading": 50,
+          "simple": true,
+          "episode": "11",
+          "id": "1"
+        },
+        {
+          "power": 219,
+          "speed": 502,
+          "ax": 0,
+          "ay": 408,
+          "wind": 0,
+          "wind_angle": 256,
+          "duration_s": 1.35,
+          "heading": 50,
+          "simple": true,
+          "episode": "11",
+          "id": "2"
+        }
+      ],
+      "future": [
+        {
+          "power": 359,
+          "speed": 823,
+          "ax": 0,
+          "ay": 408,
+          "wind": 0,
+          "wind_angle": 256,
+          "duration_s": 1.3,
+          "heading": 50,
+          "simple": true,
+          "episode": "11",
+          "id": "3"
+        },
+        {
+          "power": 192,
+          "speed": 443,
+          "ax": 0,
+          "ay": 408,
+          "wind": 0,
+          "wind_angle": 256,
+          "duration_s": 0.8,
+          "heading": 47,
+          "simple": true,
+          "episode": "11",
+          "id": "4"
+        },
+        {
+          "power": 120,
+          "speed": 275,
+          "ax": -5,
+          "ay": 417,
+          "wind": 2,
+          "wind_angle": 256,
+          "duration_s": 2.2,
+          "heading": 40,
+          "simple": true,
+          "episode": "11",
+          "id": "5"
+        },
+        {
+          "power": 299,
+          "speed": 686,
+          "ax": 8,
+          "ay": 404,
+          "wind": 3,
+          "wind_angle": 24,
+          "duration_s": 0.375,
+          "heading": 36,
+          "simple": true,
+          "episode": "11",
+          "id": "6"
+        },
+        {
+          "power": 179,
+          "speed": 410,
+          "ax": 8,
+          "ay": 404,
+          "wind": 3,
+          "wind_angle": 24,
+          "duration_s": 0.675,
+          "heading": 36,
+          "simple": true,
+          "episode": "11",
+          "id": "7"
+        }
+      ]
+    },
+    {
+      "profile": "dragonbound:TURTLE:0",
+      "training": [
+        {
+          "power": 319,
+          "speed": 744,
+          "ax": -8,
+          "ay": 394,
+          "wind": 2,
+          "wind_angle": 145,
+          "duration_s": 0.075,
+          "heading": 54,
+          "simple": true,
+          "episode": "12",
+          "id": "0"
+        },
+        {
+          "power": 99,
+          "speed": 231,
+          "ax": -12,
+          "ay": 394,
+          "wind": 3,
+          "wind_angle": 145,
+          "duration_s": 0.675,
+          "heading": 54,
+          "simple": true,
+          "episode": "12",
+          "id": "1"
+        },
+        {
+          "power": 220,
+          "speed": 513,
+          "ax": -20,
+          "ay": 390,
+          "wind": 5,
+          "wind_angle": 145,
+          "duration_s": 2.225,
+          "heading": 52,
+          "simple": true,
+          "episode": "12",
+          "id": "2"
+        }
+      ],
+      "future": [
+        {
+          "power": 359,
+          "speed": 838,
+          "ax": -16,
+          "ay": 390,
+          "wind": 4,
+          "wind_angle": 145,
+          "duration_s": 0.15,
+          "heading": 52,
+          "simple": true,
+          "episode": "12",
+          "id": "3"
+        },
+        {
+          "power": 109,
+          "speed": 254,
+          "ax": -12,
+          "ay": 394,
+          "wind": 3,
+          "wind_angle": 145,
+          "duration_s": 0.7,
+          "heading": 36,
+          "simple": true,
+          "episode": "12",
+          "id": "4"
+        }
+      ]
+    },
+    {
+      "profile": "dragonbound:GRUB:0",
+      "training": [
+        {
+          "power": 99,
+          "speed": 253,
+          "ax": 20,
+          "ay": 403,
+          "wind": 6,
+          "wind_angle": 359,
+          "duration_s": 1.125,
+          "heading": 51,
+          "simple": true,
+          "episode": "13",
+          "id": "0"
+        },
+        {
+          "power": 179,
+          "speed": 457,
+          "ax": 16,
+          "ay": 403,
+          "wind": 5,
+          "wind_angle": 359,
+          "duration_s": 1.75,
+          "heading": 51,
+          "simple": true,
+          "episode": "13",
+          "id": "1"
+        },
+        {
+          "power": 359,
+          "speed": 917,
+          "ax": 24,
+          "ay": 403,
+          "wind": 7,
+          "wind_angle": 359,
+          "duration_s": 2.175,
+          "heading": 57,
+          "simple": true,
+          "episode": "13",
+          "id": "2"
+        }
+      ],
+      "future": [
+        {
+          "power": 119,
+          "speed": 304,
+          "ax": 16,
+          "ay": 403,
+          "wind": 5,
+          "wind_angle": 359,
+          "duration_s": 1.025,
+          "heading": 57,
+          "simple": true,
+          "episode": "13",
+          "id": "3"
+        },
+        {
+          "power": 183,
+          "speed": 470,
+          "ax": 20,
+          "ay": 403,
+          "wind": 6,
+          "wind_angle": 359,
+          "duration_s": 1.75,
+          "heading": 54,
+          "simple": true,
+          "episode": "13",
+          "id": "4"
+        },
+        {
+          "power": 359,
+          "speed": 917,
+          "ax": 20,
+          "ay": 403,
+          "wind": 6,
+          "wind_angle": 359,
+          "duration_s": 0.1,
+          "heading": 36,
+          "simple": true,
+          "episode": "13",
+          "id": "5"
+        },
+        {
+          "power": 99,
+          "speed": 253,
+          "ax": 20,
+          "ay": 403,
+          "wind": 6,
+          "wind_angle": 359,
+          "duration_s": 0.475,
+          "heading": 36,
+          "simple": true,
+          "episode": "13",
+          "id": "6"
+        }
+      ]
+    },
+    {
+      "profile": "dragonbound:GRUB:0",
+      "training": [
+        {
+          "power": 119,
+          "speed": 295,
+          "ax": 16,
+          "ay": 460,
+          "wind": 13,
+          "wind_angle": 289,
+          "duration_s": 1.225,
+          "heading": 126,
+          "simple": true,
+          "episode": "14",
+          "id": "0"
+        },
+        {
+          "power": 359,
+          "speed": 890,
+          "ax": 12,
+          "ay": 456,
+          "wind": 12,
+          "wind_angle": 289,
+          "duration_s": 2.0,
+          "heading": 126,
+          "simple": true,
+          "episode": "14",
+          "id": "1"
+        },
+        {
+          "power": 220,
+          "speed": 545,
+          "ax": 52,
+          "ay": 335,
+          "wind": 23,
+          "wind_angle": 54,
+          "duration_s": 4.0,
+          "heading": 126,
+          "simple": true,
+          "episode": "14",
+          "id": "2"
+        }
+      ],
+      "future": [
+        {
+          "power": 299,
+          "speed": 741,
+          "ax": 52,
+          "ay": 335,
+          "wind": 23,
+          "wind_angle": 54,
+          "duration_s": 2.825,
+          "heading": 126,
+          "simple": true,
+          "episode": "14",
+          "id": "3"
+        },
+        {
+          "power": 179,
+          "speed": 444,
+          "ax": 48,
+          "ay": 339,
+          "wind": 22,
+          "wind_angle": 54,
+          "duration_s": 2.375,
+          "heading": 126,
+          "simple": true,
+          "episode": "14",
+          "id": "4"
+        },
+        {
+          "power": 319,
+          "speed": 791,
+          "ax": 44,
+          "ay": 343,
+          "wind": 20,
+          "wind_angle": 54,
+          "duration_s": 2.5,
+          "heading": 126,
+          "simple": true,
+          "episode": "14",
+          "id": "5"
+        },
+        {
+          "power": 99,
+          "speed": 245,
+          "ax": 48,
+          "ay": 343,
+          "wind": 21,
+          "wind_angle": 54,
+          "duration_s": 1.25,
+          "heading": 144,
+          "simple": true,
+          "episode": "14",
+          "id": "6"
+        },
+        {
+          "power": 359,
+          "speed": 890,
+          "ax": 28,
+          "ay": 327,
+          "wind": 22,
+          "wind_angle": 69,
+          "duration_s": 1.475,
+          "heading": 144,
+          "simple": true,
+          "episode": "14",
+          "id": "7"
+        },
+        {
+          "power": 219,
+          "speed": 543,
+          "ax": 32,
+          "ay": 319,
+          "wind": 24,
+          "wind_angle": 69,
+          "duration_s": 2.575,
+          "heading": 144,
+          "simple": true,
+          "episode": "14",
+          "id": "8"
+        },
+        {
+          "power": 135,
+          "speed": 337,
+          "ax": 32,
+          "ay": 323,
+          "wind": 23,
+          "wind_angle": 69,
+          "duration_s": 1.65,
+          "heading": 141,
+          "simple": true,
+          "episode": "14",
+          "id": "9"
+        },
+        {
+          "power": 136,
+          "speed": 337,
+          "ax": 32,
+          "ay": 323,
+          "wind": 23,
+          "wind_angle": 69,
+          "duration_s": 1.75,
+          "heading": 141,
+          "simple": true,
+          "episode": "14",
+          "id": "10"
+        },
+        {
+          "power": 120,
+          "speed": 298,
+          "ax": 28,
+          "ay": 331,
+          "wind": 21,
+          "wind_angle": 69,
+          "duration_s": 1.425,
+          "heading": 141,
+          "simple": true,
+          "episode": "14",
+          "id": "11"
+        },
+        {
+          "power": 319,
+          "speed": 793,
+          "ax": 28,
+          "ay": 331,
+          "wind": 21,
+          "wind_angle": 69,
+          "duration_s": 4.075,
+          "heading": 113,
+          "simple": true,
+          "episode": "14",
+          "id": "12"
+        },
+        {
+          "power": 100,
+          "speed": 248,
+          "ax": 24,
+          "ay": 339,
+          "wind": 19,
+          "wind_angle": 69,
+          "duration_s": 1.525,
+          "heading": 113,
+          "simple": true,
+          "episode": "14",
+          "id": "13"
+        },
+        {
+          "power": 181,
+          "speed": 449,
+          "ax": 24,
+          "ay": 339,
+          "wind": 19,
+          "wind_angle": 69,
+          "duration_s": 2.9,
+          "heading": 113,
+          "simple": true,
+          "episode": "14",
+          "id": "14"
+        },
+        {
+          "power": 299,
+          "speed": 741,
+          "ax": 28,
+          "ay": 335,
+          "wind": 20,
+          "wind_angle": 69,
+          "duration_s": 4.55,
+          "heading": 113,
+          "simple": true,
+          "episode": "14",
+          "id": "15"
+        },
+        {
+          "power": 359,
+          "speed": 890,
+          "ax": 60,
+          "ay": 363,
+          "wind": 19,
+          "wind_angle": 36,
+          "duration_s": 5.45,
+          "heading": 113,
+          "simple": true,
+          "episode": "14",
+          "id": "16"
+        },
+        {
+          "power": 319,
+          "speed": 791,
+          "ax": 56,
+          "ay": 367,
+          "wind": 18,
+          "wind_angle": 36,
+          "duration_s": 4.975,
+          "heading": 113,
+          "simple": true,
+          "episode": "14",
+          "id": "17"
+        },
+        {
+          "power": 299,
+          "speed": 741,
+          "ax": 56,
+          "ay": 367,
+          "wind": 18,
+          "wind_angle": 36,
+          "duration_s": 0.1,
+          "heading": 125,
+          "simple": true,
+          "episode": "14",
+          "id": "18"
+        }
+      ]
+    },
+    {
+      "profile": "dragonbound:GRUB:0",
+      "training": [
+        {
+          "power": 99,
+          "speed": 253,
+          "ax": -4,
+          "ay": 383,
+          "wind": 1,
+          "wind_angle": 177,
+          "duration_s": 1.025,
+          "heading": 56,
+          "simple": true,
+          "episode": "15",
+          "id": "0"
+        },
+        {
+          "power": 359,
+          "speed": 917,
+          "ax": 0,
+          "ay": 383,
+          "wind": 0,
+          "wind_angle": 177,
+          "duration_s": 2.725,
+          "heading": 56,
+          "simple": true,
+          "episode": "15",
+          "id": "1"
+        },
+        {
+          "power": 219,
+          "speed": 560,
+          "ax": 0,
+          "ay": 383,
+          "wind": 0,
+          "wind_angle": 177,
+          "duration_s": 2.475,
+          "heading": 56,
+          "simple": true,
+          "episode": "15",
+          "id": "2"
+        }
+      ],
+      "future": [
+        {
+          "power": 180,
+          "speed": 460,
+          "ax": 12,
+          "ay": 467,
+          "wind": 21,
+          "wind_angle": 280,
+          "duration_s": 1.6,
+          "heading": 56,
+          "simple": true,
+          "episode": "15",
+          "id": "3"
+        },
+        {
+          "power": 320,
+          "speed": 818,
+          "ax": 12,
+          "ay": 463,
+          "wind": 20,
+          "wind_angle": 280,
+          "duration_s": 2.95,
+          "heading": 56,
+          "simple": true,
+          "episode": "15",
+          "id": "4"
+        },
+        {
+          "power": 221,
+          "speed": 565,
+          "ax": 12,
+          "ay": 459,
+          "wind": 19,
+          "wind_angle": 280,
+          "duration_s": 2.025,
+          "heading": 56,
+          "simple": true,
+          "episode": "15",
+          "id": "5"
+        },
+        {
+          "power": 100,
+          "speed": 256,
+          "ax": 12,
+          "ay": 459,
+          "wind": 19,
+          "wind_angle": 280,
+          "duration_s": 0.775,
+          "heading": 38,
+          "simple": true,
+          "episode": "15",
+          "id": "6"
+        },
+        {
+          "power": 228,
+          "speed": 583,
+          "ax": 12,
+          "ay": 467,
+          "wind": 21,
+          "wind_angle": 280,
+          "duration_s": 2.025,
+          "heading": 55,
+          "simple": true,
+          "episode": "15",
+          "id": "7"
+        },
+        {
+          "power": 180,
+          "speed": 460,
+          "ax": -96,
+          "ay": 383,
+          "wind": 24,
+          "wind_angle": 180,
+          "duration_s": 2.3,
+          "heading": 66,
+          "simple": true,
+          "episode": "15",
+          "id": "8"
+        },
+        {
+          "power": 119,
+          "speed": 304,
+          "ax": -104,
+          "ay": 383,
+          "wind": 26,
+          "wind_angle": 180,
+          "duration_s": 1.375,
+          "heading": 59,
+          "simple": true,
+          "episode": "15",
+          "id": "9"
+        },
+        {
+          "power": 320,
+          "speed": 818,
+          "ax": -48,
+          "ay": 423,
+          "wind": 15,
+          "wind_angle": 221,
+          "duration_s": 3.45,
+          "heading": 66,
+          "simple": true,
+          "episode": "15",
+          "id": "10"
+        },
+        {
+          "power": 299,
+          "speed": 764,
+          "ax": -72,
+          "ay": 455,
+          "wind": 25,
+          "wind_angle": 224,
+          "duration_s": 2.975,
+          "heading": 66,
+          "simple": true,
+          "episode": "15",
+          "id": "11"
+        },
+        {
+          "power": 360,
+          "speed": 920,
+          "ax": -68,
+          "ay": 447,
+          "wind": 23,
+          "wind_angle": 224,
+          "duration_s": 3.875,
+          "heading": 73,
+          "simple": true,
+          "episode": "15",
+          "id": "12"
+        },
+        {
+          "power": 180,
+          "speed": 460,
+          "ax": -68,
+          "ay": 447,
+          "wind": 23,
+          "wind_angle": 224,
+          "duration_s": 2.0,
+          "heading": 73,
+          "simple": true,
+          "episode": "15",
+          "id": "13"
+        },
+        {
+          "power": 119,
+          "speed": 304,
+          "ax": -64,
+          "ay": 443,
+          "wind": 21,
+          "wind_angle": 224,
+          "duration_s": 1.375,
+          "heading": 56,
+          "simple": true,
+          "episode": "15",
+          "id": "14"
+        }
+      ]
+    },
+    {
+      "profile": "dragonbound:ASATE:1",
+      "training": [
+        {
+          "power": 359,
+          "speed": 848,
+          "ax": -133,
+          "ay": 288,
+          "wind": 43,
+          "wind_angle": 137,
+          "duration_s": 0.425,
+          "heading": 39,
+          "simple": true,
+          "episode": "16",
+          "id": "0"
+        },
+        {
+          "power": 220,
+          "speed": 520,
+          "ax": -116,
+          "ay": 305,
+          "wind": 37,
+          "wind_angle": 137,
+          "duration_s": 2.05,
+          "heading": 56,
+          "simple": true,
+          "episode": "16",
+          "id": "1"
+        },
+        {
+          "power": 299,
+          "speed": 707,
+          "ax": -112,
+          "ay": 309,
+          "wind": 36,
+          "wind_angle": 137,
+          "duration_s": 3.2,
+          "heading": 56,
+          "simple": true,
+          "episode": "16",
+          "id": "2"
+        }
+      ],
+      "future": [
+        {
+          "power": 179,
+          "speed": 423,
+          "ax": -100,
+          "ay": 322,
+          "wind": 32,
+          "wind_angle": 137,
+          "duration_s": 1.525,
+          "heading": 56,
+          "simple": true,
+          "episode": "16",
+          "id": "3"
+        }
+      ]
+    },
+    {
+      "profile": "dragonbound:MAGE:0",
+      "training": [
+        {
+          "power": 179,
+          "speed": 406,
+          "ax": 93,
+          "ay": 404,
+          "wind": 25,
+          "wind_angle": 342,
+          "duration_s": 1.475,
+          "heading": 126,
+          "simple": true,
+          "episode": "17",
+          "id": "0"
+        },
+        {
+          "power": 359,
+          "speed": 815,
+          "ax": 93,
+          "ay": 404,
+          "wind": 25,
+          "wind_angle": 342,
+          "duration_s": 2.275,
+          "heading": 124,
+          "simple": true,
+          "episode": "17",
+          "id": "1"
+        },
+        {
+          "power": 99,
+          "speed": 225,
+          "ax": 89,
+          "ay": 404,
+          "wind": 24,
+          "wind_angle": 342,
+          "duration_s": 1.075,
+          "heading": 124,
+          "simple": true,
+          "episode": "17",
+          "id": "2"
+        }
+      ],
+      "future": [
+        {
+          "power": 299,
+          "speed": 679,
+          "ax": 93,
+          "ay": 404,
+          "wind": 25,
+          "wind_angle": 342,
+          "duration_s": 3.625,
+          "heading": 124,
+          "simple": true,
+          "episode": "17",
+          "id": "3"
+        }
+      ]
+    },
+    {
+      "profile": "dragonbound:MAGE:0",
+      "training": [
+        {
+          "power": 219,
+          "speed": 487,
+          "ax": 15,
+          "ay": 426,
+          "wind": 15,
+          "wind_angle": 289,
+          "duration_s": 1.525,
+          "heading": 54,
+          "simple": true,
+          "episode": "18",
+          "id": "0"
+        },
+        {
+          "power": 99,
+          "speed": 220,
+          "ax": 15,
+          "ay": 426,
+          "wind": 15,
+          "wind_angle": 289,
+          "duration_s": 1.075,
+          "heading": 54,
+          "simple": true,
+          "episode": "18",
+          "id": "1"
+        },
+        {
+          "power": 299,
+          "speed": 665,
+          "ax": 27,
+          "ay": 356,
+          "wind": 8,
+          "wind_angle": 26,
+          "duration_s": 1.625,
+          "heading": 51,
+          "simple": true,
+          "episode": "18",
+          "id": "2"
+        }
+      ],
+      "future": [
+        {
+          "power": 179,
+          "speed": 398,
+          "ax": 27,
+          "ay": 356,
+          "wind": 8,
+          "wind_angle": 26,
+          "duration_s": 1.0,
+          "heading": 51,
+          "simple": true,
+          "episode": "18",
+          "id": "3"
+        }
+      ]
+    }
+  ]
+}

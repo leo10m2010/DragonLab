@@ -176,7 +176,8 @@ class App:
         observed=self.book.acceleration(self.clone_id,self.s.mobile,self.s.selected_shot,self.s.wind,self.s.wind_angle)
         if observed:self.s.environment['observedAcceleration']=observed
         else:self.s.environment.pop('observedAcceleration',None)
-        stamp=(self.clone_id,self.s.mobile,self.s.selected_shot,tuple((k,fit.get(k)) for k in ('gravity','power_scale','wind_scale','speed_offset')) if fit else None)
+        self.s.wind_mode=fit.get('wind_mode','smooth') if fit else 'smooth'
+        stamp=(self.clone_id,self.s.mobile,self.s.selected_shot,tuple((k,fit.get(k)) for k in ('gravity','power_scale','wind_scale','speed_offset','wind_mode')) if fit else None)
         if stamp==self.profile_stamp:return
         previous=getattr(self,'last_applied_profile',self.profile_stamp);self.profile_stamp=stamp;self.last_applied_profile=stamp
         if not fit:

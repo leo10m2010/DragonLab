@@ -1,5 +1,6 @@
 """Bounded launch correction for provisional practice, never held-out tests."""
 import math
+from wind_models import acceleration as wind_acceleration
 
 
 def corrected_hypothesis(model,record,episode,state,player):
@@ -15,8 +16,8 @@ def corrected_hypothesis(model,record,episode,state,player):
     if abs(sample['wind']-state['wind'])>1 or state['wind'] and abs((sample['wind_angle']-state['windAngle']+180)%360-180)>5:return None
     k=model['wind_scale']
     if k is None and state['wind']:return None
-    r=math.radians(sample['wind_angle']);k=k or 0
-    if math.hypot(sample['ax']-k*sample['wind']*math.cos(r),sample['ay']-(model['gravity']-k*sample['wind']*math.sin(r)))>5:return None
+    ax,ay=wind_acceleration(model,sample['wind'],sample['wind_angle'])
+    if math.hypot(sample['ax']-ax,sample['ay']-ay)>5:return None
     # Infer gain from observed launch speed, not from an impact on a wall.
     scale=(sample['speed']-model['offset'])/sample['power']
     if not .85<=scale/model['scale']<=1.15:return None
