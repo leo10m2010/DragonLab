@@ -5,6 +5,13 @@ from rounded_widgets import RoundedPanel,RoundedButton
 from rounded_controls import RoundedChoice
 from ui_shell import BG,PANEL,TEXT,MUTED,GREEN
 
+def session_caption(session):
+    if not session.continuous:return ''
+    remaining=round(session.time_remaining());hours,seconds=divmod(remaining,3600)
+    block=getattr(session,'report',{}).get('block',1)
+    return f' · Quedan {hours:02d}:{seconds//60:02d} · Bloque {block} · {session.shots} tiros en total'
+
+
 def settings_provider(app):
     def request(state,cancel):
         ready=threading.Event();response={}
@@ -16,17 +23,18 @@ def settings_provider(app):
         return response['settings']
     return request
 
-def start_training(app,limit='40',background=True,objective='adaptive'):
+def start_training(app,limit='24 h',background=True,objective='adaptive'):
     if app.clone_id!='dragonbound':raise ValueError('Elige DragonBound en la pantalla principal.')
     if app.training_session and app.training_session.running:return app.training_session
     from training_session import TrainingSession
     endpoint=getattr(app,'live_endpoint',None) or app.endpoint.get()
     if getattr(app,'last_live',0)==0:endpoint='http://127.0.0.1:9223'
-    if limit not in ('20','40'):raise ValueError('La prueba admite 20 o 40 tiros como máximo')
+    if limit not in ('20','40','24 h'):raise ValueError('Elige 20 tiros, 40 tiros o 24 h')
+    continuous=limit=='24 h'
+    if continuous and objective!='adaptive':raise ValueError('Las 24 h usan juego adaptativo con evaluaciones por bloques')
     from control_lifecycle import prepare_training
     prepare_training(app)
-    continuous=False
-    app.training_session=TrainingSession(endpoint,app.browser_target,app.book.path,app.events.put,max_shots=60 if continuous else int(limit),continuous=continuous,autonomous=True,objective=objective,background=background,allow_dual=True,max_matches=6,max_seconds=900)
+    app.training_session=TrainingSession(endpoint,app.browser_target,app.book.path,app.events.put,max_shots=40 if continuous else int(limit),continuous=continuous,autonomous=True,objective=objective,background=background,allow_dual=True,max_matches=6,max_seconds=86400 if continuous else 900)
     from training_progress import lab_summary
     app.training_session.lab_progress=lab_summary(app.book)
     app.training_session.start();return app.training_session
@@ -52,7 +60,7 @@ def open_training(app):
     content.bind('<Configure>',lambda e:viewport.configure(scrollregion=viewport.bbox('all')))
     win.bind('<MouseWheel>',lambda e:viewport.yview_scroll(-int(e.delta/120),'units') if not isinstance(e.widget,RoundedChoice) else None)
     trial_card=RoundedPanel(content,PANEL);trial_card.pack(fill='x',pady=(0,10))
-    tk.Label(trial_card.body,text='Prueba actual · carros y modalidades con datos',bg=PANEL,fg=TEXT,font=('Bahnschrift',13,'bold')).pack(anchor='w',padx=16,pady=(8,4))
+    tk.Label(trial_card.body,text='Bloque actual · carros y modalidades con datos',bg=PANEL,fg=TEXT,font=('Bahnschrift',13,'bold')).pack(anchor='w',padx=16,pady=(8,4))
     result_label=tk.Label(trial_card.body,bg=PANEL,fg=GREEN,font=('Bahnschrift',11),justify='left',wraplength=520);result_label.pack(anchor='w',padx=16,pady=(0,10))
     card=RoundedPanel(content,PANEL);card.pack(fill='x',pady=(0,10));body=card.body
     headline=tk.Label(body,text='Calibración de salida',bg=PANEL,fg=TEXT,font=('Bahnschrift',13,'bold'));headline.pack(anchor='w',padx=16,pady=(8,4))
@@ -69,10 +77,10 @@ def open_training(app):
     evidence=tk.Label(lab_card.body,bg=PANEL,fg=MUTED,font=('Bahnschrift',10),wraplength=520,justify='left');evidence.pack(anchor='w',padx=16,pady=(0,10))
     tk.Label(content,text='Puntería y autonomía completa: pendientes de evaluación.\nEstos porcentajes no estiman cuánto tiempo falta.',justify='left',bg=BG,fg=MUTED,font=('Bahnschrift',10),wraplength=540).pack(anchor='w',padx=8,pady=(0,8))
     controls=tk.Frame(win,bg=BG);controls.grid(row=3,column=0,sticky='ew',padx=24,pady=6)
-    tk.Label(controls,text='Duración',bg=BG,fg=MUTED,font=('Bahnschrift',10)).pack(side='left')
+    tk.Label(controls,text='Sesión',bg=BG,fg=MUTED,font=('Bahnschrift',10)).pack(side='left')
     tk.Label(controls,text='Modo',bg=BG,fg=MUTED,font=('Bahnschrift',10)).pack(side='left',padx=(16,4))
     mode=tk.StringVar(value='Segundo plano');mode_choice=RoundedChoice(controls,textvariable=mode,values=['Segundo plano','Juego al frente'],width=16);mode_choice.pack(side='left')
-    limit=tk.StringVar(value='40');duration=RoundedChoice(controls,textvariable=limit,values=['20','40'],width=11);duration.pack(side='right')
+    limit=tk.StringVar(value='24 h');duration=RoundedChoice(controls,textvariable=limit,values=['24 h','20','40'],width=11);duration.pack(side='right')
     actions=tk.Frame(win,bg=BG);actions.grid(row=4,column=0,sticky='ew',padx=24,pady=(4,8))
     def stop():
         if app.training_session:app.training_session.stop()
@@ -81,7 +89,7 @@ def open_training(app):
         except (ValueError,RuntimeError) as error:status.config(text=str(error))
     stop_button=RoundedButton(actions,text='Detener',command=stop);stop_button.pack(side='left')
     start_button=RoundedButton(actions,text='Empezar',command=start,bg=GREEN,fg=BG);start_button.pack(side='right')
-    tk.Label(win,text='1 · 2 · SS según datos · DD con comprobación. Detener cancela la sesión.',bg=BG,fg=MUTED,font=('Bahnschrift',10)).grid(row=5,column=0,sticky='w',padx=24,pady=(0,12))
+    tk.Label(win,text='Detener / Esc cancela · Cerrar este panel mantiene la sesión.\nEl programa y el navegador deben permanecer abiertos.',bg=BG,fg=MUTED,font=('Bahnschrift',10),justify='left').grid(row=5,column=0,sticky='w',padx=24,pady=(0,12))
     def refresh():
         if not win.winfo_exists():return
         session=app.training_session;learner=session.learner if session else None
@@ -92,7 +100,7 @@ def open_training(app):
         if session:
             trial=session.trial.summary() if session.trial else None
             detail=f" · Calibración {trial['calibration_shots']}/{trial['exploration_budget']} · Dirigidos {trial['directed_test_shots']} · Omitidos {trial['skipped_turns']}" if trial else f' · {session.shots} tiros'
-            status.config(text=session.status+detail)
+            status.config(text=session.status+session_caption(session)+detail)
             if trial:
                 battle=session.battle.summary() if session.battle else {}
                 labels={'complete':'Sesión terminada · resultados separados por modalidad','running':'En curso','approved':'Prueba de puntería aprobada','failed':'Prueba no aprobada','insufficient-data':'Faltan tiros dirigidos para evaluar'}
@@ -123,5 +131,5 @@ def open_training(app):
         local_error=progress.get('median_local_flight_error_px');local_text=f"{local_error:g} px" if local_error is not None else 'pendiente'
         evidence.config(text=f"Comprobados en esta partida: {progress.get('current_match_validated_modes',0)} · Error de proyección: {local_text}\nMediciones: {progress.get('measured_launches',0)} · Con experiencia: {progress.get('retained_aimed_shots',0)} · Exploración: {progress.get('retained_exploration_shots',0)}\nReemplazos del Lab con menor error comprobado: {shared.get('measured_lab_improvements',0)}")
         win.after(700,refresh)
-    def close():stop();win.destroy()
+    def close():win.destroy()
     win.protocol('WM_DELETE_WINDOW',close);win.bind('<Escape>',lambda e:stop());refresh();return win

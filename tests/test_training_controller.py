@@ -124,7 +124,7 @@ class ShortTurnTests(unittest.TestCase):
     def test_control_failures_reset_at_match_boundary(self):
         with tempfile.TemporaryDirectory() as tmp:
             s=self.make_session(tmp);c=TrainingController(s);b=self.browser();c.in_game=True;c.failures=2
-            view=ui();view['game']=False;b.guard.return_value=view
+            view=ui();view['game']=False;view['controls']['buttonStart1v1']={'x':1,'y':1};b.guard.return_value=view
             c.cycle(b);self.assertEqual(c.failures,0)
 
 class MovementTests(unittest.TestCase):

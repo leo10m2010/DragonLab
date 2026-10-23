@@ -68,3 +68,10 @@ class MenuControlTests(unittest.TestCase):
         start=next(b for b in buttons if b.cget('text')=='Empezar');stop=next(b for b in buttons if b.cget('text')=='Detener')
         self.assertEqual(start.cget('state'),'normal');self.assertEqual(stop.cget('state'),'disabled')
         self.assertIs(start.master.master,win);win.destroy()
+    def test_closing_monitor_panel_does_not_cancel_the_training_session(self):
+        from training_ui import open_training
+        from training_session import TrainingSession
+        session=TrainingSession('',None,'book.json',Mock());session.stop=Mock()
+        app=SimpleNamespace(root=self.root,training_window=None,training_session=session,s=SimpleNamespace(mobile='ARMOR'),book=SimpleNamespace(records={}))
+        win=open_training(app);win.withdraw();win.tk.call(win.protocol('WM_DELETE_WINDOW'))
+        session.stop.assert_not_called()

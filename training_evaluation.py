@@ -58,8 +58,9 @@ class EvaluationTrial:
         self.mobile=mobile;self.shot=shot;self.key=f'dragonbound:{mobile}:{shot}'
         self.path=path;self.learner=learner;self.max_shots=max_shots;self.calibration_limit=min(12,max_shots//2);self.calibration=[];self.tests=[];self.skips=[];self.frozen=None;self.episode=None;self.context_candidate=None;self.warmups=0;self.phase='calibration';self.finished=False;self.seen_episodes=set()
         self.baseline=copy.deepcopy(learner.records.get(self.key,{}).get('model'));self.prior=measured_prior(learner.records.get(self.key,{}).get('samples',[]));self.prior_training_ids={s['id'] for s in learner.records.get(self.key,{}).get('samples',[]) if 'id' in s}
+        self.episode_calibration_count=0;self.directed_test_count=0
     def reset_episode(self):
-        if self.episode!=self.learner.episode:self.episode=self.learner.episode;self.seen_episodes.add(self.episode);self.warmups=0;self.frozen=None;self.context_candidate=None;self.phase='calibration'
+        if self.episode!=self.learner.episode:self.episode=self.learner.episode;self.seen_episodes.add(self.episode);self.warmups=0;self.frozen=None;self.context_candidate=None;self.phase='calibration';self.episode_calibration_count=0
     def probe(self):
         return {'mobile':self.mobile,'shot':self.shot,'power':(100,360,220,300,120,180)[len(self.calibration)%6],'angle':55,'purpose':f'prueba controlada {self.mobile} tiro {self.shot}','wind_band':0}
     def plan(self,state,player,probe,actual=False,previous=None):
@@ -94,7 +95,8 @@ class EvaluationTrial:
             plan=self.learner.plan(state,player,probe,actual,previous,model_override=self.frozen['model'])
             if plan.get('stage')!='evaluación con modelo congelado':raise NoAim('Sin trayectoria comprobada para esta geometría o clima; no se dispara',reposition=plan.get('reposition_allowed',False),reason=plan.get('unavailable_reason','trajectory-unavailable'),recovery=plan)
             return {**plan,'evaluation_phase':'evaluation'}
-        if sum(row.get('episode')==self.episode for row in self.calibration)>=self.calibration_limit:raise NoAim('Calibración agotada sin modelo aplicable; hace falta controlar las condiciones',reason='calibration-budget')
+        used=max(self.episode_calibration_count,sum(row.get('episode')==self.episode for row in self.calibration))
+        if used>=self.calibration_limit:raise NoAim('Calibración agotada sin modelo aplicable; hace falta controlar las condiciones',reason='calibration-budget')
         if self.prior:
             hypothesis=self.context_candidate['model'] if self.context_candidate else self.prior
             feedback=None
@@ -123,8 +125,10 @@ class EvaluationTrial:
             if phase=='evaluation' and len(owned)==1:
                 row['candidate_prediction_error_px']=prediction_error(self.frozen['model'] if self.frozen else None,owned[0],release['power'],release['wind'],release['windAngle'])
                 row['baseline_prediction_error_px']=prediction_error(self.baseline,owned[0],release['power'],release['wind'],release['windAngle'])
-            if phase=='evaluation':self.tests.append(row)
-            else:self.calibration.append(row);self.warmups+=1
+            if phase=='evaluation':self.directed_test_count=max(self.directed_test_count,len(self.tests))+1;self.tests.append(row)
+            else:
+                self.episode_calibration_count=max(self.episode_calibration_count,sum(r.get('episode')==self.episode for r in self.calibration))+1
+                self.calibration.append(row);self.warmups+=1
         else:raise ValueError('El tiro no indica si es calibración o evaluación')
         self.save();return token
     def health_result(self,result):

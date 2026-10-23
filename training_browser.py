@@ -204,7 +204,9 @@ class TrainingBrowser:
                 if not step:
                     recover=getattr(autonomous,'excavate',None);candidate=recover(state,player,probe,error) if callable(recover) else None
                     if isinstance(candidate,dict):return candidate,({'steps':movements,'from':movements[0]['from'],'to':movements[-1]['to']} if movements else None)
-                    raise NoAim(str(error)+'; no hay suelo seguro para cambiar de posición',reason='unsafe-ground') from error
+                    blocked=NoAim(str(error)+'; no hay suelo seguro para cambiar de posición',reason='unsafe-ground')
+                    blocked.excavation_reason=getattr(error,'excavation_reason',None)
+                    raise blocked from error
                 # Hypothetical plans can take time; reserve enough for angle
                 # adjustment and charge again immediately before walking.
                 if self.seconds_left()<8:raise NoAim('Se conserva el tiempo restante para otra modalidad',reason='recovery-time-budget')
@@ -235,6 +237,7 @@ class TrainingBrowser:
             if cancel.wait(.025):raise RuntimeError('Selección DD cancelada')
         raise NoAim('El juego no confirmó DD; no se carga',reason='item-unconfirmed')
     def shoot(self,probe,cancel,settings_provider=None,before_fire=None,autonomous=None):
+        self.prepared_plan=None
         self.reader=PowerReader(self.client.endpoint,self.client.target['id']);reader=self.reader
         held=None;dual_selected_here=False;self.dual_selected_here=False;charge_started=False;serial=None;self.planning_ms=0;preparing_at=time.perf_counter()
         try:
@@ -330,6 +333,7 @@ class TrainingBrowser:
             if selected and not wants_dual:raise NoAim('Hay un ítem activo fuera del plan',reason='active-item')
             if wants_dual and self.select_dual(reader,serial,cancel):release['item']='dual';dual_selected_here=not selected
             self.verify_release(reader,release,cancel)
+            self.prepared_plan=independent
             if before_fire:before_fire()
             held='space';self.key('space',True);charge_started=True;start=time.monotonic();charging=False
             while time.monotonic()-start<4:

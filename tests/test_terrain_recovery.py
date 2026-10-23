@@ -34,16 +34,6 @@ class TerrainTests(unittest.TestCase):
     def test_retreat_never_chooses_a_cliff_even_when_requested(self):
         s,p,probe=scenario();s['terrain']['heights'][:100]=[None]*100
         self.assertIsNone(choose_reposition(s,350,'terrain-blocked'))
-    def test_excavation_requires_a_current_frozen_model_and_separation(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            l=Mock();l.records={};a=AdaptiveTrial(Path(tmp)/'trial.json',l);s,p,probe=scenario()
-            candidate={'power':150,'raw_angle':40,'heading':40,'elevation':40,'target':[350,100],'impact':[220,100]}
-            error=NoAim('wall',reason='terrain-blocked',recovery={'blocked_plans':[candidate]})
-            self.assertIsNone(a.excavate(s,p,probe,error));a.profile('ARMOR',0).frozen={'model':MODEL}
-            result=a.excavate(s,p,probe,error);self.assertEqual(result['action'],'abrir paso');self.assertFalse(result['use_dual'])
-            token=a.record({'power':150,'learner':result},{});self.assertEqual(len(a.profile('ARMOR',0).tests),0)
-            a.health_result({'token':token,'known':True,'enemy_health_drop':0,'terrain_opened':True});self.assertEqual(a.summary()['terrain_openings_observed'],1)
-            candidate['impact']=[120,100];self.assertIsNone(a.excavate(s,p,probe,error))
     def test_unknown_weather_before_obstacle_is_not_an_excavation_candidate(self):
         with tempfile.TemporaryDirectory() as tmp:
             l=AutonomousLearner(Path(tmp)/'learner.json');s,p,probe=scenario(0,[{'typeId':5,'x':100,'size':20}])

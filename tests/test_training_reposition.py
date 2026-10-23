@@ -26,6 +26,16 @@ class RepositionTests(unittest.TestCase):
         b,r,c=self.setup_browser();learner=Mock();learner.plan.side_effect=NoAim('blocked',reposition=True)
         with patch('training_movement.choose_reposition',return_value={'direction':'right'}),self.assertRaises(NoAim):b.plan_with_reposition(r,learner,{},500,3,c)
         self.assertEqual(b.walk.call_count,2);self.assertEqual(learner.plan.call_count,3)
+    def test_no_ground_keeps_the_reason_that_excavation_was_rejected(self):
+        b,r,c=self.setup_browser();learner=Mock();learner.plan.side_effect=NoAim('wall',reposition=True,reason='terrain-blocked')
+        def reject(state,player,probe,error):
+            error.excavation_reason='Faltan comprobaciones independientes';return None
+        learner.excavate.side_effect=reject
+        with patch('training_movement.choose_reposition',return_value=None),self.assertRaises(NoAim) as raised:
+            b.plan_with_reposition(r,learner,{},500,3,c)
+        self.assertEqual(raised.exception.reason,'unsafe-ground')
+        self.assertEqual(raised.exception.excavation_reason,'Faltan comprobaciones independientes')
+        b.walk.assert_not_called()
     def test_changed_turn_cancels_before_movement_or_replanning(self):
         b,r,c=self.setup_browser();r.read.return_value['turnNumber']=4;learner=Mock()
         with self.assertRaises(TurnExpired):b.plan_with_reposition(r,learner,{},500,3,c)

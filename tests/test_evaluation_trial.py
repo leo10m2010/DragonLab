@@ -12,12 +12,12 @@ class EvaluationTests(unittest.TestCase):
         learner=Mock();learner.episode='match-a';learner.records={};learner.applicable_model.return_value=(None,'unknown')
         learner.plan.return_value={'stage':'calibración controlada','power':100,'target':[500,0]}
         return learner
-    def test_default_product_starts_a_finite_evaluation_instead_of_continuous_catalog(self):
+    def test_default_product_starts_24h_with_finite_adaptive_blocks(self):
         from training_ui import start_training
         app=SimpleNamespace(fire_cancel=__import__('threading').Event(),clone_id='dragonbound',training_session=None,last_live=0,endpoint=Mock(),browser_target=None,book=SimpleNamespace(path=Path('book.json'),records={}),events=Mock())
         with patch('training_session.TrainingSession') as factory:start_training(app)
         options=factory.call_args.kwargs
-        self.assertEqual(options['objective'],'adaptive');self.assertFalse(options['continuous']);self.assertEqual(options['max_shots'],40)
+        self.assertEqual(options['objective'],'adaptive');self.assertTrue(options['continuous']);self.assertEqual(options['max_shots'],40);self.assertEqual(options['max_seconds'],86400)
     def test_continuous_evaluation_is_rejected(self):
         with self.assertRaises(ValueError):TrainingSession('',None,'book.json',lambda e:None,continuous=True,objective='evaluation')
     def test_calibration_never_counts_as_a_directed_test(self):

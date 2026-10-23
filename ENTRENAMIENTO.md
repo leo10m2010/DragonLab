@@ -1,3 +1,13 @@
+# DragonLab 0.16.0 · Sesiones largas y excavación
+
+La opción predeterminada es ahora «24 h», con plazo real que incluye pausas y reconexiones. Los límites anteriores de 20/40 tiros, seis partidas y 15 minutos siguen disponibles como pruebas cortas. La sesión larga guarda bloques de evaluación separados y continúa; conserva contexto de validación, experiencia de armas, presupuestos de clima/excavación y la reserva del turno para evitar repetir cargas ambiguas.
+
+La excavación de balas normales 1/2 de Armor, Ice, Mage y Trico usa exclusivamente el perfil de esa modalidad, con dos comprobaciones de vuelo independientes en la partida y fuerzas variadas. No depende de haber aprobado la puntería contra el rival. Recalcula el primer impacto en el ángulo real y exige fuerza dentro del rango comprobado, separación de carros y un máximo de tres intentos por perfil y partida. Una excavación pendiente o fallida limita repetir ese punto. Las observaciones de terreno no se convierten en aciertos.
+
+El panel distingue tiempo restante, bloque actual y tiros totales. Los avisos desconocidos y el chat pausan controles; al recuperar la conexión no se recarga el juego ni se repite el turno reservado. Requiere equipo y navegador abiertos. Ver LAUNCHER-0.16.0.md: habilitar una sesión de 24 horas no certifica haber completado una prueba real de esa duración ni demuestra mejora de victorias.
+
+Las secciones siguientes documentan versiones anteriores.
+
 # DragonLab 0.15.9 · Aprendizaje de la física
 
 Se corrige el modelo del viento con evidencia histórica separada y se concentra la práctica. Ver REVISION-APRENDIZAJE-0.15.9.md para resultados y límites de la comprobación.
