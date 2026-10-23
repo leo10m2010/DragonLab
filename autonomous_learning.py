@@ -199,14 +199,14 @@ class AutonomousLearner:
         if len(owned)==1 and not primary.get('wave') and not primary.get('orbit'):
             try:
                 duration=primary['duration']/1000;angle=math.radians(start[2]);points=[];deviations=[]
-                for i in range(1,9):
-                    t=duration*i/10;point=position(primary,t);points.append(point)
+                for i in range(33):
+                    t=duration*i/32;point=position(primary,t);points.append(point)
                     expected=(start[0]+start[3]*math.cos(angle)*t+.5*start[4]*t*t,start[1]-start[3]*math.sin(angle)*t+.5*start[5]*t*t)
                     deviations.append(math.dist(point,expected))
                 xmin=min(p[0] for p in points);xmax=max(p[0] for p in points)
                 for weather in state.get('weather',[]):
                     x=weather.get('x');size=weather.get('size',0)
-                    if not isinstance(x,(int,float)) or not isinstance(size,(int,float)) or not xmin<=x<=xmax:continue
+                    if not isinstance(x,(int,float)) or not isinstance(size,(int,float)) or not all(math.isfinite(v) for v in (x,size)) or x+max(0,size)/2<xmin or x-max(0,size)/2>xmax:continue
                     kind=str(weather.get('resolvedTypeId') if weather.get('resolvedTypeId') is not None else weather.get('typeId'))
                     effect=record.setdefault('weather_effects',{}).setdefault(kind,{'checked':0,'altered':0})
                     effect['checked']=min(1000,effect['checked']+1);effect['altered']=min(1000,effect['altered']+int(max(deviations,default=0)>8))

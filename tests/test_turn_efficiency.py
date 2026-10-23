@@ -82,5 +82,5 @@ class WeaponLearningTests(unittest.TestCase):
     def test_unfinished_calibration_is_concentrated_instead_of_alternating_each_shot(self):
         with tempfile.TemporaryDirectory() as folder:
             learner=Mock();learner.records={f'dragonbound:ARMOR:{s}':{'model':MODEL} for s in (0,1)};learner.applicable_model.return_value=(None,'unknown');learner.episode='game'
-            trial=AdaptiveTrial(Path(folder)/'report.json',learner);profile=trial.profile('ARMOR',1);profile.warmups=2;profile.calibration=[{},{}]
+            trial=AdaptiveTrial(Path(folder)/'report.json',learner);profile=trial.profile('ARMOR',1);profile.episode='game';profile.warmups=2;profile.calibration=[{},{}]
             self.assertEqual(trial.probe('ARMOR',{'wind':0,'windAngle':0},[0,1])['shot'],1)

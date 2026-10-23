@@ -123,7 +123,7 @@ class LearnerTests(unittest.TestCase):
         from training_browser import TrainingBrowser
         with tempfile.TemporaryDirectory() as tmp:
             learner=AutonomousLearner(Path(tmp)/'learn.json');control={'raw':155,'held':False,'released':False}
-            def reading():return {'turnNumber':1,'turn':0,'hero':0,'mode':'space','shot':0,'power':100 if control['held'] else 0,'busy':control['held'],'over':False,'moving':False,'wind':0,'windAngle':0,'players':[{'id':0,'x':500,'y':0,'rawAngle':control['raw'],'minAngle':110,'maxAngle':170,'body':0,'look':1}]}
+            def reading():return {'turnNumber':1,'turn':0,'hero':0,'mode':'space','shot':0,'power':100 if control['held'] else 0,'busy':control['held'],'over':False,'moving':False,'wind':0,'windAngle':0,'players':[{'id':0,'x':500,'y':0,'rawAngle':control['raw'],'minAngle':110,'maxAngle':170,'body':0,'look':1},{'id':1,'x':0,'y':0}]}
             shot={'id':9,'native':True,'elapsed':0,'duration':1000,'start':[500,0,125,220,0,300],'shotType':0,'metadata':{'player':0,'power':100}}
             def sample():return {'status':'live','heroId':0,'activePlayer':0,'wind':0,'windAngle':0,'weather':[],'players':[{'id':0,'x':500,'y':0,'mobile':2},{'id':1,'x':0,'y':0}], 'shots':[shot] if control['released'] else []}
             reader=Mock();reader.read.side_effect=reading

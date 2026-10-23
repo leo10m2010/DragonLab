@@ -9,7 +9,7 @@ from training_memory import ActionMemory
 
 class TrainingController:
     def __init__(self,session):
-        self.s=session;self.ledger=TurnLedger();self.current=None;self.geometry=None;self.blocked=set();self.selected=False;self.queue_at=0;self.failures=0;self.in_game=False;self.power=None;self.loading_since=None
+        self.s=session;self.ledger=TurnLedger();self.current=None;self.geometry=None;self.blocked=set();self.selected=False;self.queue_at=0;self.failures=0;self.in_game=False;self.power=None;self.loading_since=None;self.recovery_state={}
         self.learner=None
         if session.autonomous:
             from autonomous_learning import AutonomousLearner
@@ -36,7 +36,7 @@ class TrainingController:
             while self.within_limits(started):
                 try:
                     if browser is None:
-                        browser=TrainingBrowser(s.endpoint,s.target);browser.background=s.background;browser.arm(focus=first and not s.background);first=False
+                        browser=TrainingBrowser(s.endpoint,s.target);browser.recovery_state=self.recovery_state;browser.background=s.background;browser.arm(focus=first and not s.background);first=False
                         if retries:s.last_error=''
                         s.publish('Conexión recuperada' if retries else 'Entrenando en Avatar Off')
                     if self.cycle(browser) is False:break
@@ -93,7 +93,7 @@ class TrainingController:
             if self.learner:self.learner.pending.clear()
             if self.in_game:self.ledger=TurnLedger();self.failures=0
             self.in_game=False
-            self.current=None;self.blocked.clear();browser.movement_turn=None;browser.client.game=None;browser.client.renderer=None
+            self.current=None;self.blocked.clear();self.recovery_state.clear();browser.movement_turn=None;browser.client.game=None;browser.client.renderer=None
             if ui['options']:
                 option=self.trial.choose_mobile(ui['options'],s.mobile_attempts) if s.objective=='adaptive' else next((o for o in ui['options'] if mobile_name(o.get('name'))=='ARMOR'),None) if self.trial else self.learner.choose_mobile(ui['options'],s.mobile_attempts) if self.learner else next_mobile(ui['options'],s.mobile_attempts)
                 if not option:raise RuntimeError('No hay carros identificables en el selector')
@@ -108,7 +108,7 @@ class TrainingController:
                 s.publish('Buscando partida 1v1');s.cancel.wait(1);return
             s.publish('Esperando el lobby o la siguiente partida');s.cancel.wait(.5);return
         if not self.in_game and self.learner:self.learner.episode=str(time.time_ns())
-        self.in_game=True;self.queue_at=0;state=browser.sample();key=turn_key(state,ui['url'])
+        self.in_game=True;self.queue_at=0;state=browser.sample();key=turn_key(state,ui['url']);browser.recovery_key=key
         if self.learner:self.learner.track(state)
         if self.battle:self.battle.observe(state)
         if key!=self.current:self.current=key;self.blocked.clear()
@@ -150,7 +150,11 @@ class TrainingController:
         except NoAim as error:
             error.turn_serial=key[-1]
             if s.objective=='adaptive':
-                self.blocked.add(probe['shot']);self.trial.skip(error);s.publish(str(error)+'; buscando otra modalidad en este turno')
+                self.blocked.add(probe['shot']);self.trial.skip(error)
+                if isinstance(getattr(browser,'movement_events',None),list) and browser.movement_events:
+                    terminal=browser.sample();player=next((p for p in terminal.get('players',[]) if str(p.get('id'))==str(terminal.get('heroId'))),None)
+                    if player:self.geometry=(round(player['x']/4),round(player['y']/4),terminal.get('wind'),terminal.get('windAngle'))
+                s.publish(str(error)+'; buscando otra modalidad en este turno')
             elif self.trial:
                 if self.ledger.available(key):self.ledger.consume(key)
                 self.trial.skip(error);s.publish(str(error))

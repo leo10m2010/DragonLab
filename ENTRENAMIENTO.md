@@ -1,3 +1,7 @@
+# DragonLab 0.15.8 · Controles y evidencia
+
+Confirma controles nativos y vuelve a comprobar el objetivo antes de cargar. Mantiene el presupuesto de movimiento al reconectar y exige comprobaciones compatibles con el viento actual antes de validar modelos. Ver LAUNCHER-0.15.8.md.
+
 # DragonLab 0.15.7 · Turnos y armas
 
 Ver LAUNCHER-0.15.7.md para el análisis de la sesión y los cambios. El movimiento comparte presupuesto entre balas; la selección puede usar daño provisional sin certificar puntería. Los ensayos de clima son finitos, separados y sin DD.

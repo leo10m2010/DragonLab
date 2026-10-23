@@ -31,6 +31,12 @@ def measured_prior(samples):
     if not .01<scale<30 or not 0<gravity<10000 or k is not None and not 0<=k<100:return None
     return {'scale':scale,'offset':offset,'gravity':gravity,'wind_scale':k,'source':'measured-prior-unvalidated'}
 
+def current_checks(rows,wind,angle):
+    return [s for s in rows if abs(s['wind']-wind)<=1 and (not wind or abs((s['wind_angle']-angle+180)%360-180)<=5)]
+
+def varied_checks(rows):
+    return len(rows)>=2 and len({s['power'] for s in rows})>=2 and max(s['power'] for s in rows)-min(s['power'] for s in rows)>=40
+
 def adapted_hypothesis(prior,rows):
     if not prior or len(rows)<2:return None
     rows=rows[-2:]
@@ -60,13 +66,15 @@ class EvaluationTrial:
             if not model and self.prior:
                 from autonomous_learning import error,flight_error
                 checks=[s for s in self.learner.records.get(self.key,{}).get('samples',[]) if s.get('episode')==self.episode and s['id'] not in self.prior_training_ids and s.get('simple')]
-                if len(checks)>=3 and all(error(self.prior,s)<=5 and flight_error(self.prior,s) is not None and flight_error(self.prior,s)<=12 for s in checks[-3:]):model=self.prior
+                checks=current_checks(checks,state['wind'],state['windAngle'])
+                if len(checks)>=3 and varied_checks(checks[-3:]) and all(error(self.prior,s)<=5 and flight_error(self.prior,s) is not None and flight_error(self.prior,s)<=12 for s in checks[-3:]):model=self.prior
                 if not model and self.context_candidate:
                     future=[s for s in checks if s['id'] not in self.context_candidate['training_ids']]
                     candidate=self.context_candidate['model']
                     if len(future)>=2:
-                        if all(error(candidate,s)<=5 and flight_error(candidate,s) is not None and flight_error(candidate,s)<=12 for s in future):model=candidate
-                        else:self.context_candidate=None
+                        valid=all(error(candidate,s)<=5 and flight_error(candidate,s) is not None and flight_error(candidate,s)<=12 for s in future)
+                        if not valid:self.context_candidate=None
+                        elif varied_checks(future):model=candidate
                 if not model and not self.context_candidate and len(checks)>=2:
                     candidate=adapted_hypothesis(self.prior,checks[-2:])
                     if candidate:self.context_candidate={'model':candidate,'training_ids':{s['id'] for s in checks}}

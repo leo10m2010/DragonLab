@@ -29,7 +29,7 @@ class AdaptiveTrial:
         target=enemy_for(state)
         remaining=health(target) if target else None
         def score(shot):
-            trial=self.profile(mobile,shot);record=self.learner.records.get(trial.key,{})
+            trial=self.profile(mobile,shot);trial.reset_episode();record=self.learner.records.get(trial.key,{})
             model,_=self.learner.applicable_model(record,state['wind'],state['windAngle'])
             rows=comparable(trial.tests+trial.calibration,self.learner.episode,state,target)
             damage=damage_evidence(rows)
@@ -38,7 +38,11 @@ class AdaptiveTrial:
             focus=0 if not trial.frozen and 0<trial.warmups<6 else 1
             return (0 if model else 1,0 if finishing else 1,shot==2 if finishing else False,-effective,focus,len(trial.calibration)+len(trial.tests),len(trial.skips),shot)
         shot=min(ready,key=score);trial=self.profile(mobile,shot);self.selected=trial
-        return {**trial.probe(),'adaptive':True,'prefer_current_angle':True}
+        # A few directed alternate arcs provide a real spread of forces.
+        # They still require a clear calculated path; no arbitrary charge.
+        alternate=not trial.frozen and trial.warmups in (1,3,5)
+        angle=(70 if trial.warmups in (1,5) else 40) if alternate else 55
+        return {**trial.probe(),'angle':angle,'adaptive':True,'prefer_current_angle':not alternate}
     def plan(self,state,player,probe,actual=False,previous=None):
         trial=self.profile(probe['mobile'],probe['shot']);self.selected=trial
         try:result=trial.plan(state,player,probe,actual,previous)

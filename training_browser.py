@@ -62,6 +62,32 @@ class TrainingBrowser:
         return max(0,deadline-time.monotonic()) if deadline is not None else 120
     def require_charge_time(self):
         if self.seconds_left()<4.5:raise TurnExpired('Queda poco tiempo para confirmar la carga; esperando otro turno')
+    def confirm_setting(self,reader,serial,field,value,cancel):
+        """Wait for the actual game setting, without assuming one render frame."""
+        until=time.monotonic()+.45
+        while True:
+            self.guard(cancel);state=reader.read()
+            if state.get('over') or state.get('turnNumber')!=serial or state.get('turn')!=state.get('hero'):raise TurnExpired('Cambió el turno al confirmar los controles')
+            if state.get(field)==value:return state
+            if time.monotonic()>=until:break
+            if cancel.wait(.02):raise RuntimeError('Selección cancelada')
+        raise UnavailableShot('El juego todavía no confirmó la modalidad' if field=='shot' else 'No se pudo confirmar Slice')
+    def verify_release(self,reader,release,cancel):
+        """Last native check before reserving a turn or pressing Space."""
+        self.guard(cancel);state=reader.read()
+        if state.get('over') or state.get('turnNumber')!=release['turn_serial'] or state.get('turn')!=release['hero']:raise TurnExpired('Cambió el turno antes de cargar')
+        player=next((p for p in state.get('players',[]) if p.get('id')==release['hero']),None)
+        if not player or state.get('busy') or state.get('moving') or state.get('shot')!=release['shot'] or state.get('mode')!='space':raise TurnNotReady('Los controles cambiaron; recalculando antes de cargar')
+        if math.hypot(player['x']-release['x'],player['y']-release['y'])>1 or any(player.get(k)!=release.get('pose',{}).get(k) for k in ('look','body')) or player.get('rawAngle')!=release.get('angle') or state.get('wind')!=release.get('wind') or state.get('windAngle')!=release.get('windAngle'):raise TurnNotReady('Cambió la posición, el ángulo o el viento; recalculando')
+        target=release.get('target_before')
+        planned=(release.get('learner') or {}).get('target')
+        if target and planned and math.hypot(target['x']-planned[0],target['y']-planned[1])>3:raise TurnNotReady('El objetivo cambió durante el cálculo; recalculando')
+        if target:
+            current=next((p for p in state.get('players',[]) if str(p.get('id'))==str(target['id'])),None)
+            if not current or current.get('dead') or math.hypot(current['x']-target['x'],current['y']-target['y'])>3:raise TurnNotReady('El objetivo cambió; recalculando antes de cargar')
+        remaining=state.get('turnSeconds')
+        if isinstance(remaining,(int,float)) and math.isfinite(remaining):self.turn_deadline=min(self.turn_deadline,time.monotonic()+remaining)
+        self.require_charge_time()
     def adjust_angle(self,reader,target,cancel,expected_serial=None):
         state=reader.read();hero_id=state.get('hero');serial=state.get('turnNumber')
         if expected_serial is not None and serial!=expected_serial:raise TurnExpired('Cambió el turno antes de ajustar ángulo')
@@ -145,8 +171,11 @@ class TrainingBrowser:
         from training_aim import NoAim
         from training_movement import choose_reposition
         movements=[];avoid=None;event=None
-        if getattr(self,'movement_turn',None)!=serial:
-            self.movement_turn=serial;self.turn_steps=0;self.visited_positions=[]
+        recovery=getattr(self,'recovery_state',None)
+        if not isinstance(recovery,dict):recovery={};self.recovery_state=recovery
+        key=getattr(self,'recovery_key',serial)
+        if recovery.get('key')!=key:recovery.clear();recovery.update(key=key,steps=0,visited=[])
+        self.movement_turn=serial;self.turn_steps=recovery['steps'];self.visited_positions=recovery['visited']
         if not hasattr(self,'movement_events'):self.movement_events=[]
         for attempt in range(3):
             self.guard(cancel)
@@ -176,8 +205,12 @@ class TrainingBrowser:
                     recover=getattr(autonomous,'excavate',None);candidate=recover(state,player,probe,error) if callable(recover) else None
                     if isinstance(candidate,dict):return candidate,({'steps':movements,'from':movements[0]['from'],'to':movements[-1]['to']} if movements else None)
                     raise NoAim(str(error)+'; no hay suelo seguro para cambiar de posición',reason='unsafe-ground') from error
+                # Hypothetical plans can take time; reserve enough for angle
+                # adjustment and charge again immediately before walking.
+                if self.seconds_left()<8:raise NoAim('Se conserva el tiempo restante para otra modalidad',reason='recovery-time-budget')
+                self.turn_steps+=1;recovery['steps']=self.turn_steps
+                self.visited_positions.append([player['x'],player['y']])
                 movement=self.walk(reader,step,cancel,expected_serial=serial);movements.append(movement)
-                self.turn_steps+=1;self.visited_positions.append(movement['from'])
                 event={'selection':step.get('selection'),'turn':serial,'from':movement['from'],'to':movement['to'],'direction':movement['direction'],'trajectory_found':None,'reason':'awaiting-replan'}
                 self.movement_events.append(event);self.movement_events=self.movement_events[-64:]
                 if abs(movement['to'][0]-movement['from'][0])<.5:avoid=step['direction']
@@ -192,7 +225,9 @@ class TrainingBrowser:
         if state.get('turnNumber')!=serial or state.get('turn')!=state.get('hero') or state.get('shot') not in (0,1):raise TurnExpired('DD requiere el mismo turno y bala 1 o 2')
         if any(not item.get('dual') for item in ui.get('selectedItems',[])):raise NoAim('Hay otro ítem seleccionado',reason='active-item')
         if not ui.get('controls',{}).get('dual'):return False
-        if not ui.get('dualSelected'):self.click(ui['controls']['dual'],cancel)
+        if not ui.get('dualSelected'):
+            self.dual_selected_here=True
+            self.click(ui['controls']['dual'],cancel)
         for _ in range(6):
             fresh=reader.read()
             if fresh.get('turnNumber')!=serial or fresh.get('turn')!=fresh.get('hero'):raise TurnExpired('Cambió el turno al seleccionar DD')
@@ -201,7 +236,7 @@ class TrainingBrowser:
         raise NoAim('El juego no confirmó DD; no se carga',reason='item-unconfirmed')
     def shoot(self,probe,cancel,settings_provider=None,before_fire=None,autonomous=None):
         self.reader=PowerReader(self.client.endpoint,self.client.target['id']);reader=self.reader
-        held=None;dual_selected_here=False;charge_started=False;serial=None;self.planning_ms=0;preparing_at=time.perf_counter()
+        held=None;dual_selected_here=False;self.dual_selected_here=False;charge_started=False;serial=None;self.planning_ms=0;preparing_at=time.perf_counter()
         try:
             ui=self.guard(cancel);s=reader.read()
             if s.get('over') or s.get('turn')!=s.get('hero') or s.get('busy') or s.get('moving'):raise TurnNotReady('Esperando que termine el movimiento o la animación del turno')
@@ -210,12 +245,12 @@ class TrainingBrowser:
             self.require_charge_time()
             if probe.get('turn_serial',serial)!=serial:raise RuntimeError('El turno cambió antes de preparar el tiro')
             if s.get('shot')!=target_shot:
-                self.click(ui['controls'].get(('btnShot1','btnShot2','btnShotSS')[target_shot]),cancel);time.sleep(.08);s=reader.read()
-                if s.get('shot')!=target_shot:raise UnavailableShot('Tiro no disponible; esperando recarga')
+                point=ui['controls'].get(('btnShot1','btnShot2','btnShotSS')[target_shot])
+                if not point:raise UnavailableShot('Tiro no disponible; esperando recarga')
+                self.click(point,cancel);s=self.confirm_setting(reader,serial,'shot',target_shot,cancel)
             # Slice has a readable live bar and does not move the user's pointer.
             if s.get('mode')!='space':
-                self.click(self.guard(cancel)['controls'].get('slice_drag_button'),cancel);time.sleep(.08);s=reader.read()
-                if s.get('mode')!='space':raise RuntimeError('No se pudo activar Slice')
+                self.click(self.guard(cancel)['controls'].get('slice_drag_button'),cancel);s=self.confirm_setting(reader,serial,'mode','space',cancel)
             lab=None;independent=None;planned_angle=probe['angle'];movement=None
             if autonomous:
                 state=self.sample();hero=next(p for p in state['players'] if str(p['id'])==str(state['heroId']))
@@ -225,14 +260,6 @@ class TrainingBrowser:
                 self.orient(reader,target['x']>=hero['x'],serial,cancel)
                 fresh=reader.read();player=next(p for p in fresh['players'] if p['id']==hero_id)
                 independent,movement=self.plan_with_reposition(reader,autonomous,probe,target['x'],serial,cancel);planned_angle=independent['raw_angle']
-                if independent.get('needs_move') and self.seconds_left()>12:
-                    from training_movement import walking_step
-                    plan=walking_step(self.sample(),target['x'])
-                    if plan:
-                        movement=self.walk(reader,plan,cancel,expected_serial=serial)
-                        self.orient(reader,target['x']>=next(p for p in reader.read()['players'] if p['id']==hero_id)['x'],serial,cancel)
-                        player=next(p for p in reader.read()['players'] if p['id']==hero_id)
-                        independent=autonomous.plan(self.sample(),player,probe);planned_angle=independent['raw_angle']
             elif settings_provider:
                 from training_aim import choose_aim,actual_solution
                 settings=settings_provider(self.sample(),cancel)
@@ -288,6 +315,9 @@ class TrainingBrowser:
             before_state=self.sample()
             from battle_metrics import health
             release['health_before']={str(p['id']):health(p) for p in before_state.get('players',[])}
+            from weapon_policy import enemy_for
+            target_before=enemy_for(before_state,(release.get('learner') or release.get('lab') or {}).get('target'))
+            if target_before:release['target_before']={k:target_before[k] for k in ('id','x','y')}
             release['baseline']=[identity(p) for p in before_state.get('shots',[])]
             self.guard(cancel)
             fresh=reader.read()
@@ -299,6 +329,7 @@ class TrainingBrowser:
             selected=self.guard(cancel).get('selectedItems') or []
             if selected and not wants_dual:raise NoAim('Hay un ítem activo fuera del plan',reason='active-item')
             if wants_dual and self.select_dual(reader,serial,cancel):release['item']='dual';dual_selected_here=not selected
+            self.verify_release(reader,release,cancel)
             if before_fire:before_fire()
             held='space';self.key('space',True);charge_started=True;start=time.monotonic();charging=False
             while time.monotonic()-start<4:
@@ -328,7 +359,7 @@ class TrainingBrowser:
             try:
                 if held:self.key(held,False)
             finally:
-                if dual_selected_here and not charge_started and not cancel.is_set():
+                if (dual_selected_here or self.dual_selected_here) and not charge_started and not cancel.is_set():
                     try:
                         current=reader.read();ui=self.guard(cancel)
                         if current.get('turnNumber')==serial and current.get('turn')==current.get('hero') and ui.get('dualSelected'):self.click(ui['controls']['dual'],cancel)
