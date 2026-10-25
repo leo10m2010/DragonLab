@@ -1,3 +1,11 @@
+# DragonLab 0.16.2 · Disponibilidad, modalidades y clima
+
+SS se excluye mientras el juego lo muestra en recarga, incluso si queda seleccionado. La disponibilidad se vuelve a comprobar antes de cargar y el ángulo aprendido se guarda por modalidad. Se conservan las alternativas de bala 1/2 en el mismo turno y los mecanismos especiales no se certifican sin observaciones propias.
+
+Las continuaciones necesitan identidad de origen; los efectos de clima no desactivan las balas normales. Se conservan las observaciones históricas ambiguas sin tratarlas como prueba. Los recorridos nativos de Mirror/Tornado distinguen cruces completos de parciales. Se puede intentar salir de una columna cercana mediante los pasos seguros disponibles, con recálculo posterior.
+
+Si no existe una acción calculable después de comprobar las modalidades, se puede pasar el turno explícitamente con el botón real. Los controles se comprueban de nuevo antes de cada clic, los avisos durante un tiro pausan entradas y la penalización conocida de retirada se registra y espera. Ver LAUNCHER-0.16.2.md; no se ha demostrado que todas las retiradas anteriores fueran por inactividad ni que todos los climas estén resueltos.
+
 # DragonLab 0.16.1 · Dos trabajadores y origen de lanzamiento
 
 Un solo launcher puede dirigir dos cuentas de prueba mediante navegadores, pestañas y directorios de mediciones independientes. Usa «Partidas: 2» o `Entrenar-2-Sesiones.cmd`. Los eventos llevan procedencia y pasan primero al libro de su trabajador; el Lab compartido solo incorpora observaciones reales con identidad separada. Detener cancela ambos; Esc dentro de un juego cancela ese trabajador. Ver LAUNCHER-0.16.1.md.

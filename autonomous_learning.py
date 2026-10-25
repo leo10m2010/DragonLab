@@ -59,6 +59,137 @@ def launch_origin(hero,mobile,shot):
         return (hero['x']+offset[0],hero['y']+offset[1]),'legacy-muzzle-offset'
     return (hero['x'],hero['y']),'hero-center'
 
+
+def special_continuation(key):
+    """Keep known secondary mechanisms pending when ownership is uncertain."""
+    parts=key.split(':')
+    if len(parts)!=3:return False
+    try:mode=int(parts[2])
+    except ValueError:return False
+    mechanisms={'NAK':{1,2},'KALSIDDON':{0,1,2},'TRICO':{1},'TURTLE':{1,2},
+                'RAON':{0,1,2},'FROG':{0,1,2},'GRUB':{1,2},'ASATE':{0,1,2},
+                'LIGHTNING':{0,1,2},'ADUKA':{1,2},'ARMOR':{1},'MAGE':{1},
+                'BIGFOOT':{0,1,2},'BOOMER':{1}}
+    return mode in mechanisms.get(parts[1],set())
+
+
+def pattern_flag(record):
+    return bool(record.get('patterns') or record.get('intrinsic_pattern') or record.get('special_continuation_pending') or any(p.get('verified') is True for p in record.get('observed_phases',[]) if isinstance(p,dict)))
+
+
+def quarantine_legacy_phases(key,record):
+    """Preserve unproven children without poisoning an ordinary launch model."""
+    if record.get('phase_schema')==2:return False
+    phases=record.get('observed_phases',[])
+    if not isinstance(phases,list):return False
+    unverified=[p for p in phases if isinstance(p,dict) and p.get('verified') is not True]
+    if not unverified:
+        if record.get('multi_projectile') and not record.get('patterns') and not record.get('intrinsic_pattern') and not any(p.get('verified') is True for p in phases if isinstance(p,dict)):
+            # Older builds persisted a flag without recording its cause. Keep
+            # that fact, but it cannot indefinitely disable an ordinary shot.
+            record['legacy_unverified_multi_projectile']=True
+            record['special_continuation_pending']=special_continuation(key)
+            record['multi_projectile']=pattern_flag(record);record['phase_schema']=2
+            return True
+        return False
+    retained=[p for p in phases if isinstance(p,dict) and p.get('verified') is True]
+    quarantined=record.setdefault('quarantined_phases',[])
+    seen={p.get('id') for p in quarantined if isinstance(p,dict)}
+    for phase in unverified:
+        if phase.get('id') not in seen:
+            quarantined.append({**phase,'reason':'legacy-continuation-without-owner-proof'});seen.add(phase.get('id'))
+    pending=special_continuation(key)
+    record['observed_phases']=retained+([{**p,'verified':False,'pending':True} for p in unverified] if pending else [])
+    record['special_continuation_pending']=pending
+    parents={p.get('parent') for p in unverified}
+    for case in record.get('cases',[]):
+        if case.get('id') in parents:case['continuation_unverified']=True
+    record['multi_projectile']=pattern_flag(record);record['phase_schema']=2
+    return True
+
+
+def weather_training_case(shot,state,release,episode):
+    """Keep native column paths as evidence, never as an aiming certificate."""
+    from native_paths import position
+    from weather_validation import crossing_evidence
+    from shot_attribution import identity
+    duration=shot.get('duration')
+    if not isinstance(duration,(int,float)) or not math.isfinite(duration) or not 0<duration<=20000:return None
+    duration/=1000;zones=[]
+    for weather in state.get('weather',[])[:32]:
+        kind=weather.get('resolvedTypeId')
+        if kind is None:kind=weather.get('typeId')
+        x=weather.get('x');size=weather.get('size')
+        if kind not in (7,8) or not isinstance(x,(int,float)) or not math.isfinite(x):continue
+        if kind==7 and size is None:size=0
+        if not isinstance(size,(int,float)) or not math.isfinite(size) or size<0 or kind==8 and size==0:continue
+        zones.append({'kind':'mirror' if kind==7 else 'tornado','type_id':kind,'x':x,'size':size})
+    if not zones:return None
+    count=max(32,min(112,math.ceil(duration/.04)+1));times={duration*i/(count-1) for i in range(count)}
+    for jump in (shot.get('jumps') or [])[:16]:
+        if not isinstance(jump,(list,tuple)) or not jump or not isinstance(jump[0],(int,float)) or not math.isfinite(jump[0]):continue
+        at=jump[0]/1000
+        for t in (at-.001,at,at+.001):
+            if 0<t<duration:times.add(t)
+    points=[]
+    for t in sorted(times):
+        try:x,y=position(shot,t)
+        except (ValueError,TypeError,KeyError,IndexError):return None
+        if not all(isinstance(v,(int,float)) and math.isfinite(v) for v in (x,y)):return None
+        points.append({'x':x,'y':y,'t':t})
+    case={'id':identity(shot),'episode':episode,'shot':release['shot'],'power':release['power'],'wind':release['wind'],'wind_angle':release['windAngle'],'origin':shot['start'][:2],'duration_s':duration,'path':points,'zones':zones,'source':'owned-native-path-reconstruction','validated_for_aiming':False}
+    case['crossings']=crossing_evidence(case)
+    return case if any(e['crossed'] for e in case['crossings']) else None
+
+
+def quarantine_legacy_column_checks(record):
+    if record.get('column_evidence_schema')==2:return False
+    effects=record.get('weather_effects') or {};changed=False
+    for kind in ('7','8'):
+        effect=effects.get(kind)
+        if not isinstance(effect,dict):continue
+        effect['legacy_unverified_checked']=effect.get('checked',0);effect['checked']=0
+        effect['partial_checked']=0;changed=True
+    if changed:record['column_evidence_schema']=2
+    return changed
+
+
+def near_weather_escape(hero,origin,proposals):
+    """A small supported walk may leave a launch column; physics stays unknown."""
+    choices=[]
+    for proposal in proposals:
+        for weather in proposal.get('weather_crossings',[]):
+            kind=weather.get('resolvedTypeId')
+            if kind is None:kind=weather.get('typeId')
+            center=weather.get('x');size=weather.get('size')
+            if kind not in (7,8) or not isinstance(center,(int,float)) or not math.isfinite(center):continue
+            half=25 if kind==7 else size/4 if isinstance(size,(int,float)) and math.isfinite(size) and size>0 else None
+            if half is None:continue
+            lo,hi=center-half,center+half;x=origin[0]
+            if lo<=x<=hi:
+                destination=lo-1 if x-center<=0 else hi+1
+                delta=destination-x
+                if abs(delta)>28:continue
+            elif min(abs(x-lo),abs(x-hi))<=28:
+                delta=-14 if x<center else 14;destination=x+delta
+            else:continue
+            choices.append({'weather_escape_x':hero['x']+delta,'weather_escape_origin_x':destination,'weather_escape_distance':abs(delta),'weather_escape_kind':kind})
+    return min(choices,key=lambda c:c['weather_escape_distance']) if choices else {}
+
+
+def weather_interval(weather):
+    """Column bounds match the native path evidence and piecewise engine."""
+    x=weather.get('x');size=weather.get('size',0);kind=weather.get('resolvedTypeId')
+    if kind is None:kind=weather.get('typeId')
+    if not isinstance(x,(int,float)) or not math.isfinite(x):return None
+    if kind==7:half=25
+    elif not isinstance(size,(int,float)) or not math.isfinite(size):return None
+    elif kind==8:
+        if size<=0:return None
+        half=max(1,size*.25)
+    else:half=max(0,size)/2
+    return x-half,x+half
+
 class AutonomousLearner:
     def __init__(self,path,seed_path=None):
         self.path=Path(path);self.records={};self.latest_plan={};self.pending={};self.episode=str(time.time_ns())
@@ -66,8 +197,10 @@ class AutonomousLearner:
             saved=json.loads(self.path.read_text(encoding='utf-8'))
             if saved.get('schema')==1 and isinstance(saved.get('records'),dict):self.records=saved['records']
         except (OSError,ValueError,TypeError,AttributeError):pass
-        self.wind_mode_hints={}
+        self.wind_mode_hints={};repaired=False
         for key,record in self.records.items():
+            repaired=quarantine_legacy_phases(key,record) or repaired
+            repaired=quarantine_legacy_column_checks(record) or repaired
             if key.startswith('dragonbound:RANDOMIZER:'):record['variable_projectiles']=True
             groups={}
             for sample in record.get('samples',[]):
@@ -77,6 +210,7 @@ class AutonomousLearner:
                 hint=fit_acceleration(group)
                 if hint and hint['acceleration_max_error']<=2:self.wind_mode_hints[key]=hint['wind_mode'];break
         if not self.records and seed_path:self.seed(seed_path)
+        if repaired:self.save()
     def seed(self,path):
         # Import raw attributed measurements only. Never copy a fit or prediction.
         try:records=json.loads(Path(path).read_text(encoding='utf-8')).get('records',{})
@@ -190,7 +324,8 @@ class AutonomousLearner:
             record['last_launch_geometry']={'planned_origin':list(planned_origin),'origin_source':planned.get('origin_source'),'native_origin':start[:2],'origin_error_px':math.dist(planned_origin,start[:2])}
         record['last_direction']={'planned_heading':planned.get('heading'),'observed_heading':start[2],'initial_vx':start[3]*math.cos(math.radians(start[2])),'raw_angle':release.get('angle'),'pose':release.get('pose')}
         intrinsic=len(owned)>1 or bool(primary.get('wave') or primary.get('orbit'))
-        record['multi_projectile']=bool(record.get('patterns') or record.get('observed_phases') or intrinsic)
+        if intrinsic:record['intrinsic_pattern']=True
+        record['multi_projectile']=pattern_flag(record)
         record['weather_modified_last_shot']=bool(primary.get('change') or primary.get('jumps'))
         # Store the real pattern instead of declaring the primary a full model.
         if len(owned)>1:record['patterns']=(record.get('patterns',[])+[{'power':release['power'],'starts':[s['start'] for s in owned[:16]]}])[-32:]
@@ -211,7 +346,11 @@ class AutonomousLearner:
             case['path_miss_px']=min(distances,default=None)
         case['id']=identity(primary);case['episode']=self.episode;case['stage']=planned.get('stage','exploración anterior');case['miss_px']=min((math.dist(e,target) for e in ends),default=None) if target else None
         record['cases']=(record.get('cases',[])+[case])[-48:]
-        try:self.pending[identity(primary)]={'key':key,'duration':primary['duration'],'end':position(primary,primary['duration']/1000),'created':time.monotonic()}
+        training_case=None
+        if len(owned)==1:
+            training_case=weather_training_case(primary,state,release,self.episode)
+            if training_case:record['weather_training']=(record.get('weather_training',[])+[training_case])[-32:]
+        try:self.pending[identity(primary)]={'key':key,'duration':primary['duration'],'end':position(primary,primary['duration']/1000),'created':time.monotonic(),'hero':release['hero'],'mobile':probe['mobile'],'shot':release['shot'],'episode':self.episode,'baseline':list(release.get('baseline',[]))}
         except (ValueError,TypeError,KeyError):pass
         self.pending=dict(list(self.pending.items())[-4:])
         # Learn whether a crossed climate actually changes flight, using only
@@ -229,6 +368,12 @@ class AutonomousLearner:
                     if not isinstance(x,(int,float)) or not isinstance(size,(int,float)) or not all(math.isfinite(v) for v in (x,size)) or x+max(0,size)/2<xmin or x-max(0,size)/2>xmax:continue
                     kind=str(weather.get('resolvedTypeId') if weather.get('resolvedTypeId') is not None else weather.get('typeId'))
                     effect=record.setdefault('weather_effects',{}).setdefault(kind,{'checked':0,'altered':0})
+                    if kind in ('7','8'):
+                        record['column_evidence_schema']=2
+                        evidence=next((e for e in (training_case or {}).get('crossings',[]) if e['kind']==('mirror' if kind=='7' else 'tornado') and e['center']==x),None)
+                        if not evidence or evidence['status']!='complete-crossing':
+                            effect['partial_checked']=min(1000,effect.get('partial_checked',0)+1)
+                            effect['altered']=min(1000,effect['altered']+int(max(deviations,default=0)>8));continue
                     effect['checked']=min(1000,effect['checked']+1);effect['altered']=min(1000,effect['altered']+int(max(deviations,default=0)>8))
             except (ValueError,TypeError,KeyError):pass
         self.save();return True
@@ -238,20 +383,50 @@ class AutonomousLearner:
         from native_paths import position
         changed=False
         for parent_id,parent in list(self.pending.items()):
-            if time.monotonic()-parent['created']>30:self.pending.pop(parent_id,None);continue
+            if time.monotonic()-parent['created']>30 or parent.get('episode')!=self.episode:self.pending.pop(parent_id,None);continue
             record=self.records[parent['key']]
             for shot in state.get('shots',[]):
                 start=shot.get('start');delay=shot.get('delay',0)
-                if not shot.get('native') or not isinstance(delay,(int,float)) or delay<=0 or abs(delay-parent['duration'])>1 or not isinstance(start,list) or len(start)!=6:continue
+                if not shot.get('native') or shot.get('auxiliary') or not isinstance(delay,(int,float)) or isinstance(delay,bool) or not math.isfinite(delay) or delay<=0 or abs(delay-parent['duration'])>1 or not isinstance(start,list) or len(start)!=6:continue
+                if not all(isinstance(v,(int,float)) and not isinstance(v,bool) and math.isfinite(v) for v in start):continue
+                if start[3]==0 and start[4]==0 and start[5]==0 and not any(shot.get(k) for k in ('path','wave','orbit','jumps')):continue
                 if math.dist(start[:2],parent['end'])>60:continue
-                ident=identity(shot);phases=record.setdefault('observed_phases',[])
-                if any(p['id']==ident for p in phases):continue
+                ident=identity(shot)
+                if ident in parent.get('baseline',[]) or ident==parent_id:continue
+                metadata=shot.get('metadata') or {}
+                if not isinstance(metadata,dict):continue
+                owner=metadata.get('player_n',metadata.get('player'))
+                if owner is not None and str(owner)!=str(parent.get('hero')):continue
+                from calibration_book import mobile_name
+                mobile=metadata.get('mobile')
+                if mobile is not None and mobile_name(mobile)!=parent.get('mobile'):continue
+                mode=shot.get('shotType')
+                if mode is None:mode=metadata.get('selectedShot')
+                if isinstance(mode,bool):continue
+                if mode is not None and mode!=parent.get('shot'):continue
+                verified=owner is not None and str(owner)==str(parent.get('hero')) and (mode==parent.get('shot') or mobile is not None and mobile_name(mobile)==parent.get('mobile'))
+                phases=record.setdefault('observed_phases',[]);quarantined=record.setdefault('quarantined_phases',[])
+                if any(p.get('id')==ident and p.get('verified') is True for p in phases):continue
+                if not verified and any(p.get('id')==ident for p in phases+quarantined):continue
                 try:end=position(shot,shot['duration']/1000)
                 except (ValueError,TypeError,KeyError):continue
                 if not all(isinstance(v,(int,float)) and math.isfinite(v) for v in end):continue
-                phases.append({'id':ident,'parent':parent_id,'start':start,'delay':delay,'end':list(end)});record['observed_phases']=phases[-32:];record['multi_projectile']=True
+                phase={'id':ident,'parent':parent_id,'start':start,'delay':delay,'end':list(end),'verified':verified,'owner':owner,'shot':mode,'bullet_id':shot.get('bulletId'),'episode':self.episode}
+                if verified:
+                    phases[:]=[p for p in phases if p.get('id')!=ident]
+                    for prior in quarantined:
+                        if prior.get('id')==ident:prior['resolved_with_owner_proof']=True
+                    phases.append(phase);record['observed_phases']=phases[-32:]
+                    record['special_continuation_pending']=any(p.get('pending') for p in phases)
+                else:
+                    quarantined.append({**phase,'reason':'continuation-without-owner-proof'});record['quarantined_phases']=quarantined[-96:]
+                    if special_continuation(parent['key']):
+                        phases.append({**phase,'pending':True});record['observed_phases']=phases[-32:];record['special_continuation_pending']=True
+                record['multi_projectile']=pattern_flag(record);record['phase_schema']=2
                 case=next((c for c in record.get('cases',[]) if c.get('id')==parent_id),None)
-                if case:case['ends']=[list(end)];case['has_continuation']=True
+                if case:
+                    if verified:case['ends']=[list(end)];case['has_continuation']=True;case['continuation_verified']=True;case['continuation_unverified']=False
+                    elif special_continuation(parent['key']):case['has_continuation']=True;case['continuation_unverified']=True
                 changed=True
         if changed:self.save()
     def applicable_model(self,record,wind,wind_angle):
@@ -317,7 +492,7 @@ class AutonomousLearner:
                     hit=next((i for i,p in enumerate(path[1:],1) if occupied(state.get('terrain'),*p) and math.dist(p,target_xy)>20),None)
                     reachable_path=path[:hit+1] if hit is not None else path
                     xmin=min(p[0] for p in reachable_path);xmax=max(p[0] for p in reachable_path)
-                    crossed=[w for w in weather if isinstance(w.get('x'),(int,float)) and xmin-w.get('size',0)/2<=w['x']<=xmax+w.get('size',0)/2]
+                    crossed=[w for w in weather if weather_interval(w) is not None and xmin<=weather_interval(w)[1] and xmax>=weather_interval(w)[0]]
                     known=all((effects.get(str(w.get('resolvedTypeId') if w.get('resolvedTypeId') is not None else w.get('typeId'))) or {}).get('checked',0)>=3 and (effects.get(str(w.get('resolvedTypeId') if w.get('resolvedTypeId') is not None else w.get('typeId'))) or {}).get('altered',0)==0 for w in crossed)
                     if hit is not None:
                         blocked=True
@@ -331,13 +506,15 @@ class AutonomousLearner:
                     self.latest_plan=result;return result
         raw=candidates[0];world=heading(raw,body,look)
         recent=record.get('cases',[])[-1:];needs_move=blocked or bool(recent and recent[0].get('ends') and all(math.dist(e,(hero['x'],hero['y']))<60 for e in recent[0]['ends']))
-        result={**geometry,'power':previous['power'] if actual and previous else probe['power'],'raw_angle':raw,'heading':world,'elevation':world if right else 180-world,'target':list(target_xy),'stage':'calibración controlada' if calibration_only else 'medir clima/patrón' if weather or record.get('multi_projectile') else 'comprobar modelo propio' if record.get('candidate') else 'explorar fuerzas y ángulos','model_samples':len(record.get('samples',[])),'approximate':True,'needs_move':needs_move,'unavailable_reason':'missing-model' if not model else 'unsupported-pattern' if record.get('multi_projectile') else 'unknown-weather' if unsupported_weather else 'terrain-blocked' if blocked else 'unmeasured-wind' if model.get('wind_scale') is None and state['wind'] else 'terrain-blocked' if blocked else 'angle-unavailable','blocked_plans':obstructions,'weather_probes':weather_probes,'reposition_allowed':bool(model and not record.get('multi_projectile') and (blocked or not unsupported_weather) and (model.get('wind_scale') is not None or not state['wind']))}
+        escape=near_weather_escape(hero,origin,weather_probes) if unsupported_weather else {}
+        result={**geometry,**escape,'power':previous['power'] if actual and previous else probe['power'],'raw_angle':raw,'heading':world,'elevation':world if right else 180-world,'target':list(target_xy),'stage':'calibración controlada' if calibration_only else 'medir clima/patrón' if weather or record.get('multi_projectile') else 'comprobar modelo propio' if record.get('candidate') else 'explorar fuerzas y ángulos','model_samples':len(record.get('samples',[])),'approximate':True,'needs_move':needs_move,'unavailable_reason':'missing-model' if not model else 'unsupported-pattern' if record.get('multi_projectile') else 'unknown-weather' if unsupported_weather else 'terrain-blocked' if blocked else 'unmeasured-wind' if model.get('wind_scale') is None and state['wind'] else 'terrain-blocked' if blocked else 'angle-unavailable','blocked_plans':obstructions,'weather_probes':weather_probes,'reposition_allowed':bool(model and not record.get('multi_projectile') and (blocked or not unsupported_weather or escape) and (model.get('wind_scale') is not None or not state['wind']))}
         self.latest_plan=result;return result
     def remembered(self,record,hero,target,state,player,probe,actual):
         def signature(weathers):return sorted(str(w.get('resolvedTypeId') if w.get('resolvedTypeId') is not None else w.get('typeId')) for w in weathers)
         choices=[];right=target[0]>=hero['x'];current_weather=state.get('weather') or []
         for case in record.get('cases',[]):
             if case.get('action')=='abrir paso':continue
+            if case.get('continuation_unverified'):continue
             if case.get('episode')!=self.episode:continue
             if not case.get('target') or not case.get('ends') or case.get('angle') is None:continue
             if (case['target'][0]>=case['origin'][0])!=right or math.dist(case['origin'],(hero['x'],hero['y']))>40:continue

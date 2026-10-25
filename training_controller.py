@@ -13,7 +13,7 @@ def lobby_visible(ui):
 
 class TrainingController:
     def __init__(self,session):
-        self.s=session;self.ledger=TurnLedger();self.current=None;self.geometry=None;self.blocked=set();self.selected=False;self.queue_at=0;self.failures=0;self.in_game=False;self.power=None;self.loading_since=None;self.recovery_state={}
+        self.s=session;self.ledger=TurnLedger();self.current=None;self.geometry=None;self.blocked=set();self.selected=False;self.queue_at=0;self.failures=0;self.in_game=False;self.power=None;self.loading_since=None;self.recovery_state={};self.retirement_until=None
         self.learner=None;self.cancel=session.cancel;self.rolling=None
         if session.autonomous:
             from autonomous_learning import AutonomousLearner
@@ -118,6 +118,7 @@ class TrainingController:
         self.sync_report();self.s.publish(f'Aprendizaje continuo · bloque {self.rolling.block}');return True
     def cycle(self,browser):
         s=self.s;ui=browser.guard(self.cancel)
+        self.drain_actions(browser)
         if self.trial and self.trial.done():
             if not self.rolling:return False
             if not self.next_block(browser,ui):return
@@ -127,6 +128,20 @@ class TrainingController:
             if time.monotonic()-self.loading_since>60 and not s.continuous:raise RuntimeError('La carga del perfil lleva más de un minuto; revisa la conexión del juego')
             s.publish('Esperando que el juego termine de cargar el perfil');self.cancel.wait(.5);return
         self.loading_since=None
+        retired=ui.get('retirement')
+        if isinstance(retired,dict):
+            now=time.monotonic();seconds=retired.get('seconds',60)
+            if self.retirement_until is None:
+                self.retirement_until=now+max(0,min(3600,seconds))+.3
+                s.retirements=getattr(s,'retirements',0)+1
+                s.errors.append({'turn':None,'kind':'retirement','reason':'El juego mostró una penalización de retirada; se respeta la espera','at':time.time()});s.errors=s.errors[-64:]
+            browser.retirement_until=self.retirement_until
+            if now<self.retirement_until:
+                s.publish(f'El juego registró una retirada · esperando {math.ceil(self.retirement_until-now)} s antes de continuar');self.cancel.wait(min(1,self.retirement_until-now));return
+            browser.click(retired.get('point'),self.cancel);self.retirement_until=None;self.cancel.wait(.3);return
+        self.retirement_until=None
+        if (ui.get('notice') or {}).get('kind')=='gift-received':
+            browser.click(ui['notice']['point'],self.cancel);self.cancel.wait(.3);return
         if ui.get('blocked'):
             if not s.continuous:raise RuntimeError('Hay un aviso del juego. Ciérralo antes de volver a empezar')
             if self.power:self.power.hold(False)
@@ -178,6 +193,10 @@ class TrainingController:
             if self.blocked and any(ui['controls'].get(k) for k in ('btnShot1','btnShot2','btnShotSS')):
                 s.publish('Esperando una posición o modalidad con tiro válido')
                 if s.objective=='adaptive':self.trial.turn_skipped(key)
+                try:
+                    if browser.pass_turn(key,self.cancel,lambda:self.ledger.consume(key)) is True:
+                        s.passed_turns=getattr(s,'passed_turns',0)+1;s.publish('Sin recorrido válido en las balas disponibles; turno pasado de forma explícita')
+                except (TurnExpired,TurnNotReady):pass
             self.cancel.wait(.2);return
         if s.objective=='evaluation':
             if 0 not in available:
@@ -191,6 +210,7 @@ class TrainingController:
         probe['turn_serial']=key[-1]
         if self.memory and s.shots%3==2:probe=self.memory.recommend(probe,state,available)
         stage='decidiendo con mediciones propias' if self.learner else 'calculando viento y recorrido'
+        self.last_probe=probe
         s.publish(f"Turno {key[-1]} · {mobile} · tiro {('1','2','SS')[probe['shot']]} · {stage}")
         try:
             options={'settings_provider':None if self.learner else s.settings_provider,'before_fire':lambda:self.reserve_turn(browser,key)}
@@ -237,6 +257,8 @@ class TrainingController:
             if isinstance(getattr(browser,'last_timing',None),dict):s.last_timing=dict(browser.last_timing)
             if isinstance(getattr(browser,'movement_events',None),list) and browser.movement_events:
                 s.movements.extend(browser.movement_events);s.movements=s.movements[-64:];browser.movement_events.clear()
+            if isinstance(getattr(browser,'click_events',None),list) and browser.click_events:
+                s.ui_actions=getattr(s,'ui_actions',[])+browser.click_events;s.ui_actions=s.ui_actions[-128:];browser.click_events.clear()
         self.cancel.wait(.05)
     def reserve_turn(self,browser,key):
         self.ledger.consume(key)
@@ -245,8 +267,13 @@ class TrainingController:
             reserve=getattr(self.trial,'reserve_action',None)
             if callable(reserve):reserve(plan,key)
     def record_error(self,key,reason,kind):
-        self.s.errors.append({'turn':key[-1],'reason':reason,'kind':kind,'at':time.time()})
+        probe=getattr(self,'last_probe',{})
+        self.s.errors.append({'turn':key[-1],'reason':reason,'kind':kind,'shot':probe.get('shot'),'mobile':probe.get('mobile'),'at':time.time()})
         self.s.errors=self.s.errors[-64:]
+    def drain_actions(self,browser):
+        actions=getattr(browser,'click_events',None)
+        if isinstance(actions,list) and actions:
+            self.s.ui_actions=(getattr(self.s,'ui_actions',[])+actions)[-128:];actions.clear()
     def observe(self,probe,release,observation):
         s=self.s;s.shots+=1
         if self.rolling:self.rolling.record(probe,release,observation)

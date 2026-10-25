@@ -5,18 +5,25 @@ from auto_fire import PowerReader
 from training_orientation import desired_look,raw_angle,up_increases_raw
 from training_aim import NoAim
 UI_JS=r"""(()=>{
- const box=e=>{if(!e)return null;const r=e.getBoundingClientRect(),s=getComputedStyle(e);if(r.width<2||r.height<2||s.visibility==='hidden'||s.display==='none')return null;
- const x=r.left+r.width/2,y=r.top+r.height/2,hit=document.elementFromPoint(x,y);return hit&&(hit===e||e.contains(hit))?{x,y}:null};
- const ids=['buttonStart1v1','lobbyButtonMobile','roomMobileSelectCancel','btnShot1','btnShot2','btnShotSS','slice_drag_button'];
- const controls=Object.fromEntries(ids.map(id=>[id,box(document.getElementById(id))]));
- const options=[...document.querySelectorAll('#roomMobileSelect .mobileSelectBtn[data-mobile]')].map(e=>({id:Number(e.dataset.mobile),name:e.querySelector('.mobileName')?.textContent,point:box(e),selected:e.classList.contains('mobileSelectCurrent')})).filter(o=>o.point);
- const alert=document.getElementById('myDialog'),ok=box(document.getElementById('DragonDialogOK'));
+ const box=(e,control)=>{if(!e)return null;const r=e.getBoundingClientRect(),s=getComputedStyle(e);if(r.width<2||r.height<2||s.visibility==='hidden'||s.display==='none')return null;
+ const x=r.left+r.width/2,y=r.top+r.height/2,hit=document.elementFromPoint(x,y);return hit&&(hit===e||e.contains(hit))?{x,y,control:control||e.id||null}:null};
+ const shotIds=['btnShot1','btnShot2','btnShotSS'];
+ const usable=e=>!!e&&!e.disabled&&e.getAttribute('aria-disabled')!=='true'&&!['grayscale','disabled','Disabled'].some(k=>e.classList.contains(k));
+ const ids=['buttonStart1v1','lobbyButtonMobile','roomMobileSelectCancel',...shotIds,'slice_drag_button','btnPass'];
+ const controls=Object.fromEntries(ids.map(id=>[id,shotIds.includes(id)&&!usable(document.getElementById(id))?null:box(document.getElementById(id),id)]));
+ const shotReady=shotIds.map(id=>!!controls[id]);
+ const options=[...document.querySelectorAll('#roomMobileSelect .mobileSelectBtn[data-mobile]')].map(e=>({id:Number(e.dataset.mobile),name:e.querySelector('.mobileName')?.textContent,point:box(e,'mobile:'+e.dataset.mobile),selected:e.classList.contains('mobileSelectCurrent')})).filter(o=>o.point);
+ const alert=document.getElementById('myDialog'),ok=box(document.getElementById('DragonDialogOK'),'dialog-ok');
  const loading=!!ok&&/Ingresar\.\.\. Por favor espere/.test(alert?.textContent||'')&&/Cargando/.test(alert?.textContent||'');
  const away=ok&&/Creo que estás ausente/.test(alert?.textContent||'')?ok:null;
- const entries=location.hash===''?[...document.querySelectorAll('span,div')].filter(e=>!e.children.length&&e.textContent.trim()==='Avatar Off').map(box).filter(Boolean):[];
- const dual=document.querySelector('[id^=gameItemSlot].ItemBtn.itemDual');controls.dual=box(dual);
+ const retirementText=ok?(alert?.textContent||''):'';
+ const retirementMatch=/Dejaste el Juego/.test(retirementText)&&/Porque te retiraste de una partida/.test(retirementText)?retirementText.match(/(?:en\s+)?(\d+)\s*Segundos?/i):null;
+ const retirement=retirementMatch?{seconds:Math.min(3600,Number(retirementMatch[1])),point:ok}:null;
+ const notice=ok&&/Regalo Recibido/.test(retirementText)&&/Has recibido un regalo/.test(retirementText)?{kind:'gift-received',point:ok}:null;
+ const entries=location.hash===''?[...document.querySelectorAll('span,div')].filter(e=>!e.children.length&&e.textContent.trim()==='Avatar Off').map(e=>box(e,'server-avatar-off')).filter(Boolean):[];
+ const dual=document.querySelector('[id^=gameItemSlot].ItemBtn.itemDual');controls.dual=box(dual,'dual');
  const selectedItems=[...document.querySelectorAll('[id^=gameItemSlot].ItemBtn.Pressed')].map(e=>({id:e.id,dual:e.classList.contains('itemDual')}));
- return {loading,dualSelected:!!dual?.classList.contains('Pressed'),selectedItems,url:location.href,serverEntry:entries.length===1?entries[0]:null,focused:document.hasFocus(),chat:['INPUT','TEXTAREA','SELECT'].includes(document.activeElement?.tagName)||!!document.activeElement?.isContentEditable,game:!!box(document.getElementById('gameScreen')),controls,options,away,blocked:!!ok&&!away,stop:!!window.__dragonlabTrainingStop?.stopped};
+ return {loading,retirement,notice,shotReady,dualSelected:!!dual?.classList.contains('Pressed'),selectedItems,url:location.href,serverEntry:entries.length===1?entries[0]:null,focused:document.hasFocus(),chat:['INPUT','TEXTAREA','SELECT'].includes(document.activeElement?.tagName)||!!document.activeElement?.isContentEditable,game:!!box(document.getElementById('gameScreen')),controls,options,away,blocked:!!ok&&!away,stop:!!window.__dragonlabTrainingStop?.stopped};
 })()"""
 
 class TurnExpired(RuntimeError):pass
@@ -40,11 +47,25 @@ class TrainingBrowser:
         if cancel.is_set():raise RuntimeError('Entrenamiento detenido')
         ui=self.ui()
         if ui.get('stop'):cancel.set();raise RuntimeError('Esc: entrenamiento detenido')
+        if ui.get('blocked') and getattr(self,'reader',None) is not None:raise FocusPause('En pausa: apareció un aviso durante la preparación del tiro')
         if ui.get('chat') or not getattr(self,'background',False) and not ui.get('focused'):raise FocusPause('En pausa: vuelve al juego y cierra el chat para continuar')
         return ui
     def click(self,point,cancel):
-        self.guard(cancel)
+        ui=self.guard(cancel)
+        role=point.get('control') if isinstance(point,dict) else None
+        if ui.get('blocked') and role!='dialog-ok':raise TurnNotReady('Hay un aviso sobre el juego; no se pulsa el control anterior')
+        if role:
+            current=(ui.get('controls') or {}).get(role)
+            if role.startswith('mobile:'):current=next((o.get('point') for o in ui.get('options',[]) if 'mobile:'+str(o.get('id'))==role),None)
+            elif role=='server-avatar-off':current=ui.get('serverEntry')
+            elif role=='dialog-ok':
+                current=ui.get('away') or (ui.get('notice') or {}).get('point')
+                retired=ui.get('retirement') or {}
+                if not current and retired and time.monotonic()>=getattr(self,'retirement_until',math.inf):current=retired.get('point')
+            if not current:raise TurnNotReady('El control cambió; se recalculará sin pulsar otra zona')
+            point=current
         if not point or not all(isinstance(point.get(k),(int,float)) and math.isfinite(point[k]) for k in ('x','y')):raise RuntimeError('Control no disponible')
+        actions=getattr(self,'click_events',[]);actions.append({'control':role or 'legacy-point','at':time.time()});self.click_events=actions[-64:]
         args={'x':point['x'],'y':point['y'],'button':'left','clickCount':1}
         try:self.client.call('Input.dispatchMouseEvent',{'type':'mousePressed',**args})
         finally:self.client.call('Input.dispatchMouseEvent',{'type':'mouseReleased',**args})
@@ -62,6 +83,24 @@ class TrainingBrowser:
         return max(0,deadline-time.monotonic()) if deadline is not None else 120
     def require_charge_time(self):
         if self.seconds_left()<4.5:raise TurnExpired('Queda poco tiempo para confirmar la carga; esperando otro turno')
+    @staticmethod
+    def require_shot_ready(ui,shot):
+        ready=ui.get('shotReady')
+        if isinstance(ready,list) and (shot not in (0,1,2) or len(ready)<=shot or not ready[shot]):
+            raise UnavailableShot('SS está recargando; se buscará una bala normal' if shot==2 else 'Esta bala no está disponible todavía')
+    def pass_turn(self,key,cancel,before_pass):
+        from training_turns import turn_key
+        ui=self.guard(cancel)
+        if ui.get('blocked') or not ui.get('game'):return False
+        if turn_key(self.sample(),ui.get('url'))!=key:raise TurnExpired('Cambió el turno antes de pasarlo')
+        point=(ui.get('controls') or {}).get('btnPass')
+        if not point:return False
+        before_pass();self.click(point,cancel)
+        until=time.monotonic()+.4
+        while time.monotonic()<until:
+            if turn_key(self.sample(),ui.get('url'))!=key:return True
+            if cancel.wait(.025):break
+        return False
     def confirm_setting(self,reader,serial,field,value,cancel):
         """Wait for the actual game setting, without assuming one render frame."""
         until=time.monotonic()+.45
@@ -74,7 +113,7 @@ class TrainingBrowser:
         raise UnavailableShot('El juego todavía no confirmó la modalidad' if field=='shot' else 'No se pudo confirmar Slice')
     def verify_release(self,reader,release,cancel):
         """Last native check before reserving a turn or pressing Space."""
-        self.guard(cancel);state=reader.read()
+        ui=self.guard(cancel);self.require_shot_ready(ui,release['shot']);state=reader.read()
         if state.get('over') or state.get('turnNumber')!=release['turn_serial'] or state.get('turn')!=release['hero']:raise TurnExpired('Cambió el turno antes de cargar')
         player=next((p for p in state.get('players',[]) if p.get('id')==release['hero']),None)
         if not player or state.get('busy') or state.get('moving') or state.get('shot')!=release['shot'] or state.get('mode')!='space':raise TurnNotReady('Los controles cambiaron; recalculando antes de cargar')
@@ -95,7 +134,7 @@ class TrainingBrowser:
         initial=hero.get('rawAngle')
         if not isinstance(initial,(int,float)) or not math.isfinite(initial):raise RuntimeError('Ángulo sin lectura; no se dispara')
         if not hasattr(self,'angle_limits'):self.angle_limits={}
-        key=(getattr(self,'angle_mobile',None),hero.get('body'),hero.get('look'))
+        key=(getattr(self,'angle_mobile',None),getattr(self,'angle_shot',None),hero.get('body'),hero.get('look'))
         bounds=self.angle_limits.get(key,{})
         for source,destination in (('minAngle','low'),('maxAngle','high')):
             if isinstance(hero.get(source),(int,float)) and math.isfinite(hero[source]):bounds[destination]=hero[source]
@@ -200,7 +239,9 @@ class TrainingBrowser:
                         candidate=self.timed_plan(autonomous,hypothetical,simulated,probe)
                         return candidate.get('stage') in ('evaluación con modelo congelado','calibración dirigida provisional')
                     except NoAim:return False
-                step=choose_reposition(state,target_x,error.reason,avoid=avoid,evaluate=evaluate,visited=self.visited_positions)
+                escape=(error.recovery or {}).get('weather_escape_x') if isinstance(error.recovery,dict) else None
+                walk_target=escape if error.reason=='unknown-weather' and isinstance(escape,(int,float)) and math.isfinite(escape) else target_x
+                step=choose_reposition(state,walk_target,error.reason,avoid=avoid,evaluate=evaluate,visited=self.visited_positions)
                 if not step:
                     recover=getattr(autonomous,'excavate',None);candidate=recover(state,player,probe,error) if callable(recover) else None
                     if isinstance(candidate,dict):return candidate,({'steps':movements,'from':movements[0]['from'],'to':movements[-1]['to']} if movements else None)
@@ -244,6 +285,7 @@ class TrainingBrowser:
             ui=self.guard(cancel);s=reader.read()
             if s.get('over') or s.get('turn')!=s.get('hero') or s.get('busy') or s.get('moving'):raise TurnNotReady('Esperando que termine el movimiento o la animación del turno')
             hero_id=s['hero'];serial=s.get('turnNumber');target_shot=probe['shot']
+            self.require_shot_ready(ui,target_shot)
             remaining=s.get('turnSeconds');self.turn_deadline=time.monotonic()+(remaining if isinstance(remaining,(int,float)) and math.isfinite(remaining) else 8.5)
             self.require_charge_time()
             if probe.get('turn_serial',serial)!=serial:raise RuntimeError('El turno cambió antes de preparar el tiro')
@@ -299,7 +341,7 @@ class TrainingBrowser:
                     preferred=probe['angle'] if desired==int(settings.target_x>=settings.hero_x) else 180-probe['angle']
                     planned_angle,lab=choose_aim(settings,preferred,limits,allow_blocked=True)
                 planned_angle+=hero.get('body',0)*(1 if hero.get('look')==1 else -1)
-            self.angle_mobile=probe.get('mobile');angle_change=self.adjust_angle(reader,planned_angle,cancel,expected_serial=serial)
+            self.angle_mobile=probe.get('mobile');self.angle_shot=target_shot;angle_change=self.adjust_angle(reader,planned_angle,cancel,expected_serial=serial)
             if autonomous:
                 fresh=reader.read();player=next(p for p in fresh['players'] if p['id']==hero_id)
                 independent=self.timed_plan(autonomous,self.sample(),player,probe,actual=True,previous=independent);probe={**probe,'power':independent['power']}
