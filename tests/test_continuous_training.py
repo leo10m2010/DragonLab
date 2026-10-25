@@ -207,6 +207,13 @@ class ArchiveTests(unittest.TestCase):
             rolling.record(probe,release,state)
             row=json.loads((rolling.directory/'observaciones-nativas.jsonl').read_text())
             self.assertIsNone(row['angle']);self.assertIsNone(row['weather'][0]['size']);self.assertIsNone(row['native'][0]['duration'])
+    def test_archive_preserves_planned_and_observed_origin_for_future_audit(self):
+        with tempfile.TemporaryDirectory() as folder:
+            rolling,probe,release,state=self.make(folder)
+            release['learner'].update(origin=[100,90],origin_source='native-shot-muzzle')
+            rolling.record(probe,release,state)
+            row=json.loads((rolling.directory/'observaciones-nativas.jsonl').read_text())
+            self.assertEqual(row['planned_origin'],[100,90]);self.assertEqual(row['origin_error_px'],0)
     def test_archive_failure_is_explicit_and_never_a_transient_reconnect(self):
         with tempfile.TemporaryDirectory() as folder:
             rolling,probe,release,state=self.make(folder)

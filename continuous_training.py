@@ -93,6 +93,11 @@ class RollingEvaluation:
         phase=plan.get('evaluation_phase');mode=probe.get('shot')
         row={'schema':1,'sequence':self.observations+1,'block':self.block,'episode':hashlib.sha256(str(self.learner.episode).encode()).hexdigest()[:24],'clone':'dragonbound','mobile':mobile_name(probe.get('mobile')),'shot':mode if mode in (0,1,2) and not isinstance(mode,bool) else None,'phase':phase if phase in ('calibration','evaluation','weather','recovery') else None,'item':'dual' if release.get('item')=='dual' else None,'created':finite_number(time.time()),'native':native,'weather':weather}
         row.update({key:finite_number(release.get(key)) for key in ('hero','x','y','power','angle','wind','windAngle','turn_serial')})
+        origin=plan.get('origin')
+        if isinstance(origin,(list,tuple)) and len(origin)==2 and all(finite_number(v) is not None for v in origin):
+            row['planned_origin']=list(origin)
+            row['origin_source']=plan.get('origin_source') if plan.get('origin_source') in ('native-shot-muzzle','legacy-muzzle-offset','hero-center') else None
+            row['origin_error_px']=math.dist(origin,native[0]['start'][:2]) if native else None
         raw=json.dumps(row,ensure_ascii=True,allow_nan=False,separators=(',',':'))+'\n'
         try:
             self.directory.mkdir(parents=True,exist_ok=True)

@@ -88,7 +88,14 @@ class CalibrationBook:
         # visible, but do not silently fit one as the primary projectile.
         starts={tuple(s['start']) for s in native}
         if len(starts)!=1 or len({s.get('id') for s in native})!=len(native):return []
-        s=native[0];ident=(clone,str(s.get('id'))+':'+','.join(str(v) for v in s['start']))
+        s=native[0]
+        release=self.release if self.release and time.monotonic()<self.release['expires'] else None
+        scope=(release or {}).get('measurement_session')
+        prefix=''
+        if isinstance(scope,str) and scope:
+            import hashlib
+            prefix=hashlib.sha256(scope.encode()).hexdigest()[:24]+':'
+        ident=(clone,prefix+str(s.get('id'))+':'+','.join(str(v) for v in s['start']))
         if ident in self.seen:return []
         start=s['start'];x,y,launch_angle,speed,ax,ay=start
         if not all(isinstance(v,(int,float)) and math.isfinite(v) for v in start) or speed<=0:return []
@@ -108,6 +115,7 @@ class CalibrationBook:
             from variable_projectiles import record_variant
             record_variant(record,s,{'power':power,'wind':wind,'windAngle':angle});self.message=record['status'];self.save();return []
         sample['sample_id']=ident[1]
+        if prefix:sample['measurement_session']=prefix[:-1]
         if any(m.get('sample_id')==ident[1] for m in record.get('samples',[])):return []
         record['samples']=(record['samples']+[sample])[-48:];record['updated']=time.time()
         from learning_guard import update
@@ -150,7 +158,8 @@ class CalibrationBook:
             if name and release.get('shot') in (0,1,2):
                 key=self.key('dragonbound',name,release['shot']);record=self.records.setdefault(key,{'samples':[]})
                 launches=[{'bullet':s.get('bulletId'),'start':s['start']} for s in starts[:16]]
-                ident=hashlib.sha256(str([(s.get('id'),s['start']) for s in starts]).encode()).hexdigest()[:24]
+                source=release.get('measurement_session','')
+                ident=hashlib.sha256((str(source)+str([(s.get('id'),s['start']) for s in starts])).encode()).hexdigest()[:24]
                 groups=record.setdefault('training_patterns',[])
                 if not any(g['id']==ident for g in groups):
                     groups.append({'id':ident,'power':release['power'],'wind':release.get('wind'),'wind_angle':release.get('windAngle'),'launches':launches,'source':'attributed-native-group'})

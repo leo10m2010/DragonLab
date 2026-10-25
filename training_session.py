@@ -13,11 +13,11 @@ class TrainingSession:
         if objective=='evaluation' and continuous:raise ValueError('La evaluación individual debe tener un límite')
         self.allow_dual=bool(allow_dual);self.background=bool(background);self.objective=objective;self.trial=None;self.battle=None
         self.autonomous=autonomous;self.learner=None
-        self.published=None;self.published_at=0;self.started_at=None;self.started_wall=None;self.report={}
+        self.published=None;self.published_at=0;self.started_at=None;self.started_wall=None;self.report={};self.stop_reason=''
     def start(self):
         if self.running:return
         self.cancel.clear();self.started_at=time.monotonic();self.started_wall=time.time();self.running=True;self.thread=threading.Thread(target=self.run,daemon=True);self.thread.start()
-    def stop(self):self.cancel.set()
+    def stop(self):self.stop_reason='requested';self.cancel.set()
     def time_remaining(self):
         return max(0,self.max_seconds-(time.monotonic()-self.started_at)) if self.started_at is not None else self.max_seconds
     def records(self):
@@ -29,6 +29,7 @@ class TrainingSession:
         if stamp==self.published and time.monotonic()-self.published_at<5:return
         self.published=stamp;self.published_at=time.monotonic()
         data={'active':self.running,'continuous':self.continuous,'autonomous':self.autonomous,'guided':bool(self.settings_provider) and not self.autonomous,'background':self.background,'objective':self.objective,'evaluation':self.trial.summary() if self.trial else None,'battle':self.battle.summary() if self.battle else None,'message':message,'shots':self.shots,'matches':self.matches,'limit_shots':None if self.continuous else self.max_shots,'duration_seconds':self.max_seconds,'remaining_seconds':round(self.time_remaining()),'expires_at':self.started_wall+self.max_seconds if self.started_wall is not None else None,'report':self.report,'last_error':self.last_error,'errors':self.errors[-64:],'movements':self.movements[-64:],'timing':self.last_timing,'progress':{**(self.learner.progress() if self.learner else {}),**self.lab_progress},'history':self.history[-120:],'updated':time.time()}
+        data['stop_reason']=self.stop_reason
         try:atomic_write(self.book_path.parent/'entrenamiento-estado.json',json.dumps(data,allow_nan=False).encode())
         except OSError:pass
     def run(self):

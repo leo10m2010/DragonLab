@@ -53,3 +53,9 @@ class DurationTests(unittest.TestCase):
         text=session_caption(session)
         self.assertIn('01:01',text);self.assertIn('Bloque 3',text);self.assertIn('83 tiros en total',text)
         session.continuous=False;self.assertEqual(session_caption(session),'')
+    def test_requested_stop_is_preserved_in_saved_status(self):
+        with tempfile.TemporaryDirectory() as folder:
+            session=TrainingSession('',None,Path(folder)/'book.json',Mock())
+            session.stop();session.publish('Detenido')
+            status=json.loads((Path(folder)/'entrenamiento-estado.json').read_text())
+            self.assertEqual(status['stop_reason'],'requested');self.assertTrue(session.cancel.is_set())

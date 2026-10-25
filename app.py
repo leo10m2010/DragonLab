@@ -649,8 +649,12 @@ class App:
             if event.get('status')=='training-observation':
                 try:
                     from training_progress import share_observation
+                    group=self.training_session
+                    if hasattr(group,'sessions'):
+                        if event.get('group_run_id')!=group.group_run_id:continue
+                        group.observe(event)
                     progress=share_observation(self.book,event.get('observation'),event.get('release'))
-                    if self.training_session:self.training_session.lab_progress=progress
+                    if self.training_session and not hasattr(group,'sessions'):self.training_session.lab_progress=progress
                 except (OSError,ValueError,TypeError,KeyError):self.book.message='La medición no pudo incorporarse; se conserva el ajuste anterior'
                 self.profile_stamp=None;self.mark();continue
             if event.get('status')=='fire-gesture':
@@ -658,7 +662,8 @@ class App:
                     self.fire_shortcut_count+=1;self.trigger_auto_fire()
                 continue
             if event.get('status')=='cancel-shortcut':
-                self.cancel_actions()
+                from control_lifecycle import cancel_from_game
+                cancel_from_game(self)
                 continue
             if event.get('status')=='fire-shortcut':
                 self.fire_shortcut_count+=1

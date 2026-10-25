@@ -94,7 +94,8 @@ class TrainingController:
                 s.running=False
             expired=time.monotonic()-started>=s.max_seconds
             if expired and s.last_error=='Entrenamiento detenido':s.last_error=''
-            s.publish('Entrenamiento detenido: '+s.last_error if s.last_error else 'Tiempo de sesión completado; progreso guardado' if expired else ('Evaluación finalizada: '+self.trial.summary()['status'] if self.trial else 'Sesión finalizada; progreso guardado'))
+            s.stop_reason='deadline' if expired else s.stop_reason or ('error' if s.last_error else 'cancelled' if self.cancel.is_set() else 'limits')
+            s.publish('Entrenamiento detenido: '+s.last_error if s.last_error else 'Tiempo de sesión completado; progreso guardado' if expired else 'Sesión detenida por solicitud; progreso guardado' if self.cancel.is_set() else ('Evaluación finalizada: '+self.trial.summary()['status'] if self.trial else 'Sesión finalizada; progreso guardado'))
     def sync_report(self):
         if self.rolling:
             self.s.report=self.rolling.report();self.rolling.save()

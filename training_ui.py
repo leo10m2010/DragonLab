@@ -23,7 +23,7 @@ def settings_provider(app):
         return response['settings']
     return request
 
-def start_training(app,limit='24 h',background=True,objective='adaptive'):
+def start_training(app,limit='24 h',background=True,objective='adaptive',instances=1):
     if app.clone_id!='dragonbound':raise ValueError('Elige DragonBound en la pantalla principal.')
     if app.training_session and app.training_session.running:return app.training_session
     from training_session import TrainingSession
@@ -32,6 +32,16 @@ def start_training(app,limit='24 h',background=True,objective='adaptive'):
     if limit not in ('20','40','24 h'):raise ValueError('Elige 20 tiros, 40 tiros o 24 h')
     continuous=limit=='24 h'
     if continuous and objective!='adaptive':raise ValueError('Las 24 h usan juego adaptativo con evaluaciones por bloques')
+    if str(instances) not in ('1','2'):raise ValueError('Elige una o dos partidas')
+    if str(instances)=='2':
+        if objective!='adaptive' or not background:raise ValueError('Dos partidas requieren juego adaptativo en segundo plano')
+        from training_browsers import ready_slots
+        from training_group import TrainingGroup
+        slots=ready_slots(app.book.path.parent)
+        from control_lifecycle import prepare_training
+        prepare_training(app)
+        group=TrainingGroup(app.book.path.parent,slots,app.events.put,max_shots=40 if continuous else int(limit),max_seconds=86400 if continuous else 900,continuous=continuous)
+        app.training_session=group;group.start();return group
     from control_lifecycle import prepare_training
     prepare_training(app)
     app.training_session=TrainingSession(endpoint,app.browser_target,app.book.path,app.events.put,max_shots=40 if continuous else int(limit),continuous=continuous,autonomous=True,objective=objective,background=background,allow_dual=True,max_matches=6,max_seconds=86400 if continuous else 900)
@@ -76,25 +86,42 @@ def open_training(app):
     lab_bar=RoundedProgress(lab_card.body);lab_bar.pack(fill='x',padx=16,pady=(0,8))
     evidence=tk.Label(lab_card.body,bg=PANEL,fg=MUTED,font=('Bahnschrift',10),wraplength=520,justify='left');evidence.pack(anchor='w',padx=16,pady=(0,10))
     tk.Label(content,text='Puntería y autonomía completa: pendientes de evaluación.\nEstos porcentajes no estiman cuánto tiempo falta.',justify='left',bg=BG,fg=MUTED,font=('Bahnschrift',10),wraplength=540).pack(anchor='w',padx=8,pady=(0,8))
-    controls=tk.Frame(win,bg=BG);controls.grid(row=3,column=0,sticky='ew',padx=24,pady=6)
+    parallel=tk.Frame(win,bg=BG);parallel.grid(row=3,column=0,sticky='ew',padx=24,pady=4)
+    tk.Label(parallel,text='Partidas',bg=BG,fg=MUTED,font=('Bahnschrift',10)).pack(side='left')
+    instances=tk.StringVar(value=str(getattr(app,'training_instances',1)))
+    instance_choice=RoundedChoice(parallel,textvariable=instances,values=['1','2'],width=4);instance_choice.pack(side='left',padx=(6,12))
+    def second_browser():
+        try:
+            from training_browsers import open_second_browser
+            open_second_browser(app.book.path.parent)
+            status.config(text='Segunda ventana abierta. Entra con la otra cuenta y elige Avatar Off.')
+        except (OSError,ValueError) as error:status.config(text=str(error))
+    RoundedButton(parallel,text='Segunda cuenta',command=second_browser).pack(side='left')
+    view=tk.StringVar(value='Sesión 1')
+    view_choice=RoundedChoice(parallel,textvariable=view,values=['Sesión 1','Sesión 2'],width=10);view_choice.pack(side='right')
+    controls=tk.Frame(win,bg=BG);controls.grid(row=4,column=0,sticky='ew',padx=24,pady=6)
     tk.Label(controls,text='Sesión',bg=BG,fg=MUTED,font=('Bahnschrift',10)).pack(side='left')
     tk.Label(controls,text='Modo',bg=BG,fg=MUTED,font=('Bahnschrift',10)).pack(side='left',padx=(16,4))
     mode=tk.StringVar(value='Segundo plano');mode_choice=RoundedChoice(controls,textvariable=mode,values=['Segundo plano','Juego al frente'],width=16);mode_choice.pack(side='left')
     limit=tk.StringVar(value='24 h');duration=RoundedChoice(controls,textvariable=limit,values=['24 h','20','40'],width=11);duration.pack(side='right')
-    actions=tk.Frame(win,bg=BG);actions.grid(row=4,column=0,sticky='ew',padx=24,pady=(4,8))
+    actions=tk.Frame(win,bg=BG);actions.grid(row=5,column=0,sticky='ew',padx=24,pady=(4,8))
     def stop():
         if app.training_session:app.training_session.stop()
     def start():
-        try:start_training(app,limit.get(),background=mode.get()=='Segundo plano')
+        try:
+            if instances.get()=='2':mode.set('Segundo plano')
+            start_training(app,limit.get(),background=mode.get()=='Segundo plano',instances=instances.get())
         except (ValueError,RuntimeError) as error:status.config(text=str(error))
     stop_button=RoundedButton(actions,text='Detener',command=stop);stop_button.pack(side='left')
     start_button=RoundedButton(actions,text='Empezar',command=start,bg=GREEN,fg=BG);start_button.pack(side='right')
-    tk.Label(win,text='Detener / Esc cancela · Cerrar este panel mantiene la sesión.\nEl programa y el navegador deben permanecer abiertos.',bg=BG,fg=MUTED,font=('Bahnschrift',10),justify='left').grid(row=5,column=0,sticky='w',padx=24,pady=(0,12))
+    tk.Label(win,text='Detener cancela ambas · Esc detiene el juego donde lo pulses.\nCerrar este panel mantiene las sesiones; deja el programa abierto.',bg=BG,fg=MUTED,font=('Bahnschrift',10),justify='left').grid(row=6,column=0,sticky='w',padx=24,pady=(0,12))
     def refresh():
         if not win.winfo_exists():return
-        session=app.training_session;learner=session.learner if session else None
+        session=app.training_session
+        if session and hasattr(session,'sessions'):session.selected=0 if view.get()=='Sesión 1' else 1
+        learner=session.learner if session else None
         running=bool(session and session.running)
-        for control,state in [(start_button,'disabled' if running else 'normal'),(stop_button,'normal' if running else 'disabled'),(duration,'disabled' if running else 'readonly'),(mode_choice,'disabled' if running else 'readonly')]:
+        for control,state in [(start_button,'disabled' if running else 'normal'),(stop_button,'normal' if running else 'disabled'),(duration,'disabled' if running else 'readonly'),(mode_choice,'disabled' if running else 'readonly'),(instance_choice,'disabled' if running else 'readonly'),(view_choice,'readonly' if session and hasattr(session,'sessions') else 'disabled')]:
             if control.cget('state')!=state:control.config(state=state)
         if not session:result_label.config(text='La prueba separa calibración y evaluación.\nSolo considera dirigidos los tiros con una solución comprobada.')
         if session:

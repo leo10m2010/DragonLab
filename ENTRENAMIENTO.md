@@ -1,3 +1,9 @@
+# DragonLab 0.16.1 · Dos trabajadores y origen de lanzamiento
+
+Un solo launcher puede dirigir dos cuentas de prueba mediante navegadores, pestañas y directorios de mediciones independientes. Usa «Partidas: 2» o `Entrenar-2-Sesiones.cmd`. Los eventos llevan procedencia y pasan primero al libro de su trabajador; el Lab compartido solo incorpora observaciones reales con identidad separada. Detener cancela ambos; Esc dentro de un juego cancela ese trabajador. Ver LAUNCHER-0.16.1.md.
+
+El origen del entrenador usa ahora la geometría nativa del cañón por bala, con posición, pendiente y orientación recientes. Se calcula de nuevo después de movimiento y ajuste de ángulo; los registros comparan origen planeado y observado. Las comprobaciones de fuerza, clima, colisiones y excavación se conservan. El perfil del segundo navegador usa una ruta absoluta comprobada para evitar el aviso de Chrome.
+
 # DragonLab 0.16.0 · Sesiones largas y excavación
 
 La opción predeterminada es ahora «24 h», con plazo real que incluye pausas y reconexiones. Los límites anteriores de 20/40 tiros, seis partidas y 15 minutos siguen disponibles como pruebas cortas. La sesión larga guarda bloques de evaluación separados y continúa; conserva contexto de validación, experiencia de armas, presupuestos de clima/excavación y la reserva del turno para evitar repetir cargas ambiguas.
