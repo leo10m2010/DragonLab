@@ -1,3 +1,7 @@
+# DragonLab 0.16.3 · Drag con fuerza confirmada
+
+El entrenador prefiere arrastrar dentro de su pestaña, con controles separados para cada cuenta. Comprueba espacio libre antes de empezar, lee la sensibilidad asignada al pulsar y espera movimiento nativo nuevo antes de aceptar la fuerza. Slice se conserva como respaldo previo a la carga; una tentativa iniciada no se repite. Se guardan método y duración de carga para comparar con los registros nuevos de Slice. Ver LAUNCHER-0.16.3.md.
+
 # DragonLab 0.16.2 · Disponibilidad, modalidades y clima
 
 SS se excluye mientras el juego lo muestra en recarga, incluso si queda seleccionado. La disponibilidad se vuelve a comprobar antes de cargar y el ángulo aprendido se guarda por modalidad. Se conservan las alternativas de bala 1/2 en el mismo turno y los mecanismos especiales no se certifican sin observaciones propias.

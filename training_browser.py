@@ -2,6 +2,7 @@
 import json,time,math,re
 from cdp import CDP
 from auto_fire import PowerReader
+from training_drag import prepare_drag,charge_drag
 from training_orientation import desired_look,raw_angle,up_increases_raw
 from training_aim import NoAim
 UI_JS=r"""(()=>{
@@ -110,13 +111,33 @@ class TrainingBrowser:
             if state.get(field)==value:return state
             if time.monotonic()>=until:break
             if cancel.wait(.02):raise RuntimeError('Selección cancelada')
-        raise UnavailableShot('El juego todavía no confirmó la modalidad' if field=='shot' else 'No se pudo confirmar Slice')
+        raise UnavailableShot('El juego todavía no confirmó la modalidad' if field=='shot' else 'No se pudo confirmar el modo de carga')
+    def prepare_charge(self,reader,serial,power,cancel):
+        geometry=prepare_drag(self.client,power)
+        method='drag' if geometry else 'space'
+        state=reader.read()
+        if state.get('mode')!=method:
+            self.click(self.guard(cancel)['controls'].get('slice_drag_button'),cancel)
+            self.confirm_setting(reader,serial,'mode',method,cancel)
+        # Toggling the mode may change the available DOM area. Fallback is
+        # permitted here only, before ledger reservation or any charge input.
+        if method=='drag':
+            geometry=prepare_drag(self.client,power)
+            if not geometry:
+                self.click(self.guard(cancel)['controls'].get('slice_drag_button'),cancel)
+                self.confirm_setting(reader,serial,'mode','space',cancel);method='space'
+        return method,geometry
+    def validate_charge(self,state,release,allow_released=False):
+        if state.get('over') or not allow_released and (state.get('turn')!=release['hero'] or state.get('turnNumber')!=release['turn_serial']):raise TurnExpired('Terminó el turno durante la carga')
+        if state.get('shot')!=release['shot'] or state.get('mode')!=release['method']:raise RuntimeError('Cambió la modalidad durante la carga')
+        current=next((p for p in state.get('players',[]) if p.get('id')==release['hero']),None)
+        if not current or state.get('moving') or math.hypot(current['x']-release['x'],current['y']-release['y'])>1 or any(current.get(k)!=release.get('pose',{}).get(k) for k in ('look','body')) or current.get('rawAngle')!=release.get('angle') or state.get('wind')!=release['wind'] or state.get('windAngle')!=release['windAngle']:raise RuntimeError('Cambió la posición, el ángulo o el viento durante la carga')
     def verify_release(self,reader,release,cancel):
-        """Last native check before reserving a turn or pressing Space."""
+        """Last native check before reserving a turn or starting either input."""
         ui=self.guard(cancel);self.require_shot_ready(ui,release['shot']);state=reader.read()
         if state.get('over') or state.get('turnNumber')!=release['turn_serial'] or state.get('turn')!=release['hero']:raise TurnExpired('Cambió el turno antes de cargar')
         player=next((p for p in state.get('players',[]) if p.get('id')==release['hero']),None)
-        if not player or state.get('busy') or state.get('moving') or state.get('shot')!=release['shot'] or state.get('mode')!='space':raise TurnNotReady('Los controles cambiaron; recalculando antes de cargar')
+        if not player or state.get('busy') or state.get('moving') or state.get('shot')!=release['shot'] or state.get('mode')!=release.get('method','space'):raise TurnNotReady('Los controles cambiaron; recalculando antes de cargar')
         if math.hypot(player['x']-release['x'],player['y']-release['y'])>1 or any(player.get(k)!=release.get('pose',{}).get(k) for k in ('look','body')) or player.get('rawAngle')!=release.get('angle') or state.get('wind')!=release.get('wind') or state.get('windAngle')!=release.get('windAngle'):raise TurnNotReady('Cambió la posición, el ángulo o el viento; recalculando')
         target=release.get('target_before')
         planned=(release.get('learner') or {}).get('target')
@@ -293,9 +314,6 @@ class TrainingBrowser:
                 point=ui['controls'].get(('btnShot1','btnShot2','btnShotSS')[target_shot])
                 if not point:raise UnavailableShot('Tiro no disponible; esperando recarga')
                 self.click(point,cancel);s=self.confirm_setting(reader,serial,'shot',target_shot,cancel)
-            # Slice has a readable live bar and does not move the user's pointer.
-            if s.get('mode')!='space':
-                self.click(self.guard(cancel)['controls'].get('slice_drag_button'),cancel);s=self.confirm_setting(reader,serial,'mode','space',cancel)
             lab=None;independent=None;planned_angle=probe['angle'];movement=None
             if autonomous:
                 state=self.sample();hero=next(p for p in state['players'] if str(p['id'])==str(state['heroId']))
@@ -374,24 +392,32 @@ class TrainingBrowser:
             selected=self.guard(cancel).get('selectedItems') or []
             if selected and not wants_dual:raise NoAim('Hay un ítem activo fuera del plan',reason='active-item')
             if wants_dual and self.select_dual(reader,serial,cancel):release['item']='dual';dual_selected_here=not selected
+            release['method'],drag_geometry=self.prepare_charge(reader,serial,probe['power'],cancel)
+            release['requested_power']=probe['power']
             self.verify_release(reader,release,cancel)
             self.prepared_plan=independent
             if before_fire:before_fire()
-            held='space';self.key('space',True);charge_started=True;start=time.monotonic();charging=False
-            while time.monotonic()-start<4:
-                self.guard(cancel);s=reader.read()
-                if s.get('turn')!=hero_id or s.get('turnNumber')!=serial or s.get('over'):raise TurnExpired('Terminó el turno durante la carga')
-                if s.get('shot')!=target_shot:raise RuntimeError('Cambió la modalidad durante la carga')
-                current=next((p for p in s.get('players',[]) if p.get('id')==hero_id),None)
-                if not current or s.get('moving') or math.hypot(current['x']-release['x'],current['y']-release['y'])>1 or s.get('wind')!=release['wind'] or s.get('windAngle')!=release['windAngle']:raise RuntimeError('Cambió la posición o el viento durante la carga')
-                if s.get('busy'):charging=True
-                elif charging:raise RuntimeError('La carga terminó antes de tiempo')
-                power=s.get('power')
-                if charging and isinstance(power,(int,float)) and power>=probe['power']-1:
-                    release['power']=power;break
-                time.sleep(.01)
-            else:raise RuntimeError('La barra no confirmó la fuerza')
-            self.key('space',False);held=None
+            def started():
+                nonlocal charge_started
+                charge_started=True
+            if release['method']=='drag':
+                result=charge_drag(self.client,reader,drag_geometry,probe['power'],cancel,self.guard,lambda state,**kw:self.validate_charge(state,release,**kw),started)
+                release['power']=result['power'];release['drag']={k:v for k,v in result.items() if k not in ('power','method','charge_ms')}
+                release['timing']['charge_ms']=result['charge_ms']
+            else:
+                held='space';started();start=time.monotonic();self.key('space',True);charging=False
+                while time.monotonic()-start<4:
+                    self.guard(cancel);s=reader.read();self.validate_charge(s,release)
+                    if s.get('busy'):charging=True
+                    elif charging:raise RuntimeError('La carga terminó antes de tiempo')
+                    power=s.get('power')
+                    if charging and isinstance(power,(int,float)) and math.isfinite(power) and power>=probe['power']-1:
+                        release['power']=power;break
+                    time.sleep(.01)
+                else:raise RuntimeError('La barra no confirmó la fuerza')
+                self.key('space',False);held=None
+                release['timing']['charge_ms']=round((time.monotonic()-start)*1000,2)
+            release['timing']['input_method']=release['method']
             # Capture observed starts while their own-shooter attribution is fresh.
             self.client.terrain_clock=time.monotonic()
             until=time.monotonic()+1.2;observed=None
