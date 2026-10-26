@@ -18,9 +18,12 @@ class TrainingController:
         self.learner=None;self.cancel=session.cancel;self.rolling=None
         self.input_recovery={};session.input_recovery=self.input_recovery
         self.watchdog_token=None;self.watchdog_at=None
+        self.opponents=None;self.opponents_disabled=False;self.opponent_snapshot_at=0
         if session.autonomous:
             from autonomous_learning import AutonomousLearner
             self.learner=AutonomousLearner(session.book_path.parent/'aprendizaje-autonomo.json',session.book_path);session.learner=self.learner
+            from opponent_learning import OpponentLearner
+            self.opponents=OpponentLearner(session.book_path.parent/'aprendizaje-rivales.json')
         self.trial=None;self.battle=None
         if session.objective in ('evaluation','adaptive'):
             if not self.learner:raise ValueError('La evaluación requiere aprendizaje autónomo')
@@ -56,7 +59,7 @@ class TrainingController:
                         except RuntimeError as error:
                             if s.continuous and str(error)=='La página seleccionada no está abierta en el navegador de depuración':raise ConnectionError(str(error)) from error
                             raise
-                        browser.recovery_state=self.recovery_state;browser.input_recovery=self.input_recovery;browser.background=s.background;browser.arm(focus=first and not s.background);first=False
+                        browser.recovery_state=self.recovery_state;browser.input_recovery=self.input_recovery;browser.opponent_observer=None if self.opponents_disabled else self.opponents;browser.background=s.background;browser.arm(focus=first and not s.background);first=False
                         if retries:s.last_error=''
                         s.publish('Conexión recuperada' if retries else 'Entrenando en Avatar Off')
                     if self.cycle(browser) is False:break
@@ -95,6 +98,7 @@ class TrainingController:
                 self.sync_report()
             except Exception as error:s.last_error=s.last_error or 'No se pudo guardar el cierre de la sesión: '+str(error)
             finally:
+                self.finish_opponents()
                 self.power.close()
                 if browser:
                     try:browser.close()
@@ -108,6 +112,21 @@ class TrainingController:
     def sync_report(self):
         if self.rolling:
             self.s.report=self.rolling.report();self.rolling.save()
+    def observe_opponents(self,state,browser=None):
+        if not self.opponents or self.opponents_disabled:return
+        try:
+            self.opponents.observe(state,self.learner.episode)
+            if time.monotonic()-self.opponent_snapshot_at>=1 or state.get('over'):
+                self.s.opponent_progress=self.opponents.summary();self.opponent_snapshot_at=time.monotonic()
+        except Exception:
+            # This optional observer may not interrupt control or inject evidence
+            # into the physical learner if its own data cannot be processed.
+            self.opponents_disabled=True;self.s.opponent_error='Observación del rival pausada; revisa sus datos'
+            if browser is not None:browser.opponent_observer=None
+    def finish_opponents(self):
+        if not self.opponents:return
+        try:self.opponents.end();self.s.opponent_progress=self.opponents.summary()
+        except Exception:self.s.opponent_error='No se pudo guardar la observación del rival'
     def suspend_watchdog(self):self.watchdog_token=None;self.watchdog_at=None
     def watch_native_progress(self,token):
         """Reconnect the pinned CDP only; never reload/leave a waiting game.
@@ -131,6 +150,7 @@ class TrainingController:
             if ui.get('game'):
                 state=browser.sample()
                 if self.learner:self.learner.track(state)
+                self.observe_opponents(state,browser)
                 self.battle.observe(state)
                 for item in list(self.battle.pending):
                     if time.monotonic()>=item['expires']:self.battle.complete(item)
@@ -196,6 +216,7 @@ class TrainingController:
             if self.in_game and not lobby_visible(ui):
                 s.heartbeat('waiting-game');s.publish('Esperando que reaparezca el juego; se conserva el turno reservado');self.cancel.wait(.2);return
             if self.battle:self.battle.end()
+            if self.in_game:self.finish_opponents()
             if self.learner:self.learner.pending.clear()
             if self.in_game:self.failures=0
             self.in_game=False
@@ -217,6 +238,7 @@ class TrainingController:
             s.publish('Esperando el lobby o la siguiente partida');self.cancel.wait(.5);return
         if not self.in_game and self.learner:self.learner.episode=str(time.time_ns())
         self.in_game=True;self.queue_at=0;state=browser.sample();key=turn_key(state,ui['url']);browser.recovery_key=key
+        self.observe_opponents(state,browser)
         self.watch_native_progress(('game',ui['url'],state.get('turnSerial'),state.get('activePlayer'),state.get('heroId'),state.get('over'),state.get('wind'),state.get('windAngle'),tuple((p.get('id'),p.get('x'),p.get('y'),p.get('dead')) for p in state.get('players',[])[:32])))
         if self.learner:self.learner.track(state)
         if self.battle:self.battle.observe(state)

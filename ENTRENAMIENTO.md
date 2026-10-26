@@ -1,3 +1,7 @@
+# DragonLab 0.16.5 · Rival y movimiento adaptable
+
+Observa turnos y posiciones rivales, separa tiros orientativos por turno/origen de metadatos confirmados y nunca usa esos datos para calibrar la fuerza propia. El panel muestra patrones y calidad de evidencia. La caminata compara direcciones y distancias, afina la solución más corta y se detiene según la posición real, el tiempo y el suelo. El presupuesto reservado sobrevive a una reconexión. Ver LAUNCHER-0.16.5.md y APRENDIZAJE-RIVAL-0.16.5.md; las observaciones orientativas no prueban daño ni activan el comparador de exposición.
+
 # DragonLab 0.16.4 · Recuperación y comprobaciones que avanzan
 
 Un fallo conocido de carga conserva el mismo controlador y la reserva del turno. Drag pasa temporalmente a Espacio en turnos posteriores; no se repite la carga ambigua. Se vigila el progreso nativo, se muestran las sesiones activas y se procesan avisos antes del cambio de bloque. El entrenamiento rota carros compatibles después de tres selecciones y sigue proponiendo ángulos calculados variados hasta completar comprobaciones propias. Ver LAUNCHER-0.16.4.md y REVISION-CONTINUIDAD-0.16.4.md. Una simulación de 24 horas no certifica esa duración en vivo ni garantiza victorias.

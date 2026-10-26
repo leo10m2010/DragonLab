@@ -136,7 +136,9 @@ class TrainingGroup:
             if isinstance(health.get('status_write_error'),bool):safe['status_write_error']=health['status_write_error']
             stalled=bool(session.running and safe.get('heartbeat_age_seconds',0)>=30)
             if stalled and not self.cancel.is_set():state='stalled'
-            rows.append({'id':slot['id'],'state':state,'active':bool(session.running),'shots':session.shots,'matches':session.matches,'remaining_seconds':round(session.time_remaining()),'block':(session.report or {}).get('block'),'error':bool(session.last_error),'error_count':len(session.errors),'health':safe})
+            observed=getattr(session,'opponent_progress',{})
+            opponent_counts={k:v for k,v in observed.items() if k in ('opponent_turns','opponent_shots','opponent_inferred_shots','position_samples','known_health_windows','profiles','risk_ready_contexts') and isinstance(v,int) and not isinstance(v,bool) and v>=0}
+            rows.append({'id':slot['id'],'state':state,'active':bool(session.running),'shots':session.shots,'matches':session.matches,'remaining_seconds':round(session.time_remaining()),'block':(session.report or {}).get('block'),'error':bool(session.last_error),'error_count':len(session.errors),'health':safe,'opponents':opponent_counts})
         active=sum(row['active'] for row in rows)
         status='stopping' if self.cancel.is_set() else 'partial' if 0<active<len(rows) else 'stalled' if any(row['state']=='stalled' for row in rows) else 'attention' if any(row['health'].get('status_write_error') for row in rows) else 'running' if active else 'error' if any(row['error'] for row in rows) else 'finished' if self._started else 'prepared'
         return {'schema':1,'group_run_id':self.group_run_id,'active':self.running,'active_sessions':active,'expected_sessions':len(rows),'health_status':status,'continuous':self.continuous,'stopping':self.cancel.is_set(),'shots':self.shots,'matches':self.matches,'sessions':rows,'updated':time.time()}

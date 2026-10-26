@@ -18,6 +18,7 @@ class TrainingSession:
         self.phase='prepared';self.heartbeat_at=None;self.last_progress_at=None;self.last_progress_kind='';self.confirmed_shot_at=None
         self.input_recovery={};self.input_recoveries=0;self.input_recovery_counts={};self.input_recovery_streak=0;self.last_recovery_code='';self.reconnects=0;self.watchdog_reconnects=0
         self.status_write_error=''
+        self.opponent_progress={};self.opponent_error=''
     def start(self):
         if self.running:return
         self.cancel.clear();self.started_at=time.monotonic();self.started_wall=time.time();self.running=True;self.heartbeat('starting',progress='started');self.thread=threading.Thread(target=self.run,daemon=True);self.thread.start()
@@ -45,6 +46,7 @@ class TrainingSession:
         data={'active':self.running,'continuous':self.continuous,'autonomous':self.autonomous,'guided':bool(self.settings_provider) and not self.autonomous,'background':self.background,'objective':self.objective,'evaluation':self.trial.summary() if self.trial else None,'battle':self.battle.summary() if self.battle else None,'message':message,'shots':self.shots,'matches':self.matches,'limit_shots':None if self.continuous else self.max_shots,'duration_seconds':self.max_seconds,'remaining_seconds':round(self.time_remaining()),'expires_at':self.started_wall+self.max_seconds if self.started_wall is not None else None,'report':self.report,'last_error':self.last_error,'errors':self.errors[-64:],'movements':self.movements[-64:],'timing':self.last_timing,'progress':{**(self.learner.progress() if self.learner else {}),**self.lab_progress},'history':self.history[-120:],'updated':time.time()}
         data['stop_reason']=self.stop_reason
         data['health']=self.health()
+        data['opponents']={**self.opponent_progress,'observer_error':bool(self.opponent_error)}
         data.update(retirements=self.retirements,passed_turns=self.passed_turns,ui_actions=self.ui_actions[-128:])
         try:
             atomic_write(self.book_path.parent/'entrenamiento-estado.json',json.dumps(data,allow_nan=False).encode());self.status_write_error=''

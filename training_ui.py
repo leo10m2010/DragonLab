@@ -74,6 +74,9 @@ def open_training(app):
     trial_card=RoundedPanel(content,PANEL);trial_card.pack(fill='x',pady=(0,10))
     tk.Label(trial_card.body,text='Bloque actual · carros y modalidades con datos',bg=PANEL,fg=TEXT,font=('Bahnschrift',13,'bold')).pack(anchor='w',padx=16,pady=(8,4))
     result_label=tk.Label(trial_card.body,bg=PANEL,fg=GREEN,font=('Bahnschrift',11),justify='left',wraplength=520);result_label.pack(anchor='w',padx=16,pady=(0,10))
+    rival_card=RoundedPanel(content,PANEL);rival_card.pack(fill='x',pady=(0,10))
+    tk.Label(rival_card.body,text='Aprender del rival',bg=PANEL,fg=TEXT,font=('Bahnschrift',13,'bold')).pack(anchor='w',padx=16,pady=(8,4))
+    rival_label=tk.Label(rival_card.body,bg=PANEL,fg=MUTED,font=('Bahnschrift',10),justify='left',wraplength=520);rival_label.pack(anchor='w',padx=16,pady=(0,10))
     card=RoundedPanel(content,PANEL);card.pack(fill='x',pady=(0,10));body=card.body
     headline=tk.Label(body,text='Calibración de salida',bg=PANEL,fg=TEXT,font=('Bahnschrift',13,'bold'));headline.pack(anchor='w',padx=16,pady=(8,4))
     launch=tk.Label(body,bg=PANEL,fg=GREEN,font=('Bahnschrift',18,'bold'));launch.pack(anchor='w',padx=16)
@@ -126,6 +129,14 @@ def open_training(app):
         for control,state in [(start_button,'disabled' if running else 'normal'),(stop_button,'normal' if running else 'disabled'),(duration,'disabled' if running else 'readonly'),(mode_choice,'disabled' if running else 'readonly'),(instance_choice,'disabled' if running else 'readonly'),(view_choice,'readonly' if session and hasattr(session,'sessions') else 'disabled')]:
             if control.cget('state')!=state:control.config(state=state)
         if not session:result_label.config(text='La prueba separa calibración y evaluación.\nSolo considera dirigidos los tiros con una solución comprobada.')
+        observed=getattr(session,'opponent_progress',{}) if session else {}
+        observing_error=bool(getattr(session,'opponent_error','')) if session else False
+        applied=sum(m.get('selection')=='lower-observed-exposure' for m in getattr(session,'movements',[]) if isinstance(m,dict)) if session else 0
+        confidence='Observación pausada; revisa los datos' if observing_error else 'No se pudieron guardar las observaciones' if observed.get('storage_error') else 'Reuniendo evidencia para comparar posiciones' if not observed.get('risk_ready_contexts') else 'Hay posiciones con evidencia comparable'
+        patterns=observed.get('behavior_profiles') or {};pattern_name=max(patterns,key=lambda name:patterns[name].get('usable_position_samples',0),default=None)
+        pattern=patterns.get(pattern_name,{})
+        pattern_text=f"\n{pattern_name.title()}: {pattern.get('toward',0)} acercamientos · {pattern.get('away',0)} alejamientos · {pattern.get('stationary',0)} sin desplazamiento apreciable" if pattern_name else ''
+        rival_label.config(text=f"{observed.get('opponent_turns',0)} turnos · {observed.get('opponent_shots',0)} tiros registrados ({observed.get('opponent_inferred_shots',0)} orientativos)\n{observed.get('position_samples',0)} posiciones · {observed.get('known_health_windows',0)} ventanas de vida comprobables{pattern_text}\n{confidence} · {applied} decisiones de posición con evidencia")
         if session:
             trial=session.trial.summary() if session.trial else None
             detail=f" · Calibración {trial['calibration_shots']}/{trial['exploration_budget']} · Dirigidos {trial['directed_test_shots']} · Omitidos {trial['skipped_turns']}" if trial else f' · {session.shots} tiros'

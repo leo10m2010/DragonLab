@@ -196,21 +196,42 @@ class TrainingBrowser:
         return {'before':initial,'after':last,'requested':requested,'reached':abs(last-requested)<=1,'limited':stalled}
     def walk(self,reader,plan,cancel,expected_serial=None):
         state=reader.read();hero_id=state['hero'];serial=state.get('turnNumber')
-        if expected_serial is not None and serial!=expected_serial:raise RuntimeError('Cambió el turno antes de caminar')
+        if expected_serial is not None and serial!=expected_serial:raise TurnExpired('Cambió el turno antes de caminar')
+        distance=plan.get('distance');direction=plan.get('direction');side=1 if direction=='right' else -1
+        if direction not in ('left','right') or not isinstance(distance,(int,float)) or isinstance(distance,bool) or not math.isfinite(distance) or not 1<=distance<=72:raise NoAim('Paso sin distancia segura',reason='unsafe-ground')
         p=next(p for p in state['players'] if p['id']==hero_id);origin=(p['x'],p['y']);last=p['x'];changed=time.monotonic();start=changed
-        if state.get('turn')!=hero_id or state.get('busy') or state.get('over'):raise RuntimeError('No se puede caminar fuera de un turno disponible')
+        if not all(isinstance(v,(int,float)) and math.isfinite(v) for v in origin):raise NoAim('No se confirmó la posición para caminar',reason='unsafe-ground')
+        if state.get('turn')!=hero_id or state.get('busy') or state.get('moving') or state.get('over'):raise TurnNotReady('No se puede caminar fuera de un turno disponible')
+        if not hasattr(self,'walk_speeds'):self.walk_speeds={}
+        speed_key=(getattr(self,'movement_mobile',None),round((p.get('body') or 0)/15))
+        speed=self.walk_speeds.get(speed_key,24)
+        available=self.seconds_left()-6.5
+        if available<.15:raise TurnExpired('Se conserva el tiempo para confirmar el tiro')
+        duration=min(1.5,max(.25,distance/speed+.12),available);stop='time-budget';interval=max(.008,min(.012,distance/600))
         try:
-            self.guard(cancel);self.key(plan['direction'],True)
-            while time.monotonic()-start<.65:
-                if cancel.wait(.025):raise RuntimeError('Movimiento detenido')
+            self.guard(cancel);self.key(direction,True)
+            while time.monotonic()-start<duration and self.seconds_left()>6.5:
+                if cancel.wait(interval):raise RuntimeError('Movimiento detenido')
                 self.guard(cancel);state=reader.read()
                 if state.get('turn')!=hero_id or state.get('turnNumber')!=serial or state.get('over'):raise TurnExpired('Cambió el turno al caminar')
                 p=next(p for p in state['players'] if p['id']==hero_id)
-                if p['y']-origin[1]>plan.get('max_drop',14):break
+                if p['y']-origin[1]>plan.get('max_drop',14):stop='drop-limit';break
+                if side*(p['x']-last)<-1 or side*(p['x']-origin[0])<-1:stop='external-motion';break
                 if p['x']!=last:last=p['x'];changed=time.monotonic()
-                if abs(p['x']-origin[0])>=plan['distance'] or time.monotonic()-changed>.25:break
-        finally:self.key(plan['direction'],False)
-        return {'from':list(origin),'to':[p['x'],p['y']],'direction':plan['direction']}
+                travelled=max(0,side*(p['x']-origin[0]));elapsed=max(.001,time.monotonic()-start)
+                measured=travelled/elapsed
+                if travelled>2 and measured>300:stop='external-motion';break
+                if travelled>=2 and 2<=measured<=300:speed=measured
+                remaining=distance-travelled
+                if remaining<=max(.6,min(2,speed*.012)):stop='distance-reached';break
+                if time.monotonic()-changed>.3:stop='movement-stalled';break
+                interval=max(.008,min(.035,remaining/max(speed,1)/3))
+        finally:self.key(direction,False)
+        elapsed=max(.001,time.monotonic()-start);travelled=abs(p['x']-origin[0])
+        if travelled>=2 and stop not in ('movement-stalled','drop-limit','external-motion'):
+            measured=travelled/elapsed
+            if 2<=measured<=300:self.walk_speeds[speed_key]=measured
+        return {'from':list(origin),'to':[p['x'],p['y']],'direction':direction,'requested_distance':distance,'actual_distance':round(travelled,2),'duration_ms':round(elapsed*1000,2),'stop':stop}
     def orient(self,reader,right,serial,cancel):
         state=reader.read();hero=next(p for p in state['players'] if p['id']==state['hero'])
         desired=desired_look(hero,right)
@@ -233,10 +254,12 @@ class TrainingBrowser:
         from training_aim import NoAim
         from training_movement import choose_reposition
         movements=[];avoid=None;event=None
+        self.movement_mobile=probe.get('mobile')
         recovery=getattr(self,'recovery_state',None)
         if not isinstance(recovery,dict):recovery={};self.recovery_state=recovery
         key=getattr(self,'recovery_key',serial)
-        if recovery.get('key')!=key:recovery.clear();recovery.update(key=key,steps=0,visited=[])
+        if recovery.get('key')!=key:recovery.clear();recovery.update(key=key,steps=0,visited=[],distance_used=0)
+        recovery.setdefault('distance_used',0)
         self.movement_turn=serial;self.turn_steps=recovery['steps'];self.visited_positions=recovery['visited']
         if not hasattr(self,'movement_events'):self.movement_events=[]
         for attempt in range(3):
@@ -264,7 +287,18 @@ class TrainingBrowser:
                     except NoAim:return False
                 escape=(error.recovery or {}).get('weather_escape_x') if isinstance(error.recovery,dict) else None
                 walk_target=escape if error.reason=='unknown-weather' and isinstance(escape,(int,float)) and math.isfinite(escape) else target_x
-                step=choose_reposition(state,walk_target,error.reason,avoid=avoid,evaluate=evaluate,visited=self.visited_positions)
+                observer=getattr(self,'opponent_observer',None)
+                native_hero=next((p for p in state.get('players',[]) if str(p.get('id'))==str(state.get('heroId'))),{})
+                matching=[p for p in state.get('players',[]) if str(p.get('id'))!=str(state.get('heroId')) and not p.get('dead') and isinstance(p.get('x'),(int,float)) and abs(p['x']-target_x)<=1 and (native_hero.get('team') is None or p.get('team')!=native_hero['team'])]
+                def position_risk(point):
+                    if not observer or len(matching)!=1:return None
+                    try:return observer.risk_for_position(state,point,target_id=matching[0]['id'])
+                    except Exception:return None
+                seconds=self.seconds_left()
+                if seconds<8:raise NoAim('Se conserva el tiempo restante para otra modalidad',reason='recovery-time-budget')
+                remaining_distance=max(0,72-recovery['distance_used'])
+                budget=min(remaining_distance,max(0,(seconds-7)*8))
+                step=choose_reposition(state,walk_target,error.reason,avoid=avoid,evaluate=evaluate,visited=self.visited_positions,position_risk=position_risk if observer else None,movement_budget=budget,time_left=seconds)
                 if not step:
                     recover=getattr(autonomous,'excavate',None);candidate=recover(state,player,probe,error) if callable(recover) else None
                     if isinstance(candidate,dict):return candidate,({'steps':movements,'from':movements[0]['from'],'to':movements[-1]['to']} if movements else None)
@@ -276,9 +310,15 @@ class TrainingBrowser:
                 if self.seconds_left()<8:raise NoAim('Se conserva el tiempo restante para otra modalidad',reason='recovery-time-budget')
                 self.turn_steps+=1;recovery['steps']=self.turn_steps
                 self.visited_positions.append([player['x'],player['y']])
+                requested=step.get('distance',0)
+                reserved=requested if isinstance(requested,(int,float)) and math.isfinite(requested) and requested>0 else 0
+                recovery['distance_used']+=reserved
                 movement=self.walk(reader,step,cancel,expected_serial=serial);movements.append(movement)
+                recovery['distance_used']=max(0,recovery['distance_used']-reserved+abs(movement['to'][0]-movement['from'][0]))
                 event={'selection':step.get('selection'),'turn':serial,'from':movement['from'],'to':movement['to'],'direction':movement['direction'],'trajectory_found':None,'reason':'awaiting-replan'}
+                if step.get('opponent_evidence'):event['opponent_evidence']=step['opponent_evidence']
                 self.movement_events.append(event);self.movement_events=self.movement_events[-64:]
+                if movement.get('stop') in ('drop-limit','external-motion'):raise NoAim('Cambió el apoyo o la posición del carro; se detiene el movimiento',reason='unsafe-ground')
                 if abs(movement['to'][0]-movement['from'][0])<.5:avoid=step['direction']
                 self.orient(reader,target_x>=movement['to'][0],serial,cancel)
         raise NoAim('No se encontró un ángulo tras dos pasos')
