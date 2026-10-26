@@ -3,6 +3,7 @@ import json,time,math,re
 from cdp import CDP
 from auto_fire import PowerReader
 from training_drag import prepare_drag,charge_drag
+from training_input import RecoverableInputError
 from training_orientation import desired_look,raw_angle,up_increases_raw
 from training_aim import NoAim
 UI_JS=r"""(()=>{
@@ -113,7 +114,8 @@ class TrainingBrowser:
             if cancel.wait(.02):raise RuntimeError('Selección cancelada')
         raise UnavailableShot('El juego todavía no confirmó la modalidad' if field=='shot' else 'No se pudo confirmar el modo de carga')
     def prepare_charge(self,reader,serial,power,cancel):
-        geometry=prepare_drag(self.client,power)
+        recovery=getattr(self,'input_recovery',{})
+        geometry=prepare_drag(self.client,power) if time.monotonic()>=recovery.get('drag_disabled_until',0) else None
         method='drag' if geometry else 'space'
         state=reader.read()
         if state.get('mode')!=method:
@@ -129,9 +131,9 @@ class TrainingBrowser:
         return method,geometry
     def validate_charge(self,state,release,allow_released=False):
         if state.get('over') or not allow_released and (state.get('turn')!=release['hero'] or state.get('turnNumber')!=release['turn_serial']):raise TurnExpired('Terminó el turno durante la carga')
-        if state.get('shot')!=release['shot'] or state.get('mode')!=release['method']:raise RuntimeError('Cambió la modalidad durante la carga')
+        if state.get('shot')!=release['shot'] or state.get('mode')!=release['method']:raise RecoverableInputError('Cambió la modalidad durante la carga',method=release['method'],code='input-state-changed')
         current=next((p for p in state.get('players',[]) if p.get('id')==release['hero']),None)
-        if not current or state.get('moving') or math.hypot(current['x']-release['x'],current['y']-release['y'])>1 or any(current.get(k)!=release.get('pose',{}).get(k) for k in ('look','body')) or current.get('rawAngle')!=release.get('angle') or state.get('wind')!=release['wind'] or state.get('windAngle')!=release['windAngle']:raise RuntimeError('Cambió la posición, el ángulo o el viento durante la carga')
+        if not current or state.get('moving') or math.hypot(current['x']-release['x'],current['y']-release['y'])>1 or any(current.get(k)!=release.get('pose',{}).get(k) for k in ('look','body')) or current.get('rawAngle')!=release.get('angle') or state.get('wind')!=release['wind'] or state.get('windAngle')!=release['windAngle']:raise RecoverableInputError('Cambió la posición, el ángulo o el viento durante la carga',method=release['method'],code='input-state-changed')
     def verify_release(self,reader,release,cancel):
         """Last native check before reserving a turn or starting either input."""
         ui=self.guard(cancel);self.require_shot_ready(ui,release['shot']);state=reader.read()
@@ -409,12 +411,12 @@ class TrainingBrowser:
                 while time.monotonic()-start<4:
                     self.guard(cancel);s=reader.read();self.validate_charge(s,release)
                     if s.get('busy'):charging=True
-                    elif charging:raise RuntimeError('La carga terminó antes de tiempo')
+                    elif charging:raise RecoverableInputError('La carga terminó antes de tiempo',method='space',code='space-ended-early')
                     power=s.get('power')
                     if charging and isinstance(power,(int,float)) and math.isfinite(power) and power>=probe['power']-1:
                         release['power']=power;break
                     time.sleep(.01)
-                else:raise RuntimeError('La barra no confirmó la fuerza')
+                else:raise RecoverableInputError('La barra no confirmó la fuerza',method='space',code='space-power-timeout')
                 self.key('space',False);held=None
                 release['timing']['charge_ms']=round((time.monotonic()-start)*1000,2)
             release['timing']['input_method']=release['method']

@@ -89,7 +89,7 @@ class GroupTests(unittest.TestCase):
             group=self.make(Path(folder));group.sessions[0].last_error='Failed first';group.sessions[1].running=True
             group.sessions[0].shots=3;group.sessions[1].shots=5;group.sessions[0].matches=2;group.sessions[1].matches=4
             self.assertTrue(group.running);self.assertEqual((group.shots,group.matches),(8,6))
-            self.assertEqual(capture_status(SimpleNamespace(training_session=group))[0],'Entrenando')
+            self.assertEqual(capture_status(SimpleNamespace(training_session=group))[0],'Entrenamiento parcial')
             self.assertIn('Sesión 2',group.status)
     def test_selecting_a_worker_changes_inspection_without_switching_or_stopping_control(self):
         with tempfile.TemporaryDirectory() as folder:

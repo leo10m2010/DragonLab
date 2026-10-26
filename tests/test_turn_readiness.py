@@ -62,8 +62,9 @@ class EvidenceDomainTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             learner=self.learner();learner.records={'dragonbound:ARMOR:0':{'model':{'scale':2}}};trial=AdaptiveTrial(Path(folder)/'report.json',learner);profile=trial.profile('ARMOR',0);profile.episode='game'
             profile.warmups=1;probe=trial.probe('ARMOR',{'wind':0,'windAngle':0},[0])
-            self.assertFalse(probe['prefer_current_angle']);self.assertEqual(probe['angle'],70)
-            profile.warmups=2;self.assertTrue(trial.probe('ARMOR',{'wind':0,'windAngle':0},[0])['prefer_current_angle'])
+            self.assertFalse(probe['prefer_current_angle']);self.assertEqual(probe['angle'],75)
+            profile.warmups=2;next_probe=trial.probe('ARMOR',{'wind':0,'windAngle':0},[0])
+            self.assertFalse(next_probe['prefer_current_angle']);self.assertNotEqual(next_probe['angle'],probe['angle'])
     def test_full_native_path_counts_weather_at_launch_impact_and_column_edge(self):
         for x,size in ((5,2),(139,2),(-2,8)):
             with tempfile.TemporaryDirectory() as folder:

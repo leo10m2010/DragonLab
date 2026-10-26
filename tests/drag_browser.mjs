@@ -3,6 +3,7 @@ import {createServer} from 'node:net';
 import {spawn} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
 
 const server=createServer();
 await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
@@ -75,5 +76,14 @@ try{
  }
  assert.deepEqual(await other.evaluate(()=>window.inputs),[]);
  assert.equal(await other.evaluate(()=>document.hasFocus()),true);
+ const dragSource=await fs.readFile(new URL('../training_drag.py',import.meta.url),'utf8');
+ const geometry=dragSource.match(/DRAG_GEOMETRY_JS=r"""([\s\S]*?)"""/)[1];
+ const manualSource=await fs.readFile(new URL('../auto_fire.py',import.meta.url),'utf8');
+ const manualPoint=manualSource.match(/DRAG_POINT = r"""([\s\S]*?)"""/)[1];
+ for(const overlay of ['<div id="gameChatHtml"></div>','<div id="gameChat"><div class="scrollbar"></div></div>','<div id="howtoplay"></div>']){
+  await first.setContent('<style>html,body{margin:0}#gameScreen{position:relative;width:1000px;height:600px}#gameChatHtml,#gameChat .scrollbar,#howtoplay{position:absolute;inset:0;background:#123}</style><div id="gameScreen">'+overlay+'</div>');
+  assert.equal(await first.evaluate(geometry),null,'Native-ignored chat/help region must not start trainer Drag');
+  assert.equal(await first.evaluate(manualPoint),null,'Manual Q must also avoid native-ignored regions');
+ }
  console.log('PASS: concurrent trusted Drag stays on each pinned target, waits for native power and releases at its final point; active tab remains untouched.');
 }finally{await browser.close()}

@@ -8,7 +8,7 @@ DRAG_POINT = r"""(()=>{
  const r=game.getBoundingClientRect();
  for(const fy of [.28,.12,.42]){
   const x=r.left+16,y=r.top+Math.min(r.height*.75,516)*fy,hit=document.elementFromPoint(x,y);
-  if(hit&&game.contains(hit)&&!hit.closest('#gameui,#touch_ui,button,input,textarea,select,a,[role="button"]'))return [x,y];
+  if(hit&&game.contains(hit)&&!hit.closest('#gameui,#touch_ui,#gameChatHtml,#gameChat .scrollbar,#howtoplay,button,input,textarea,select,a,[role="button"]'))return [x,y];
  }return null;
 })()"""
 

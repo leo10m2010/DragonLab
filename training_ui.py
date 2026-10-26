@@ -6,10 +6,12 @@ from rounded_controls import RoundedChoice
 from ui_shell import BG,PANEL,TEXT,MUTED,GREEN
 
 def session_caption(session):
-    if not session.continuous:return ''
+    workers=getattr(session,'sessions',None)
+    count=f' · {sum(bool(w.running) for w in workers)}/{len(workers)} sesiones activas' if isinstance(workers,(list,tuple)) and workers else ''
+    if not session.continuous:return count
     remaining=round(session.time_remaining());hours,seconds=divmod(remaining,3600)
     block=getattr(session,'report',{}).get('block',1)
-    return f' · Quedan {hours:02d}:{seconds//60:02d} · Bloque {block} · {session.shots} tiros en total'
+    return count+f' · Quedan {hours:02d}:{seconds//60:02d} · Bloque {block} · {session.shots} tiros en total'
 
 
 def settings_provider(app):

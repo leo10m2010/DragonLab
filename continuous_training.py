@@ -51,6 +51,7 @@ class RollingEvaluation:
         self.completed_blocks+=1;self.latest.append({'block':self.block,'summary':summary});self.latest=self.latest[-24:]
         self.block+=1;self.current=self.create()
         self.current.focus_mobile=previous.focus_mobile;self.current.focus_modes=dict(previous.focus_modes)
+        self.current.focus_stint_start=previous.focus_stint_start;self.current.focus_selections=previous.focus_selections
         for key,profile in previous.profiles.items():
             continued=self.current.profile(profile.mobile,profile.shot)
             for field in ('episode','warmups','frozen','context_candidate','baseline','prior','prior_training_ids','seen_episodes','phase','episode_calibration_count','directed_test_count'):

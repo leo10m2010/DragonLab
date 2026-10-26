@@ -1,3 +1,7 @@
+# DragonLab 0.16.4 · Recuperación y comprobaciones que avanzan
+
+Un fallo conocido de carga conserva el mismo controlador y la reserva del turno. Drag pasa temporalmente a Espacio en turnos posteriores; no se repite la carga ambigua. Se vigila el progreso nativo, se muestran las sesiones activas y se procesan avisos antes del cambio de bloque. El entrenamiento rota carros compatibles después de tres selecciones y sigue proponiendo ángulos calculados variados hasta completar comprobaciones propias. Ver LAUNCHER-0.16.4.md y REVISION-CONTINUIDAD-0.16.4.md. Una simulación de 24 horas no certifica esa duración en vivo ni garantiza victorias.
+
 # DragonLab 0.16.3 · Drag con fuerza confirmada
 
 El entrenador prefiere arrastrar dentro de su pestaña, con controles separados para cada cuenta. Comprueba espacio libre antes de empezar, lee la sensibilidad asignada al pulsar y espera movimiento nativo nuevo antes de aceptar la fuerza. Slice se conserva como respaldo previo a la carga; una tentativa iniciada no se repite. Se guardan método y duración de carga para comparar con los registros nuevos de Slice. Ver LAUNCHER-0.16.3.md.

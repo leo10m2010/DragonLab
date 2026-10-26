@@ -40,11 +40,12 @@ class AdaptiveTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             l=learner();l.records={};a=AdaptiveTrial(Path(tmp)/'report.json',l)
             with self.assertRaises(NoAim):a.probe('ARMOR',{'wind':0,'windAngle':0},[0,1,2])
-    def test_vehicle_selection_keeps_one_supported_car_for_the_session(self):
+    def test_vehicle_selection_keeps_a_supported_car_for_three_selections(self):
         with tempfile.TemporaryDirectory() as tmp:
             a=AdaptiveTrial(Path(tmp)/'report.json',learner());options=[{'id':0,'name':'Armor'},{'id':1,'name':'Ice'},{'id':2,'name':'Trico'}]
             self.assertEqual(a.choose_mobile(options,{'ARMOR':2})['name'],'Armor')
-            self.assertEqual(a.choose_mobile(options,{'ARMOR':5})['name'],'Armor')
+            self.assertEqual(a.choose_mobile(options,{'ARMOR':4})['name'],'Armor')
+            self.assertEqual(a.choose_mobile(options,{'ARMOR':5})['name'],'Ice')
     def test_rejected_modes_do_not_inflate_skipped_turns(self):
         with tempfile.TemporaryDirectory() as tmp:
             a=AdaptiveTrial(Path(tmp)/'report.json',learner());a.skip(NoAim('blocked'));a.skip(NoAim('climate'))

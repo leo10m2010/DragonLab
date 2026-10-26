@@ -7,6 +7,8 @@ from calibration_book import mobile_name
 from local_storage import atomic_write
 from weapon_policy import enemy_for,comparable,damage_evidence,dual_decision
 
+MAX_VEHICLE_STINT=3
+
 def experience_rows(*groups):
     """Retain policy evidence across report blocks without counting it twice."""
     rows=[];seen=set()
@@ -21,7 +23,7 @@ def experience_rows(*groups):
 class AdaptiveTrial:
     def __init__(self,path,learner,max_shots=40,allow_dual=False):
         self.path=Path(path);self.learner=learner;self.max_shots=max_shots;self.allow_dual=allow_dual;self.dual_rows=[];self.recovery_rows=[];self.reserved_recoveries=[];self.weather_rows=[];self.experience_weather_rows=[];self.experience_recovery_rows=[];self.experience_reserved_recoveries=[];self.profiles={};self.selected=None;self.attempts=[];self.omitted_turns=[];self.omitted_count=0;self.finished=False;self.focus_mobile=None;self.focus_modes={};self.last_excavation_reason=None
-        self.reserved_count=0
+        self.reserved_count=0;self.focus_stint_start=0;self.focus_selections=0
     def profile(self,mobile,shot):
         key=f'dragonbound:{mobile}:{shot}'
         if key not in self.profiles:self.profiles[key]=EvaluationTrial(self.path.parent/f'evaluacion-{mobile}-{shot}.json',self.learner,self.max_shots,mobile,shot)
@@ -33,10 +35,20 @@ class AdaptiveTrial:
     def choose_mobile(self,options,attempted):
         choices=[o for o in options if mobile_name(o.get('name')) and o.get('name')!='Random' and any(self.supported(mobile_name(o['name']),s) for s in range(3))]
         focused=next((o for o in choices if mobile_name(o['name'])==self.focus_mobile),None)
-        if focused:return focused
+        used=max(0,attempted.get(self.focus_mobile,0)-self.focus_stint_start)
+        if focused and (used<MAX_VEHICLE_STINT or len(choices)==1):
+            self.focus_selections=used+1;return focused
         priority={'ARMOR':0,'ICE':1,'MAGE':2}
-        chosen=min(choices,key=lambda o:(priority.get(mobile_name(o['name']),3),attempted.get(mobile_name(o['name']),0),-sum(self.supported(mobile_name(o['name']),s) for s in (0,1)),o.get('id',999))) if choices else None
-        if chosen:self.focus_mobile=mobile_name(chosen['name'])
+        # Begin with the established ordinary profile. After a bounded stint,
+        # cover the least-used supported vehicle instead of pinning Armor for
+        # the entire day. No unsupported weapon receives an invented model.
+        pool=[o for o in choices if mobile_name(o['name'])!=self.focus_mobile] if focused else choices
+        def rank(option):
+            name=mobile_name(option['name']);count=attempted.get(name,0);order=priority.get(name,3)
+            return (count,order,-sum(self.supported(name,s) for s in (0,1)),option.get('id',999)) if self.focus_mobile else (order,count,-sum(self.supported(name,s) for s in (0,1)),option.get('id',999))
+        chosen=min(pool,key=rank) if pool else None
+        if chosen:
+            self.focus_mobile=mobile_name(chosen['name']);self.focus_stint_start=attempted.get(self.focus_mobile,0);self.focus_selections=1
         return chosen
     def probe(self,mobile,state,available):
         self.selected=None
@@ -52,21 +64,29 @@ class AdaptiveTrial:
         from battle_metrics import health
         target=enemy_for(state)
         remaining=health(target) if target else None
+        mode_models={}
         def score(shot):
             trial=self.profile(mobile,shot);trial.reset_episode();record=self.learner.records.get(trial.key,{})
             model,_=self.learner.applicable_model(record,state['wind'],state['windAngle'])
+            mode_models[shot]=model
             rows=comparable(experience_rows(getattr(trial,'experience_tests',[]),getattr(trial,'experience_calibration',[]),trial.tests,trial.calibration),self.learner.episode,state,target)
             damage=damage_evidence(rows)
             effective=min(damage,remaining) if remaining is not None else damage
             finishing=remaining is not None and damage>0 and damage>=remaining
             focus=0 if not trial.frozen and 0<trial.warmups<6 else 1
-            return (0 if model else 1,0 if finishing else 1,shot==2 if finishing else False,-effective,0 if shot==focus_mode else 1,focus,len(trial.calibration)+len(trial.tests),len(trial.skips),shot)
+            # Finish independent checks for an ordinary shot already measured
+            # in this match before scattering scarce turns into SS research.
+            progressing=shot in (0,1) and not trial.frozen and 0<trial.warmups<trial.calibration_limit
+            return (0 if model else 1,0 if finishing else 1,shot==2 if finishing else False,0 if progressing else 1,-effective,0 if shot==focus_mode else 1,focus,len(trial.calibration)+len(trial.tests),len(trial.skips),shot)
         shot=min(ready,key=score);trial=self.profile(mobile,shot);self.selected=trial
         # A few directed alternate arcs provide a real spread of forces.
         # They still require a clear calculated path; no arbitrary charge.
-        alternate=not trial.frozen and trial.warmups in (1,3,5)
-        angle=(70 if trial.warmups in (1,5) else 40) if alternate else 55
-        return {**trial.probe(),'angle':angle,'adaptive':True,'prefer_current_angle':not alternate}
+        diversify=not trial.frozen and not mode_models[shot]
+        # Force is still solved from the measured hypothesis and checked for
+        # terrain/weather. Continue proposing varied arcs until native checks
+        # succeed; the old 1,3,5-only schedule stopped after six warmups.
+        angle=(55,75,35,65,25,70,40)[trial.warmups%7] if diversify else 55
+        return {**trial.probe(),'angle':angle,'adaptive':True,'prefer_current_angle':not diversify,'calibration_objective':'varied-native-checks' if diversify else None}
     def plan(self,state,player,probe,actual=False,previous=None):
         trial=self.profile(probe['mobile'],probe['shot']);self.selected=trial
         try:result=trial.plan(state,player,probe,actual,previous)
@@ -203,11 +223,18 @@ class AdaptiveTrial:
     def turn_recovered(self,key):
         if key in self.omitted_turns:self.omitted_turns.remove(key);self.omitted_count=max(0,self.omitted_count-1)
     def done(self):return sum(len(t.calibration)+len(t.tests) for t in self.profiles.values())+len(self.dual_rows)+len(self.recovery_rows)+len(self.weather_rows)>=self.max_shots
+    def curriculum_progress(self):
+        profiles={}
+        for key,trial in self.profiles.items():
+            rows=[s for s in self.learner.records.get(key,{}).get('samples',[]) if s.get('episode')==self.learner.episode and s.get('simple')]
+            powers=[s['power'] for s in rows if isinstance(s.get('power'),(int,float))]
+            profiles[key]={'current_match_native_samples':len(rows),'current_match_power_span':max(powers)-min(powers) if powers else 0,'checked_for_current_match':trial.episode==self.learner.episode and trial.frozen is not None,'aimed_checks_total':max(trial.directed_test_count,len(experience_rows(getattr(trial,'experience_tests',[]),trial.tests)))}
+        return {'vehicle_selection_limit':MAX_VEHICLE_STINT,'focus_selections':self.focus_selections,'profiles':profiles}
     def summary(self):
         reports={k:t.summary() for k,t in self.profiles.items()};tests=[row for t in self.profiles.values() for row in t.tests];errors=[row['path_error_px'] for row in tests if row['path_error_px'] is not None]
         known=[row for row in tests if row['health_window_known']];damaged=[row for row in known if (row['enemy_health_drop'] or 0)>0]
         reasons={code:sum(a['code']==code for a in self.attempts) for code in sorted({a['code'] for a in self.attempts})}
-        return {'status':'complete' if self.finished else 'running','approved':False,'adaptive':True,'focus_mobile':self.focus_mobile,'focus_modes':dict(self.focus_modes),'calibration_shots':sum(len(t.calibration) for t in self.profiles.values()),'directed_test_shots':len(tests),'skipped_turns':self.omitted_count,'rejected_modes':len(self.attempts),'skip_reasons':reasons,'near_target_shots':sum(e<=20 for e in errors),'near_target_rate':round(sum(e<=20 for e in errors)*100/len(errors),1) if errors else None,'median_path_error_px':round(statistics.median(errors),2) if errors else None,'known_health_windows':len(known),'health_drop_windows':len(damaged),'exploration_budget':sum(t.calibration_limit for t in self.profiles.values()),'minimum_directed_tests':10,'prediction_improvement_proven':False,'full_autonomy_proven':False,'profiles':reports,'weather_practice_shots':len(self.weather_rows),'dual_uses':len(self.dual_rows),'terrain_attempts':len(self.recovery_rows),'terrain_reserved_attempts':self.reserved_count,'terrain_openings_observed':sum(r['terrain_opened'] is True for r in self.recovery_rows)}
+        return {'status':'complete' if self.finished else 'running','approved':False,'adaptive':True,'focus_mobile':self.focus_mobile,'focus_modes':dict(self.focus_modes),'calibration_shots':sum(len(t.calibration) for t in self.profiles.values()),'directed_test_shots':len(tests),'skipped_turns':self.omitted_count,'rejected_modes':len(self.attempts),'skip_reasons':reasons,'near_target_shots':sum(e<=20 for e in errors),'near_target_rate':round(sum(e<=20 for e in errors)*100/len(errors),1) if errors else None,'median_path_error_px':round(statistics.median(errors),2) if errors else None,'known_health_windows':len(known),'health_drop_windows':len(damaged),'exploration_budget':sum(t.calibration_limit for t in self.profiles.values()),'minimum_directed_tests':10,'prediction_improvement_proven':False,'full_autonomy_proven':False,'profiles':reports,'weather_practice_shots':len(self.weather_rows),'dual_uses':len(self.dual_rows),'terrain_attempts':len(self.recovery_rows),'terrain_reserved_attempts':self.reserved_count,'terrain_openings_observed':sum(r['terrain_opened'] is True for r in self.recovery_rows),'curriculum':self.curriculum_progress()}
     def save(self):atomic_write(self.path,json.dumps({'schema':1,'summary':self.summary(),'attempts':self.attempts,'dual_observations':self.dual_rows,'terrain_recovery':self.recovery_rows,'reserved_terrain_actions':self.reserved_recoveries,'weather_practice':self.weather_rows},allow_nan=False).encode())
     def finish(self):
         self.finished=True

@@ -6,6 +6,7 @@ from training_turns import TurnLedger,turn_key
 from training_browser import TrainingBrowser,FocusPause,UnavailableShot,TurnExpired,UnconfirmedShot,TurnNotReady
 from training_aim import NoAim
 from training_memory import ActionMemory
+from training_input import RecoverableInputError
 
 def lobby_visible(ui):
     controls=ui.get('controls') or {}
@@ -15,6 +16,8 @@ class TrainingController:
     def __init__(self,session):
         self.s=session;self.ledger=TurnLedger();self.current=None;self.geometry=None;self.blocked=set();self.selected=False;self.queue_at=0;self.failures=0;self.in_game=False;self.power=None;self.loading_since=None;self.recovery_state={};self.retirement_until=None
         self.learner=None;self.cancel=session.cancel;self.rolling=None
+        self.input_recovery={};session.input_recovery=self.input_recovery
+        self.watchdog_token=None;self.watchdog_at=None
         if session.autonomous:
             from autonomous_learning import AutonomousLearner
             self.learner=AutonomousLearner(session.book_path.parent/'aprendizaje-autonomo.json',session.book_path);session.learner=self.learner
@@ -48,11 +51,12 @@ class TrainingController:
             while self.within_limits(started):
                 try:
                     if browser is None:
+                        s.heartbeat('connecting')
                         try:browser=TrainingBrowser(s.endpoint,s.target)
                         except RuntimeError as error:
                             if s.continuous and str(error)=='La página seleccionada no está abierta en el navegador de depuración':raise ConnectionError(str(error)) from error
                             raise
-                        browser.recovery_state=self.recovery_state;browser.background=s.background;browser.arm(focus=first and not s.background);first=False
+                        browser.recovery_state=self.recovery_state;browser.input_recovery=self.input_recovery;browser.background=s.background;browser.arm(focus=first and not s.background);first=False
                         if retries:s.last_error=''
                         s.publish('Conexión recuperada' if retries else 'Entrenando en Avatar Off')
                     if self.cycle(browser) is False:break
@@ -60,6 +64,8 @@ class TrainingController:
                 except FocusPause as error:
                     if not s.continuous and not s.background:raise
                     self.power.hold(False)
+                    self.suspend_watchdog()
+                    s.heartbeat('paused')
                     s.publish(str(error));self.cancel.wait(.5)
                 except (OSError,ConnectionError,TimeoutError,RuntimeError) as error:
                     if isinstance(error,RuntimeError) and not (s.continuous and transient_browser_error(error)):raise
@@ -70,10 +76,12 @@ class TrainingController:
                         try:browser.close()
                         except Exception:pass
                     browser=None;retries+=1
+                    s.reconnects+=1;s.heartbeat('reconnecting')
                     s.publish('Reconectando el navegador; no se repite un tiro de este turno')
                     self.cancel.wait(min(15,2**min(retries,4)))
         except Exception as error:s.last_error=str(error)
         finally:
+            s.heartbeat('finishing')
             try:
                 if self.battle:
                     if browser and not self.cancel.is_set():
@@ -95,14 +103,30 @@ class TrainingController:
             expired=time.monotonic()-started>=s.max_seconds
             if expired and s.last_error=='Entrenamiento detenido':s.last_error=''
             s.stop_reason='deadline' if expired else s.stop_reason or ('error' if s.last_error else 'cancelled' if self.cancel.is_set() else 'limits')
+            s.heartbeat('error' if s.last_error else 'finished')
             s.publish('Entrenamiento detenido: '+s.last_error if s.last_error else 'Tiempo de sesión completado; progreso guardado' if expired else 'Sesión detenida por solicitud; progreso guardado' if self.cancel.is_set() else ('Evaluación finalizada: '+self.trial.summary()['status'] if self.trial else 'Sesión finalizada; progreso guardado'))
     def sync_report(self):
         if self.rolling:
             self.s.report=self.rolling.report();self.rolling.save()
+    def suspend_watchdog(self):self.watchdog_token=None;self.watchdog_at=None
+    def watch_native_progress(self,token):
+        """Reconnect the pinned CDP only; never reload/leave a waiting game.
+
+        A stable native view for two minutes may be a long queue rather than a
+        fault. A bounded connection refresh is safe in either case and retains
+        every turn reservation, model and in-flight evaluation in this object.
+        """
+        now=time.monotonic()
+        if token!=self.watchdog_token or self.watchdog_at is None:
+            self.watchdog_token=token;self.watchdog_at=now;return
+        if now-self.watchdog_at<120:return
+        self.watchdog_at=now;self.s.watchdog_reconnects+=1;self.s.heartbeat('reconnecting')
+        raise ConnectionError('El estado nativo no cambió durante dos minutos; se revisará la conexión sin salir de la partida')
     def next_block(self,browser,ui):
         """No next charge until the old block's health callbacks have settled."""
         if self.in_game and not ui.get('game') and not lobby_visible(ui):
-            self.s.publish('Esperando que reaparezca el juego; se conserva el turno reservado');self.cancel.wait(.2);return False
+            self.watch_native_progress(('block-wait-game',ui.get('url')))
+            self.s.heartbeat('waiting-game');self.s.publish('Esperando que reaparezca el juego; se conserva el turno reservado');self.cancel.wait(.2);return False
         if self.battle:
             if ui.get('game'):
                 state=browser.sample()
@@ -117,19 +141,20 @@ class TrainingController:
         if self.battle:self.battle.callback=self.trial.health_result
         self.sync_report();self.s.publish(f'Aprendizaje continuo · bloque {self.rolling.block}');return True
     def cycle(self,browser):
-        s=self.s;ui=browser.guard(self.cancel)
+        s=self.s;s.heartbeat();ui=browser.guard(self.cancel)
         self.drain_actions(browser)
-        if self.trial and self.trial.done():
-            if not self.rolling:return False
-            if not self.next_block(browser,ui):return
         if self.power:self.power.hold(True)
         if ui.get('loading'):
+            self.suspend_watchdog()
+            s.heartbeat('loading')
             if self.loading_since is None:self.loading_since=time.monotonic()
             if time.monotonic()-self.loading_since>60 and not s.continuous:raise RuntimeError('La carga del perfil lleva más de un minuto; revisa la conexión del juego')
             s.publish('Esperando que el juego termine de cargar el perfil');self.cancel.wait(.5);return
         self.loading_since=None
         retired=ui.get('retirement')
         if isinstance(retired,dict):
+            self.suspend_watchdog()
+            s.heartbeat('retirement')
             now=time.monotonic();seconds=retired.get('seconds',60)
             if self.retirement_until is None:
                 self.retirement_until=now+max(0,min(3600,seconds))+.3
@@ -138,23 +163,38 @@ class TrainingController:
             browser.retirement_until=self.retirement_until
             if now<self.retirement_until:
                 s.publish(f'El juego registró una retirada · esperando {math.ceil(self.retirement_until-now)} s antes de continuar');self.cancel.wait(min(1,self.retirement_until-now));return
-            browser.click(retired.get('point'),self.cancel);self.retirement_until=None;self.cancel.wait(.3);return
+            browser.click(retired.get('point'),self.cancel);self.retirement_until=None;s.heartbeat('lobby',progress='retirement-cleared');self.cancel.wait(.3);return
         self.retirement_until=None
         if (ui.get('notice') or {}).get('kind')=='gift-received':
             browser.click(ui['notice']['point'],self.cancel);self.cancel.wait(.3);return
         if ui.get('blocked'):
+            self.suspend_watchdog()
+            s.heartbeat('blocked')
             if not s.continuous:raise RuntimeError('Hay un aviso del juego. Ciérralo antes de volver a empezar')
             if self.power:self.power.hold(False)
             s.publish('En pausa: cierra el aviso del juego para continuar');self.cancel.wait(1);return
         if ui.get('away'):
+            self.suspend_watchdog()
             browser.click(ui['away'],self.cancel);self.cancel.wait(.3);return
         if ui.get('serverEntry'):
+            self.suspend_watchdog()
+            s.heartbeat('entering-server',progress='server-selected')
             browser.click(ui['serverEntry'],self.cancel);s.publish('Entrando a Avatar Off');self.cancel.wait(.7);return
         if ui.get('url')=='https://dragonbound.net/':
+            self.suspend_watchdog()
+            s.heartbeat('login')
             s.publish('Esperando que cargue DragonBound y su sesión');self.cancel.wait(.5);return
+        # Modal/retirement/loading controls must still work when a block has
+        # finished. Waiting for vanished game DOM before them can deadlock the
+        # rollover and leave a known notice covering the lobby indefinitely.
+        if self.trial and self.trial.done():
+            if not self.rolling:return False
+            if not self.next_block(browser,ui):return
         if not ui.get('game'):
+            s.heartbeat('lobby')
+            self.watch_native_progress(('lobby',ui.get('url'),bool(lobby_visible(ui)),tuple((o.get('id'),bool(o.get('selected'))) for o in ui.get('options',[])),tuple(bool(ui.get('controls',{}).get(k)) for k in ('buttonStart1v1','lobbyButtonMobile'))))
             if self.in_game and not lobby_visible(ui):
-                s.publish('Esperando que reaparezca el juego; se conserva el turno reservado');self.cancel.wait(.2);return
+                s.heartbeat('waiting-game');s.publish('Esperando que reaparezca el juego; se conserva el turno reservado');self.cancel.wait(.2);return
             if self.battle:self.battle.end()
             if self.learner:self.learner.pending.clear()
             if self.in_game:self.failures=0
@@ -164,22 +204,28 @@ class TrainingController:
                 option=self.trial.choose_mobile(ui['options'],s.mobile_attempts) if s.objective=='adaptive' else next((o for o in ui['options'] if mobile_name(o.get('name'))=='ARMOR'),None) if self.trial else self.learner.choose_mobile(ui['options'],s.mobile_attempts) if self.learner else next_mobile(ui['options'],s.mobile_attempts)
                 if not option:raise RuntimeError('No hay carros identificables en el selector')
                 browser.click(option['point'],self.cancel);self.selected=True;name=mobile_name(option['name']);s.mobile_attempts[name]=s.mobile_attempts.get(name,0)+1
+                s.heartbeat('lobby',progress='mobile-selected')
                 s.publish('Carro elegido: '+name);self.cancel.wait(.4);return
             if ui['controls'].get('buttonStart1v1'):
-                if self.queue_at and time.monotonic()-self.queue_at<20:self.cancel.wait(.5);return
+                if self.queue_at and time.monotonic()-self.queue_at<20:s.heartbeat('queue');self.cancel.wait(.5);return
                 if not s.continuous and s.matches>=s.max_matches:return False
                 if not self.selected and ui['controls'].get('lobbyButtonMobile'):
                     browser.click(ui['controls']['lobbyButtonMobile'],self.cancel);self.cancel.wait(.3);return
                 browser.click(ui['controls']['buttonStart1v1'],self.cancel);s.matches+=1;self.queue_at=time.monotonic();self.selected=False
+                s.heartbeat('queue',progress='queue-requested')
                 s.publish('Buscando partida 1v1');self.cancel.wait(1);return
             s.publish('Esperando el lobby o la siguiente partida');self.cancel.wait(.5);return
         if not self.in_game and self.learner:self.learner.episode=str(time.time_ns())
         self.in_game=True;self.queue_at=0;state=browser.sample();key=turn_key(state,ui['url']);browser.recovery_key=key
+        self.watch_native_progress(('game',ui['url'],state.get('turnSerial'),state.get('activePlayer'),state.get('heroId'),state.get('over'),state.get('wind'),state.get('windAngle'),tuple((p.get('id'),p.get('x'),p.get('y'),p.get('dead')) for p in state.get('players',[])[:32])))
         if self.learner:self.learner.track(state)
         if self.battle:self.battle.observe(state)
         if self.rolling:s.report=self.rolling.report()
-        if key!=self.current:self.current=key;self.blocked.clear()
+        if key!=self.current:
+            self.current=key;self.blocked.clear()
+            if key is not None:s.heartbeat('playing',progress='native-turn')
         if not self.ledger.available(key):
+            s.heartbeat('waiting-turn')
             s.publish('Esperando el próximo turno' if key in self.ledger.used else 'Esperando confirmar tu turno')
             self.cancel.wait(.10);return
         hero=next(p for p in state['players'] if str(p.get('id'))==str(state['heroId']))
@@ -195,7 +241,7 @@ class TrainingController:
                 if s.objective=='adaptive':self.trial.turn_skipped(key)
                 try:
                     if browser.pass_turn(key,self.cancel,lambda:self.ledger.consume(key)) is True:
-                        s.passed_turns=getattr(s,'passed_turns',0)+1;s.publish('Sin recorrido válido en las balas disponibles; turno pasado de forma explícita')
+                        s.passed_turns=getattr(s,'passed_turns',0)+1;s.heartbeat('waiting-turn',progress='turn-passed');s.publish('Sin recorrido válido en las balas disponibles; turno pasado de forma explícita')
                 except (TurnExpired,TurnNotReady):pass
             self.cancel.wait(.2);return
         if s.objective=='evaluation':
@@ -211,6 +257,7 @@ class TrainingController:
         if self.memory and s.shots%3==2:probe=self.memory.recommend(probe,state,available)
         stage='decidiendo con mediciones propias' if self.learner else 'calculando viento y recorrido'
         self.last_probe=probe
+        s.heartbeat('planning')
         s.publish(f"Turno {key[-1]} · {mobile} · tiro {('1','2','SS')[probe['shot']]} · {stage}")
         try:
             options={'settings_provider':None if self.learner else s.settings_provider,'before_fire':lambda:self.reserve_turn(browser,key)}
@@ -239,6 +286,8 @@ class TrainingController:
             if self.ledger.available(key):self.ledger.consume(key)
             self.failures=0;s.last_error='';self.record_error(key,str(error),'turn-ended' if isinstance(error,TurnExpired) else 'unconfirmed')
             s.publish(str(error)+'; continuará en el próximo turno')
+        except RecoverableInputError as error:
+            self.recover_input(key,error)
         except (FocusPause,OSError,ConnectionError,TimeoutError):raise
         except RuntimeError as error:
             if self.cancel.is_set():raise
@@ -260,6 +309,21 @@ class TrainingController:
             if isinstance(getattr(browser,'click_events',None),list) and browser.click_events:
                 s.ui_actions=getattr(s,'ui_actions',[])+browser.click_events;s.ui_actions=s.ui_actions[-128:];browser.click_events.clear()
         self.cancel.wait(.05)
+    def recover_input(self,key,error):
+        """Release already happened in the input owner; retain this controller.
+
+        In particular, do not create a fresh ledger after an ambiguous press.
+        The fallback applies only to a later, not-yet-reserved native turn.
+        """
+        s=self.s
+        if self.ledger.available(key):self.ledger.consume(key)
+        method=error.method;now=time.monotonic()
+        if method=='drag':self.input_recovery['drag_disabled_until']=max(self.input_recovery.get('drag_disabled_until',0),now+180)
+        s.input_recoveries+=1;s.input_recovery_counts[method]=s.input_recovery_counts.get(method,0)+1
+        s.input_recovery_streak+=1;s.last_recovery_code=error.code;s.last_error='';self.failures=0
+        self.record_error(key,str(error),'input-recovery');s.heartbeat('input-recovery')
+        s.publish('Entrada liberada; este turno no se repite. Se usará Espacio en los próximos turnos' if method=='drag' else 'Entrada liberada; se recuperarán los controles en el próximo turno')
+        self.cancel.wait(min(2,.25*2**min(s.input_recovery_streak-1,3)))
     def reserve_turn(self,browser,key):
         self.ledger.consume(key)
         plan=getattr(browser,'prepared_plan',None)
@@ -275,7 +339,7 @@ class TrainingController:
         if isinstance(actions,list) and actions:
             self.s.ui_actions=(getattr(self.s,'ui_actions',[])+actions)[-128:];actions.clear()
     def observe(self,probe,release,observation):
-        s=self.s;s.shots+=1
+        s=self.s;s.shots+=1;s.input_recovery_streak=0;s.heartbeat('playing',progress='shot-confirmed')
         if self.rolling:self.rolling.record(probe,release,observation)
         if s.objective=='adaptive' and self.trial:self.trial.turn_recovered(self.current)
         if self.learner and not release.get('item'):self.learner.observe(probe,release,observation)

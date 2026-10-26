@@ -130,8 +130,16 @@ class TrainingGroup:
         rows=[]
         for slot,session in zip(self.slots,self.sessions):
             state='stopping' if session.running and self.cancel.is_set() else 'active' if session.running else 'error' if session.last_error else 'finished' if self._started else 'prepared'
-            rows.append({'id':slot['id'],'state':state,'active':bool(session.running),'shots':session.shots,'matches':session.matches,'remaining_seconds':round(session.time_remaining()),'block':(session.report or {}).get('block'),'error':bool(session.last_error),'error_count':len(session.errors)})
-        return {'schema':1,'group_run_id':self.group_run_id,'active':self.running,'continuous':self.continuous,'stopping':self.cancel.is_set(),'shots':self.shots,'matches':self.matches,'sessions':rows,'updated':time.time()}
+            health_fn=getattr(session,'health',None);health=health_fn() if callable(health_fn) else {}
+            safe={k:v for k,v in health.items() if k in ('heartbeat_age_seconds','progress_age_seconds','shot_age_seconds','input_recoveries','drag_retry_after_seconds','reconnects','watchdog_reconnects') and isinstance(v,(int,float)) and not isinstance(v,bool) and math.isfinite(v) and v>=0}
+            if health.get('phase') in ('prepared','starting','connecting','running','waiting','paused','recovering','stopped','finished','loading','retirement','lobby','game','planning','shooting','queue','turn','error','reconnecting','finishing','blocked','entering-server','login','playing','waiting-turn','input-recovery','waiting-game'):safe['phase']=health['phase']
+            if isinstance(health.get('status_write_error'),bool):safe['status_write_error']=health['status_write_error']
+            stalled=bool(session.running and safe.get('heartbeat_age_seconds',0)>=30)
+            if stalled and not self.cancel.is_set():state='stalled'
+            rows.append({'id':slot['id'],'state':state,'active':bool(session.running),'shots':session.shots,'matches':session.matches,'remaining_seconds':round(session.time_remaining()),'block':(session.report or {}).get('block'),'error':bool(session.last_error),'error_count':len(session.errors),'health':safe})
+        active=sum(row['active'] for row in rows)
+        status='stopping' if self.cancel.is_set() else 'partial' if 0<active<len(rows) else 'stalled' if any(row['state']=='stalled' for row in rows) else 'attention' if any(row['health'].get('status_write_error') for row in rows) else 'running' if active else 'error' if any(row['error'] for row in rows) else 'finished' if self._started else 'prepared'
+        return {'schema':1,'group_run_id':self.group_run_id,'active':self.running,'active_sessions':active,'expected_sessions':len(rows),'health_status':status,'continuous':self.continuous,'stopping':self.cancel.is_set(),'shots':self.shots,'matches':self.matches,'sessions':rows,'updated':time.time()}
     def publish_overview(self):
         try:
             with self._write_lock:atomic_write(self.base/'entrenamiento-paralelo-estado.json',json.dumps(self.overview(),allow_nan=False).encode())

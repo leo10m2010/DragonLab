@@ -7,6 +7,11 @@ def capture_status(app):
     if session is not None:
         if session.running:
             stopping=bool(getattr(session,'cancel',None) and session.cancel.is_set())
+            workers=getattr(session,'sessions',None)
+            if not stopping and isinstance(workers,(list,tuple)) and len(workers)>1:
+                overview=session.overview();active=overview['active_sessions'];expected=overview['expected_sessions']
+                label='Entrenamiento parcial' if active<expected else 'Revisar entrenamiento' if overview.get('health_status') in ('stalled','attention') else 'Entrenando'
+                return label,f'{active} de {expected} sesiones activas · '+session.status+f' · {session.shots} tiros'
             return ('Deteniendo' if stopping else 'Entrenando'),('Soltando controles y guardando mediciones…' if stopping else session.status+f' · {session.shots} tiros')
         worker=getattr(app,'worker',None)
         if session.status!='Preparado' and not (worker and worker.is_alive()):return 'Entrenamiento detenido',session.status
