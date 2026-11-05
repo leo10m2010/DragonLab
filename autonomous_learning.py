@@ -309,13 +309,31 @@ class AutonomousLearner:
             record=self.records.setdefault(key,{'samples':[]})
             for shot in owned:record_variant(record,shot,release)
             self.save();return True
+        from shared_launch import armor_second,classify_prefix,add_prefix_sample
+        prefix_added=False;prefix_changed=False
+        if armor_second(probe.get('mobile'),release.get('shot')) and not release.get('item'):
+            parent=self.records.setdefault(key,{'samples':[]});observation=classify_prefix(probe,release,state,self.episode)
+            if observation['status']=='matched':prefix_added=add_prefix_sample(parent,observation['sample'],self.episode);prefix_changed=prefix_added
+            elif observation['status']=='inconclusive':
+                # A partial/late family is archived by the session, but cannot
+                # add either a prefix check or a misleading simple-shot fit.
+                return False
+            elif observation['status']=='conflict':
+                child=parent.get('launch_prefix')
+                if not isinstance(child,dict):child={'schema':1,'samples':[]};parent['launch_prefix']=child
+                prefix_changed=child.get('blocked_episode')!=self.episode or child.get('rejection')!=observation['reason']
+                child['blocked_episode']=self.episode;child['rejection']=observation['reason']
         sample={'id':identity(primary),'power':release['power'],'speed':start[3],'ax':start[4],'ay':start[5],'wind':release['wind'],'wind_angle':release['windAngle']}
-        if not all(isinstance(v,(int,float)) and math.isfinite(v) for k,v in sample.items() if k!='id') or not 1<=sample['power']<=400:return False
+        if not all(isinstance(v,(int,float)) and math.isfinite(v) for k,v in sample.items() if k!='id') or not 1<=sample['power']<=400:
+            if prefix_changed:self.save()
+            return prefix_changed
         sample['episode']=self.episode;sample['duration_s']=primary.get('duration',0)/1000;sample['simple']=len(owned)==1 and not any(primary.get(k) for k in ('change','wave','orbit','path','jumps'))
         sample['heading']=start[2];sample['raw_angle']=release.get('angle');sample['pose']=release.get('pose')
         existing=self.records.get(key,{})
         tested_error=error(existing['model'],sample) if existing.get('model') and not existing.get('drift') else None
-        if not self.add(key,sample):return False
+        if not self.add(key,sample):
+            if prefix_changed:self.save()
+            return prefix_changed
         if tested_error is not None and math.isfinite(tested_error):self.records[key]['model_tests']=(self.records[key].get('model_tests',[])+[{'id':sample['id'],'error':tested_error}])[-96:]
         record=self.records[key]
         planned=release.get('learner') or {}
@@ -453,7 +471,7 @@ class AutonomousLearner:
             last=local[-1];projection=flight_error(model,last)
             if abs(last['wind']-wind)<=1 and (wind==0 or abs((last['wind_angle']-wind_angle+180)%360-180)<=5) and error(model,last)<=5 and projection is not None and projection<=12:return model,'apuntar con modelo propio'
         return None,'condiciones sin comprobar'
-    def plan(self,state,player,probe,actual=False,previous=None,model_override=None,calibration_only=False):
+    def plan(self,state,player,probe,actual=False,previous=None,model_override=None,calibration_only=False,record_override=None):
         hero=next(p for p in state['players'] if str(p['id'])==str(state['heroId']))
         # PowerReader confirms the final pose after turning or walking. The
         # serialized sample also supplies the per-shot native muzzle definitions.
@@ -462,6 +480,10 @@ class AutonomousLearner:
         if not others:raise RuntimeError('Sin objetivo vivo')
         target=min(others,key=lambda p:math.hypot(p['x']-hero['x'],p['y']-hero['y']))
         key=f"dragonbound:{probe['mobile']}:{probe['shot']}";record=self.records.get(key,{})
+        if record_override is not None:
+            if probe.get('mobile')!='ARMOR' or probe.get('shot')!=1 or not isinstance(record_override,dict) or record_override.get('prefix_only') is not True:raise ValueError('El registro alternativo solo admite el lanzamiento compartido de Armor 2')
+            record=record_override
+        prefix_only=record.get('prefix_only') is True;prefix_limited=False
         model,model_source=(model_override,'evaluación con modelo congelado') if model_override is not None else (None,'calibración controlada') if calibration_only else self.applicable_model(record,state['wind'],state['windAngle'])
         look=player['look'];body=player.get('body',0);right=target['x']>=hero['x']
         low,high=player['minAngle'],player['maxAngle']
@@ -488,7 +510,12 @@ class AutonomousLearner:
             if model and not record.get('multi_projectile'):
                 solved=self.solve_observed(model,origin,target_xy,world,state['wind'],state['windAngle'],details=True)
                 if solved is not None:
-                    power,duration=solved;path=predicted_path(model,origin,world,power,state['wind'],state['windAngle'],duration)
+                    power,duration=solved
+                    horizon=record.get('prefix_horizon_s',0)
+                    if prefix_only and (not isinstance(horizon,(int,float)) or not math.isfinite(horizon) or duration>horizon):prefix_limited=True;continue
+                    prefix_powers=record.get('prefix_power_range')
+                    if prefix_only and prefix_powers is not None and (not isinstance(prefix_powers,(list,tuple)) or len(prefix_powers)!=2 or not all(isinstance(v,(int,float)) and not isinstance(v,bool) and math.isfinite(v) for v in prefix_powers) or not prefix_powers[0]<=power<=prefix_powers[1]):prefix_limited=True;continue
+                    path=predicted_path(model,origin,world,power,state['wind'],state['windAngle'],duration)
                     hit=next((i for i,p in enumerate(path[1:],1) if occupied(state.get('terrain'),*p) and math.dist(p,target_xy)>20),None)
                     reachable_path=path[:hit+1] if hit is not None else path
                     xmin=min(p[0] for p in reachable_path);xmax=max(p[0] for p in reachable_path)
@@ -503,11 +530,15 @@ class AutonomousLearner:
                         weather_probes.append({**geometry,'power':power,'raw_angle':raw,'heading':world,'elevation':world if right else 180-world,'target':list(target_xy),'weather_crossings':crossed})
                         continue
                     result={**geometry,'power':power,'raw_angle':raw,'heading':world,'elevation':world if right else 180-world,'target':list(target_xy),'stage':model_source,'model_samples':len(record.get('samples',[])),'approximate':True}
+                    if prefix_only:result.update(prefix_only=True,scope='shared-launch-prefix',full_family_validated=False,prefix_horizon_s=horizon,prefix_power_range=prefix_powers)
                     self.latest_plan=result;return result
         raw=candidates[0];world=heading(raw,body,look)
         recent=record.get('cases',[])[-1:];needs_move=blocked or bool(recent and recent[0].get('ends') and all(math.dist(e,(hero['x'],hero['y']))<60 for e in recent[0]['ends']))
         escape=near_weather_escape(hero,origin,weather_probes) if unsupported_weather else {}
         result={**geometry,**escape,'power':previous['power'] if actual and previous else probe['power'],'raw_angle':raw,'heading':world,'elevation':world if right else 180-world,'target':list(target_xy),'stage':'calibración controlada' if calibration_only else 'medir clima/patrón' if weather or record.get('multi_projectile') else 'comprobar modelo propio' if record.get('candidate') else 'explorar fuerzas y ángulos','model_samples':len(record.get('samples',[])),'approximate':True,'needs_move':needs_move,'unavailable_reason':'missing-model' if not model else 'unsupported-pattern' if record.get('multi_projectile') else 'unknown-weather' if unsupported_weather else 'terrain-blocked' if blocked else 'unmeasured-wind' if model.get('wind_scale') is None and state['wind'] else 'terrain-blocked' if blocked else 'angle-unavailable','blocked_plans':obstructions,'weather_probes':weather_probes,'reposition_allowed':bool(model and not record.get('multi_projectile') and (blocked or not unsupported_weather or escape) and (model.get('wind_scale') is not None or not state['wind']))}
+        if prefix_only:
+            result.update(prefix_only=True,scope='shared-launch-prefix',full_family_validated=False)
+            if prefix_limited and not blocked and not unsupported_weather:result['unavailable_reason']='prefix-range-unchecked';result['reposition_allowed']=False
         self.latest_plan=result;return result
     def remembered(self,record,hero,target,state,player,probe,actual):
         def signature(weathers):return sorted(str(w.get('resolvedTypeId') if w.get('resolvedTypeId') is not None else w.get('typeId')) for w in weathers)

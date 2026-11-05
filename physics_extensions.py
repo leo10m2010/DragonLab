@@ -151,7 +151,11 @@ def variants(s):
         if mode==0:return offsets([(-2,0),(2,10),(-4,-10),(4,20)],scale)
         if mode==1:return offsets([(5,19),(0,3),(-5,-13)],scale)*2
         return offsets([(0,0),(4,10),(-2,-10),(6,20),(1,0),(3,10),(-1,-10),(5,20)],scale)
-    if s.mobile=='GRUB' and mode==1:return offsets([(4,10),(2,5),(0,0),(-2,-5)],1012)
+    if s.mobile=='GRUB' and mode==1:
+        # Launch-speed spread is independent of the calibrated power scale.
+        # Converting through a fixed reference scale changes the volley when
+        # a measured scale replaces the initial profile.
+        return [{'angleOffset':face*angle,'speedOffset':speed} for angle,speed in ((4,10),(2,5),(0,0),(-2,-5))]
     if s.mobile=='MAGE' and mode==1:return [{'wave':1},{'wave':2}]
     if s.mobile=='TURTLE' and mode==1:return [{'wave':3},{'wave':4}]
     if s.mobile=='TRICO' and mode==1:return [{},{'orbit':[0 if face>0 else 90,-150*face,.5,45]},{'orbit':[180 if face>0 else 270,-150*face,.5,45]}]

@@ -18,16 +18,25 @@ def comparable(rows,episode,state,enemy):
 
 
 def damage_evidence(rows):
-    values=[r['enemy_health_drop'] for r in rows if r.get('health_window_known') and isinstance(r.get('enemy_health_drop'),(int,float)) and math.isfinite(r['enemy_health_drop']) and r['enemy_health_drop']>=0]
+    values=[r['enemy_health_drop'] for r in rows if r.get('health_window_known') and isinstance(r.get('enemy_health_drop'),(int,float)) and not isinstance(r['enemy_health_drop'],bool) and math.isfinite(r['enemy_health_drop']) and r['enemy_health_drop']>=0]
     return statistics.mean(values) if len(values)>=3 else 0
 
 
-def dual_decision(rows,remaining,enabled,shot,phase):
+def dual_decision(rows,remaining,enabled,shot,phase,*,under_pressure=False,trajectory_verified=False,verified_check_count=0):
     if not enabled:return False,'DD desactivado'
-    if shot not in (0,1) or phase!='evaluation':return False,'DD requiere bala 1 o 2 con trayectoria comprobada'
-    errors=[r['path_error_px'] for r in rows if isinstance(r.get('path_error_px'),(int,float)) and math.isfinite(r['path_error_px'])]
-    if len(errors)<5 or sum(e<=20 for e in errors)/len(errors)<.8:return False,'DD reservado: falta precisión comprobada'
+    if not isinstance(shot,int) or isinstance(shot,bool) or shot not in (0,1) or phase!='evaluation':return False,'DD requiere bala 1 o 2 con trayectoria comprobada'
+    known_remaining=isinstance(remaining,(int,float)) and not isinstance(remaining,bool) and math.isfinite(remaining) and remaining>0
     damage=damage_evidence(rows)
+    if known_remaining and damage>0 and remaining<=damage:return False,'Tiro normal suficiente según las mediciones'
+    # A critical-life opportunity is distinct from a measured finishing claim.
+    # The caller must establish low native HP and future native flight checks;
+    # a catalog delay or damage range cannot satisfy either condition.
+    checked=isinstance(verified_check_count,int) and not isinstance(verified_check_count,bool) and verified_check_count>=3
+    if under_pressure is True and trajectory_verified is True and checked and known_remaining:
+        return True,'DD de refuerzo: vida propia crítica y trayectoria comprobada; no garantiza remate'
+    if not known_remaining:return False,'DD reservado: falta medir daño o vida'
+    errors=[r['path_error_px'] for r in rows if isinstance(r.get('path_error_px'),(int,float)) and not isinstance(r['path_error_px'],bool) and math.isfinite(r['path_error_px'])]
+    if len(errors)<5 or sum(e<=20 for e in errors)/len(errors)<.8:return False,'DD reservado: falta precisión comprobada'
     if damage<=0 or remaining is None:return False,'DD reservado: falta medir daño o vida'
     if remaining<=damage:return False,'Tiro normal suficiente según las mediciones'
     # A bounded opportunity to finish; this is a heuristic, not a damage guarantee.

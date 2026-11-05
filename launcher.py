@@ -347,6 +347,10 @@ class Launcher:
         for job in self.root.tk.splitlist(self.root.tk.call('after','info')):self.root.after_cancel(job)
         self.root.destroy()
 
+def demo_launch_requested(argv,executable,frozen):
+    # Windows launchers can normalize a path's case before starting the app.
+    return '--demo' in argv or bool(frozen and pathlib.PureWindowsPath(executable).stem.casefold()=='dragonlab-prueba')
+
 def main():
     if '--connection-check' in sys.argv:
         from training_diagnostics import connection_check
@@ -358,7 +362,7 @@ def main():
             instance.close();time.sleep(.05);instance=SingleInstance('DragonLab.Launcher')
             if instance.primary:break
     if instance and not instance.primary:restore_launcher();instance.close();return
-    root=tk.Tk();root.withdraw();app=Launcher(root,demo='--demo' in sys.argv or (getattr(sys,'frozen',False) and pathlib.Path(sys.executable).stem=='DragonLab-Prueba'))
+    root=tk.Tk();root.withdraw();app=Launcher(root,demo=demo_launch_requested(sys.argv,sys.executable,getattr(sys,'frozen',False)))
     if '--check' in sys.argv:
         if '--engine-check' in sys.argv and app.demo:app.get_engine()
         root.withdraw();root.after(600,app.close)

@@ -3,7 +3,7 @@ import copy,hashlib,json,math,os,re,time,uuid
 from pathlib import Path
 from local_storage import atomic_write
 
-TOTAL_FIELDS=('calibration_shots','directed_test_shots','skipped_turns','near_target_shots','known_health_windows','health_drop_windows','weather_practice_shots','dual_uses','terrain_attempts','terrain_reserved_attempts','terrain_openings_observed')
+TOTAL_FIELDS=('calibration_shots','directed_test_shots','full_shot_directed_tests','prefix_directed_test_shots','skipped_turns','near_target_shots','known_health_windows','health_drop_windows','weather_practice_shots','dual_uses','terrain_attempts','terrain_reserved_attempts','terrain_openings_observed')
 
 class ObservationArchiveError(RuntimeError):pass
 
@@ -54,7 +54,7 @@ class RollingEvaluation:
         self.current.focus_stint_start=previous.focus_stint_start;self.current.focus_selections=previous.focus_selections
         for key,profile in previous.profiles.items():
             continued=self.current.profile(profile.mobile,profile.shot)
-            for field in ('episode','warmups','frozen','context_candidate','baseline','prior','prior_training_ids','seen_episodes','phase','episode_calibration_count','directed_test_count'):
+            for field in ('episode','warmups','frozen','context_candidate','baseline','prior','prior_training_ids','seen_episodes','phase','episode_calibration_count','directed_test_count','prefix_only'):
                 setattr(continued,field,copy.deepcopy(getattr(profile,field)))
             continued.episode_calibration_count=max(continued.episode_calibration_count,sum(row.get('episode')==profile.episode for row in profile.calibration))
             continued.directed_test_count=max(continued.directed_test_count,len(profile.tests))
@@ -93,6 +93,8 @@ class RollingEvaluation:
         plan=release.get('learner') if isinstance(release.get('learner'),dict) else {}
         phase=plan.get('evaluation_phase');mode=probe.get('shot')
         row={'schema':1,'sequence':self.observations+1,'block':self.block,'episode':hashlib.sha256(str(self.learner.episode).encode()).hexdigest()[:24],'clone':'dragonbound','mobile':mobile_name(probe.get('mobile')),'shot':mode if mode in (0,1,2) and not isinstance(mode,bool) else None,'phase':phase if phase in ('calibration','evaluation','weather','recovery') else None,'item':'dual' if release.get('item')=='dual' else None,'created':finite_number(time.time()),'native':native,'weather':weather}
+        if plan.get('prefix_only') is True:
+            row.update(scope='shared-launch-prefix',full_family_validated=False,prefix_horizon_s=finite_number(plan.get('prefix_horizon_s')))
         row.update({key:finite_number(release.get(key)) for key in ('hero','x','y','power','angle','wind','windAngle','turn_serial')})
         origin=plan.get('origin')
         if isinstance(origin,(list,tuple)) and len(origin)==2 and all(finite_number(v) is not None for v in origin):

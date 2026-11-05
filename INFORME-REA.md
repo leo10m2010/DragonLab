@@ -1,5 +1,7 @@
 # Inspección de DragonboundGPT y reconstrucción DragonLab
 
+La comparación posterior con la instalación 0.1.21.0 está en [INFORME-REA-0.1.21.md](INFORME-REA-0.1.21.md), revisada el 4 de noviembre de 2026. Este documento conserva los hallazgos y límites de la referencia anterior.
+
 Fecha: 9 de octubre de 2026.
 
 ## Identidad observada
