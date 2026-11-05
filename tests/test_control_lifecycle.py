@@ -1,4 +1,4 @@
-import threading,unittest
+import threading,time,unittest
 from types import SimpleNamespace
 from unittest.mock import Mock,patch
 from control_lifecycle import cancel_actions,prepare_training,sync_control_mode
@@ -58,7 +58,7 @@ class LifecycleTests(unittest.TestCase):
             browser.guard.return_value={'loading':True,'blocked':True}
             controller.cycle(browser);browser.sample.assert_not_called()
             self.assertFalse(controller.ledger.used)
-            controller.loading_since=0
+            controller.loading_since=time.monotonic()-61
             with self.assertRaisesRegex(RuntimeError,'un minuto'):controller.cycle(browser)
             browser.guard.return_value={'blocked':True}
             with self.assertRaisesRegex(RuntimeError,'aviso del juego'):controller.cycle(browser)

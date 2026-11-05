@@ -1,7 +1,18 @@
 import os,unittest,tkinter as tk
+from unittest.mock import patch
 from trajectories import TrajectoryOverlay
 @unittest.skipUnless(os.name=='nt' or os.environ.get('DISPLAY'),'requires desktop')
 class HiddenEnemyOverlayTests(unittest.TestCase):
+    def setUp(self):
+        if os.name!='nt':
+            # Xvfb exercises the drawing assertions without a Windows-only
+            # color-key attribute. Windows runs retain the real attribute.
+            original=tk.Toplevel.wm_attributes
+            def attributes(window,*args):
+                if args and args[0]=='-transparentcolor':return None
+                return original(window,*args)
+            stub=patch.object(tk.Toplevel,'wm_attributes',attributes)
+            stub.start();self.addCleanup(stub.stop)
     def test_enemy_is_marked_without_a_reachable_path_and_below_view(self):
         root=tk.Tk();root.withdraw();overlay=TrajectoryOverlay(root)
         try:
