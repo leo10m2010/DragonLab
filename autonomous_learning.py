@@ -471,7 +471,7 @@ class AutonomousLearner:
             last=local[-1];projection=flight_error(model,last)
             if abs(last['wind']-wind)<=1 and (wind==0 or abs((last['wind_angle']-wind_angle+180)%360-180)<=5) and error(model,last)<=5 and projection is not None and projection<=12:return model,'apuntar con modelo propio'
         return None,'condiciones sin comprobar'
-    def plan(self,state,player,probe,actual=False,previous=None,model_override=None,calibration_only=False,record_override=None,calibration_search=False):
+    def plan(self,state,player,probe,actual=False,previous=None,model_override=None,calibration_only=False,record_override=None,calibration_search=False,candidate_selector=None,validation_limits=None):
         hero=next(p for p in state['players'] if str(p['id'])==str(state['heroId']))
         # PowerReader confirms the final pose after turning or walking. The
         # serialized sample also supplies the per-shot native muzzle definitions.
@@ -496,7 +496,11 @@ class AutonomousLearner:
             candidates=list(dict.fromkeys(candidates+list(range(math.ceil(low),math.floor(high)+1,4))+[high]))
         research=calibration_search is True and model_override is not None and not actual
         if research and len(candidates)>64:candidates=candidates[:63]+[candidates[-1]]
-        research_choices=[]
+        research_choices=[];evaluation_choices=[];window_limited=False
+        if validation_limits is not None:
+            bounds=validation_limits.get('power_range') if isinstance(validation_limits,dict) else None
+            horizon=validation_limits.get('max_flight_seconds') if isinstance(validation_limits,dict) else None
+            if not isinstance(bounds,(list,tuple)) or len(bounds)!=2 or not all(isinstance(v,(int,float)) and not isinstance(v,bool) and math.isfinite(v) for v in bounds) or not 1<=bounds[0]<=bounds[1]<=400 or not isinstance(horizon,(int,float)) or not math.isfinite(horizon) or not 0<horizon<=20:raise ValueError('Ventana de vuelo inválida')
         weather=state.get('weather') or []
         # Nearby repeated native outcomes can be reused without assuming the
         # weather or a multi-projectile pattern follows a ballistic formula.
@@ -514,6 +518,7 @@ class AutonomousLearner:
                 solved=self.solve_observed(model,origin,target_xy,world,state['wind'],state['windAngle'],details=True)
                 if solved is not None:
                     power,duration=solved
+                    if validation_limits is not None and (not bounds[0]<=power<=bounds[1] or duration>validation_limits['max_flight_seconds']):window_limited=True;continue
                     horizon=record.get('prefix_horizon_s',0)
                     if prefix_only and (not isinstance(horizon,(int,float)) or not math.isfinite(horizon) or duration>horizon):prefix_limited=True;continue
                     prefix_powers=record.get('prefix_power_range')
@@ -534,11 +539,26 @@ class AutonomousLearner:
                         continue
                     result={**geometry,'power':power,'raw_angle':raw,'heading':world,'elevation':world if right else 180-world,'target':list(target_xy),'stage':model_source,'model_samples':len(record.get('samples',[])),'approximate':True}
                     if prefix_only:result.update(prefix_only=True,scope='shared-launch-prefix',full_family_validated=False,prefix_horizon_s=horizon,prefix_power_range=prefix_powers)
+                    if validation_limits is not None:result['local_model_window']={'power_range':list(bounds),'max_flight_seconds':validation_limits['max_flight_seconds']}
                     if research:
                         research_choices.append(result);continue
                     if actual and isinstance(previous,dict) and isinstance(previous.get('calibration_design'),dict):
                         result['calibration_design']={**previous['calibration_design'],'initial_solved_power':previous['calibration_design'].get('solved_power'),'solved_power':power,'actual_revalidated':True}
+                    if actual and isinstance(previous,dict) and isinstance(previous.get('outcome_policy'),dict):result['outcome_policy']={**previous['outcome_policy'],'actual_revalidated':True}
+                    if not actual and not research and callable(candidate_selector) and not prefix_only:
+                        evaluation_choices.append(result)
+                        if len(evaluation_choices)<64:continue
+                        break
                     self.latest_plan=result;return result
+        if evaluation_choices:
+            # Only copy policy metadata; geometry/power must match an option
+            # whose complete native path already passed every existing gate.
+            proposed=candidate_selector([dict(option) for option in evaluation_choices])
+            protected=('power','raw_angle','heading','origin','target','stage','local_model_window')
+            chosen=next((p for p in evaluation_choices if isinstance(proposed,dict) and all(p.get(k)==proposed.get(k) for k in protected)),None)
+            result=dict(chosen or evaluation_choices[0])
+            if chosen and isinstance(proposed.get('outcome_policy'),dict):result['outcome_policy']=dict(proposed['outcome_policy'])
+            self.latest_plan=result;return result
         if research_choices:
             # The research charge ranks solved, clear paths to the same target.
             # It is never sent as an arbitrary force or used to weaken a check.
@@ -562,6 +582,7 @@ class AutonomousLearner:
         if prefix_only:
             result.update(prefix_only=True,scope='shared-launch-prefix',full_family_validated=False)
             if prefix_limited and not blocked and not unsupported_weather:result['unavailable_reason']='prefix-range-unchecked';result['reposition_allowed']=False
+        if window_limited and not blocked and not unsupported_weather:result['unavailable_reason']='local-window-unchecked';result['reposition_allowed']=False
         self.latest_plan=result;return result
     def remembered(self,record,hero,target,state,player,probe,actual):
         def signature(weathers):return sorted(str(w.get('resolvedTypeId') if w.get('resolvedTypeId') is not None else w.get('typeId')) for w in weathers)

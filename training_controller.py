@@ -31,14 +31,16 @@ class TrainingController:
             from battle_metrics import BattleMetrics
             if session.objective=='adaptive':
                 from adaptive_training import AdaptiveTrial
+                from outcome_policy import OutcomePolicy
+                policy=OutcomePolicy(session.book_path.parent/'aprendizaje-estrategia.json',comparison_enabled=True)
                 if session.continuous:
                     from continuous_training import RollingEvaluation
-                    self.rolling=RollingEvaluation(session.book_path.parent,self.learner,session.max_shots,session.allow_dual);self.trial=self.rolling.current
+                    self.rolling=RollingEvaluation(session.book_path.parent,self.learner,session.max_shots,session.allow_dual,outcome_policy=policy);self.trial=self.rolling.current
                     session.report=self.rolling.report()
-                else:self.trial=AdaptiveTrial(session.book_path.parent/'evaluacion-adaptativa.json',self.learner,session.max_shots,allow_dual=session.allow_dual)
+                else:self.trial=AdaptiveTrial(session.book_path.parent/'evaluacion-adaptativa.json',self.learner,session.max_shots,allow_dual=session.allow_dual,outcome_policy=policy)
             else:self.trial=EvaluationTrial(session.book_path.parent/'evaluacion-punteria.json',self.learner,session.max_shots)
             session.trial=self.trial
-            self.battle=BattleMetrics(session.book_path.parent/'partidas-observadas.json',self.trial.health_result);session.battle=self.battle
+            self.battle=BattleMetrics(session.book_path.parent/'partidas-observadas.json',self.trial.health_result,outcome_callback=lambda row:self.trial.game_result(row) if hasattr(self.trial,'game_result') else None,episode_provider=lambda:self.learner.episode);session.battle=self.battle
         self.memory=None if session.autonomous else ActionMemory(session.book_path.parent/'estrategia-entrenamiento.json')
     def within_limits(self,started):
         s=self.s

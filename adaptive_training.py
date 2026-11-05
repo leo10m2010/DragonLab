@@ -23,17 +23,28 @@ def experience_rows(*groups):
     return rows[-192:]
 
 class AdaptiveTrial:
-    def __init__(self,path,learner,max_shots=40,allow_dual=False):
+    def __init__(self,path,learner,max_shots=40,allow_dual=False,outcome_policy=None):
         self.path=Path(path);self.learner=learner;self.max_shots=max_shots;self.allow_dual=allow_dual;self.dual_rows=[];self.recovery_rows=[];self.reserved_recoveries=[];self.weather_rows=[];self.experience_weather_rows=[];self.experience_recovery_rows=[];self.experience_reserved_recoveries=[];self.profiles={};self.selected=None;self.attempts=[];self.omitted_turns=[];self.omitted_count=0;self.finished=False;self.focus_mobile=None;self.focus_modes={};self.last_excavation_reason=None
         self.reserved_count=0;self.focus_stint_start=0;self.focus_selections=0;self.last_weapon_review=None
+        self.outcome_policy=outcome_policy;self.policy_error=''
+        if outcome_policy is not None and getattr(outcome_policy,'load_error',False) is True:self.policy_error='No se pudieron leer las decisiones guardadas; el archivo se conserva para revisión'
     def profile(self,mobile,shot):
         key=f'dragonbound:{mobile}:{shot}'
         if key not in self.profiles:self.profiles[key]=EvaluationTrial(self.path.parent/f'evaluacion-{mobile}-{shot}.json',self.learner,self.max_shots,mobile,shot)
         return self.profiles[key]
-    def supported(self,mobile,shot):
+    def supported(self,mobile,shot,state=None):
         if mobile=='RANDOMIZER':return False
         record=self.learner.records.get(f'dragonbound:{mobile}:{shot}',{})
-        return can_prefix(mobile,shot,record) or not record.get('multi_projectile') and bool(record.get('model') or measured_prior(record.get('samples',[])))
+        if can_prefix(mobile,shot,record):return True
+        if record.get('multi_projectile'):return False
+        if record.get('model') or measured_prior(record.get('samples',[])):return True
+        # A narrow proof can be sufficient in this exact match even when no
+        # broad prior exists. Never let a lobby check extend it to other winds
+        # or episodes; the planner still enforces its force/flight limits.
+        if isinstance(state,dict):
+            trial=self.profile(mobile,shot);trial.reset_episode()
+            return trial.window_proof(state) is not None
+        return False
     def review_mode(self,shot,**details):
         """Keep the last native turn's alternatives visible in diagnostics."""
         if not self.last_weapon_review:return
@@ -63,7 +74,7 @@ class AdaptiveTrial:
         key=[self.learner.episode,state.get('heroId'),state.get('turnSerial'),mobile]
         if not self.last_weapon_review or self.last_weapon_review.get('turn_key')!=key:
             self.last_weapon_review={'turn_key':key,'mobile':mobile,'available':list(available),'modes':[],'selected_shot':None}
-        ready=[s for s in available if self.supported(mobile,s)]
+        ready=[s for s in available if self.supported(mobile,s,state)]
         for mode in available:
             self.review_mode(mode,supported=mode in ready,status='ready' if mode in ready else 'unsupported',reason=None if mode in ready else 'missing-or-special-model')
         if not ready:raise NoAim('Sin mediciones aplicables en las modalidades disponibles',reason='missing-model')
@@ -84,6 +95,9 @@ class AdaptiveTrial:
                 proof=validated_prefix(self.learner.records.get(trial.key,{}),self.learner.episode,state['wind'],state['windAngle'])
                 model=proof['model'] if proof else None
             else:model,_=self.learner.applicable_model(record,state['wind'],state['windAngle'])
+            if not model and not trial.prefix_only:
+                window=trial.window_proof(state)
+                model=window['model'] if window else None
             mode_models[shot]=model
             rows=comparable(experience_rows(getattr(trial,'experience_tests',[]),getattr(trial,'experience_calibration',[]),trial.tests,trial.calibration),self.learner.episode,state,target)
             damage=damage_evidence(rows) if not trial.prefix_only else 0
@@ -93,8 +107,21 @@ class AdaptiveTrial:
             # Finish independent checks for an ordinary shot already measured
             # in this match before scattering scarce turns into SS research.
             progressing=shot in (0,1) and not trial.frozen and 0<trial.warmups<trial.calibration_limit
-            return (0 if model else 1,0 if finishing else 1,shot==2 if finishing else False,0 if progressing else 1,-effective,0 if shot==focus_mode else 1,focus,len(trial.calibration)+len(trial.tests),len(trial.skips),shot)
-        shot=min(ready,key=score);trial=self.profile(mobile,shot);self.selected=trial
+            learned=0
+            if model and not trial.prefix_only and self.outcome_policy and not self.policy_error and self.outcome_policy.is_baseline(self.learner.episode) is not True:
+                try:
+                    estimate=self.outcome_policy.estimate(state,mobile,shot)
+                    if estimate.get('known'):learned=estimate.get('expected_reward',0)
+                except (OSError,ValueError,TypeError,KeyError):self.policy_error='Aprendizaje de decisiones pausado; se conserva el cálculo comprobado'
+            self.review_mode(shot,learned_reward=learned)
+            return (0 if model else 1,0 if finishing else 1,shot==2 if finishing else False,-learned,0 if progressing else 1,-effective,0 if shot==focus_mode else 1,focus,len(trial.calibration)+len(trial.tests),len(trial.skips),shot)
+        shot=min(ready,key=score);weapon_exploration=False
+        if self.outcome_policy and not self.policy_error and self.outcome_policy.is_baseline(self.learner.episode) is not True:
+            count=self.outcome_policy.summary().get('confirmed_decisions',0)
+            alternatives=[mode for mode in ready if mode!=shot and mode_models.get(mode) and not self.profile(mobile,mode).prefix_only]
+            if (count+1)%10==0 and alternatives:
+                shot=min(alternatives,key=tests);weapon_exploration=True
+        trial=self.profile(mobile,shot);self.selected=trial
         self.last_weapon_review['selected_shot']=shot
         self.review_mode(shot,status='selected',prefix_only=trial.prefix_only)
         # A few directed alternate arcs provide a real spread of forces.
@@ -104,10 +131,20 @@ class AdaptiveTrial:
         # terrain/weather. Continue proposing varied arcs until native checks
         # succeed; the old 1,3,5-only schedule stopped after six warmups.
         angle=(55,75,35,65,25,70,40)[trial.warmups%7] if diversify else 55
-        return {**trial.probe(),'angle':angle,'adaptive':True,'prefer_current_angle':not diversify,'calibration_objective':'varied-native-checks' if diversify else None}
+        return {**trial.probe(),'angle':angle,'adaptive':True,'prefer_current_angle':not diversify,'weapon_exploration':weapon_exploration,'calibration_objective':'varied-native-checks' if diversify else None}
     def plan(self,state,player,probe,actual=False,previous=None):
         trial=self.profile(probe['mobile'],probe['shot']);self.selected=trial
-        try:result=trial.plan(state,player,probe,actual,previous)
+        options={}
+        if self.outcome_policy and not self.policy_error:
+            def choose(candidates):
+                try:
+                    selected=self.outcome_policy.choose(candidates,state,self.learner.episode)
+                    if probe.get('weapon_exploration') and isinstance(selected,dict) and isinstance(selected.get('outcome_policy'),dict):selected['outcome_policy']={**selected['outcome_policy'],'mode':'explore','weapon_exploration':True}
+                    return selected
+                except (OSError,ValueError,TypeError,KeyError):
+                    self.policy_error='Aprendizaje de decisiones pausado; se conserva el cálculo comprobado';return candidates[0]
+            options['candidate_selector']=choose
+        try:result=trial.plan(state,player,probe,actual,previous,**options)
         except NoAim as error:
             self.review_mode(probe['shot'],status='rejected',reason=error.reason,message=str(error))
             from weather_practice import weather_probe
@@ -129,8 +166,17 @@ class AdaptiveTrial:
         verified=bool(trial.frozen and len(checks)>=3 and not trial.prefix_only)
         if trial.prefix_only:dual,reason=False,'DD reservado: falta comprobar la familia completa de Armor 2'
         else:dual,reason=dual_decision(rows,remaining,self.allow_dual,probe['shot'],result.get('evaluation_phase'),under_pressure=critical,trajectory_verified=verified,verified_check_count=len(checks))
-        result={**result,'target_id':enemy['id'] if enemy else None,'profile':trial.key,'use_dual':dual,'item_reason':reason,'verified_native_checks':len(checks)}
+        if dual and self.outcome_policy and not self.policy_error and self.outcome_policy.is_baseline(self.learner.episode) is not True:
+            try:
+                normal=self.outcome_policy.estimate(state,probe['mobile'],probe['shot'],{**result,'use_dual':False})
+                doubled=self.outcome_policy.estimate(state,probe['mobile'],probe['shot'],{**result,'use_dual':True})
+                if normal.get('known') and doubled.get('known') and normal['expected_reward']>=doubled['expected_reward']:dual,reason=False,'DD conservado: el tiro normal dio mejores resultados en situaciones parecidas'
+            except (OSError,ValueError,TypeError,KeyError):self.policy_error='Aprendizaje de decisiones pausado; se conserva el cálculo comprobado'
+        result={**result,'mobile':probe['mobile'],'shot':probe['shot'],'episode':self.learner.episode,'target_id':enemy['id'] if enemy else None,'profile':trial.key,'use_dual':dual,'item_reason':reason,'verified_native_checks':len(checks)}
         result['tactical_intent']=mobile_intent(probe['mobile'],probe['shot'],state,result)
+        if self.outcome_policy and not self.policy_error and result.get('evaluation_phase')=='calibration' and not result.get('outcome_policy'):
+            try:result=self.outcome_policy.describe_observation(result,state,self.learner.episode)
+            except (OSError,ValueError,TypeError,KeyError):self.policy_error='No se pudo guardar el contexto de la decisión'
         self.review_mode(probe['shot'],status='planned',phase=result.get('evaluation_phase'),prefix_only=trial.prefix_only,use_dual=dual,item_reason=reason,verified_native_checks=len(checks))
         return result
     def excavation_model(self,state,probe):
@@ -234,8 +280,14 @@ class AdaptiveTrial:
         elif release.get('item'):
             token=uuid.uuid4().hex;self.dual_rows.append({'token':token,'profile':key,'item':release['item'],'power':release.get('power'),'shot':release.get('shot'),'episode':self.learner.episode,'target_id':release['learner'].get('target_id'),'wind':release.get('wind'),'wind_angle':release.get('windAngle'),'decision':release['learner'].get('item_reason'),'health_window_known':False,'enemy_health_drop':None})
         else:token=self.profiles[key].record(release,state)
+        if self.outcome_policy and not self.policy_error:
+            try:self.outcome_policy.note(token,release,state)
+            except (OSError,ValueError,TypeError,KeyError):self.policy_error='No se pudo guardar el resultado de la decisión'
         self.save();return token
     def health_result(self,result):
+        if self.outcome_policy and not self.policy_error:
+            try:self.outcome_policy.observe(result)
+            except (OSError,ValueError,TypeError,KeyError):self.policy_error='No se pudo guardar el resultado de la decisión'
         for row in self.reserved_recoveries:
             if row['token']==result['token']:row['terrain_opened']=result.get('terrain_opened')
         for row in self.weather_rows:
@@ -246,6 +298,10 @@ class AdaptiveTrial:
             if row['token']==result['token']:row.update(health_window_known=result['known'],enemy_health_drop=result['enemy_health_drop'])
         for trial in self.profiles.values():trial.health_result(result)
         self.save()
+    def game_result(self,row):
+        if self.outcome_policy and not self.policy_error:
+            try:self.outcome_policy.observe_outcome(row)
+            except (OSError,ValueError,TypeError,KeyError):self.policy_error='No se pudo guardar el resultado de la partida'
     def skip(self,reason):
         if self.selected:self.selected.skip(reason)
         if self.selected:self.review_mode(self.selected.shot,status='rejected',reason=getattr(reason,'reason','unclassified'),message=str(reason),excavation_reason=getattr(reason,'excavation_reason',None))
@@ -267,7 +323,7 @@ class AdaptiveTrial:
         reports={k:t.summary() for k,t in self.profiles.items()};tests=[row for t in self.profiles.values() for row in t.tests if not t.prefix_only];errors=[row['path_error_px'] for row in tests if row['path_error_px'] is not None]
         known=[row for row in tests if row['health_window_known']];damaged=[row for row in known if (row['enemy_health_drop'] or 0)>0]
         reasons={code:sum(a['code']==code for a in self.attempts) for code in sorted({a['code'] for a in self.attempts})}
-        return {'status':'complete' if self.finished else 'running','approved':False,'adaptive':True,'focus_mobile':self.focus_mobile,'focus_modes':dict(self.focus_modes),'calibration_shots':sum(len(t.calibration) for t in self.profiles.values()),'directed_test_shots':sum(len(t.tests) for t in self.profiles.values()),'full_shot_directed_tests':len(tests),'prefix_directed_test_shots':sum(len(t.tests) for t in self.profiles.values() if t.prefix_only),'skipped_turns':self.omitted_count,'rejected_modes':len(self.attempts),'skip_reasons':reasons,'near_target_shots':sum(e<=20 for e in errors),'near_target_rate':round(sum(e<=20 for e in errors)*100/len(errors),1) if errors else None,'median_path_error_px':round(statistics.median(errors),2) if errors else None,'known_health_windows':len(known),'health_drop_windows':len(damaged),'exploration_budget':sum(t.calibration_limit for t in self.profiles.values()),'minimum_directed_tests':10,'prediction_improvement_proven':False,'full_autonomy_proven':False,'profiles':reports,'weather_practice_shots':len(self.weather_rows),'dual_uses':len(self.dual_rows),'terrain_attempts':len(self.recovery_rows),'terrain_reserved_attempts':self.reserved_count,'terrain_openings_observed':sum(r['terrain_opened'] is True for r in self.recovery_rows),'last_weapon_review':self.last_weapon_review,'curriculum':self.curriculum_progress()}
+        return {'strategy':self.outcome_policy.summary() if self.outcome_policy else {},'policy_error':self.policy_error,'model_rejections':sum(t.model_rejections for t in self.profiles.values()),'status':'complete' if self.finished else 'running','approved':False,'adaptive':True,'focus_mobile':self.focus_mobile,'focus_modes':dict(self.focus_modes),'calibration_shots':sum(len(t.calibration) for t in self.profiles.values()),'directed_test_shots':sum(len(t.tests) for t in self.profiles.values()),'full_shot_directed_tests':len(tests),'prefix_directed_test_shots':sum(len(t.tests) for t in self.profiles.values() if t.prefix_only),'skipped_turns':self.omitted_count,'rejected_modes':len(self.attempts),'skip_reasons':reasons,'near_target_shots':sum(e<=20 for e in errors),'near_target_rate':round(sum(e<=20 for e in errors)*100/len(errors),1) if errors else None,'median_path_error_px':round(statistics.median(errors),2) if errors else None,'known_health_windows':len(known),'health_drop_windows':len(damaged),'exploration_budget':sum(t.calibration_limit for t in self.profiles.values()),'minimum_directed_tests':10,'prediction_improvement_proven':False,'full_autonomy_proven':False,'profiles':reports,'weather_practice_shots':len(self.weather_rows),'dual_uses':len(self.dual_rows),'terrain_attempts':len(self.recovery_rows),'terrain_reserved_attempts':self.reserved_count,'terrain_openings_observed':sum(r['terrain_opened'] is True for r in self.recovery_rows),'last_weapon_review':self.last_weapon_review,'curriculum':self.curriculum_progress()}
     def save(self):atomic_write(self.path,json.dumps({'schema':1,'summary':self.summary(),'attempts':self.attempts,'dual_observations':self.dual_rows,'terrain_recovery':self.recovery_rows,'reserved_terrain_actions':self.reserved_recoveries,'weather_practice':self.weather_rows},allow_nan=False).encode())
     def finish(self):
         self.finished=True

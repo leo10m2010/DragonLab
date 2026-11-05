@@ -35,14 +35,15 @@ class DeadlineCancel:
 
 class RollingEvaluation:
     """Retain raw block reports on disk, with bounded in-memory summaries."""
-    def __init__(self,directory,learner,max_shots,allow_dual=False):
+    def __init__(self,directory,learner,max_shots,allow_dual=False,outcome_policy=None):
         from adaptive_training import AdaptiveTrial
-        self.factory=AdaptiveTrial;self.learner=learner;self.max_shots=max_shots;self.allow_dual=allow_dual
+        self.factory=AdaptiveTrial;self.learner=learner;self.max_shots=max_shots;self.allow_dual=allow_dual;self.outcome_policy=outcome_policy
         self.directory=Path(directory)/'evaluaciones-continuas'/(time.strftime('%Y%m%d-%H%M%S')+'-'+uuid.uuid4().hex[:8])
         self.block=1;self.completed_blocks=0;self.completed_shots=0;self.totals={key:0 for key in TOTAL_FIELDS};self.latest=[];self.observations=0
         self.current=self.create()
     def create(self):
-        return self.factory(self.directory/f'bloque-{self.block:05d}'/'evaluacion-adaptativa.json',self.learner,self.max_shots,allow_dual=self.allow_dual)
+        options={'outcome_policy':self.outcome_policy} if self.outcome_policy is not None else {}
+        return self.factory(self.directory/f'bloque-{self.block:05d}'/'evaluacion-adaptativa.json',self.learner,self.max_shots,allow_dual=self.allow_dual,**options)
     def rollover(self):
         # The controller settles pending health windows before changing callback.
         previous=self.current;previous.finish();summary=previous.summary()
@@ -54,7 +55,7 @@ class RollingEvaluation:
         self.current.focus_stint_start=previous.focus_stint_start;self.current.focus_selections=previous.focus_selections
         for key,profile in previous.profiles.items():
             continued=self.current.profile(profile.mobile,profile.shot)
-            for field in ('episode','warmups','frozen','context_candidate','baseline','prior','prior_training_ids','seen_episodes','phase','episode_calibration_count','directed_test_count','prefix_only'):
+            for field in ('episode','warmups','frozen','context_candidate','baseline','prior','prior_training_ids','seen_episodes','phase','episode_calibration_count','directed_test_count','prefix_only','model_rejections','last_model_rejection'):
                 setattr(continued,field,copy.deepcopy(getattr(profile,field)))
             continued.episode_calibration_count=max(continued.episode_calibration_count,sum(row.get('episode')==profile.episode for row in profile.calibration))
             continued.directed_test_count=max(continued.directed_test_count,len(profile.tests))

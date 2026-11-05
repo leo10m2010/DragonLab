@@ -63,6 +63,7 @@ class EvaluationTrial:
         initial=self.planning_record()
         self.baseline=copy.deepcopy(initial.get('model'));self.prior=measured_prior(initial.get('samples',[]));self.prior_training_ids={s['id'] for s in initial.get('samples',[]) if 'id' in s}
         self.episode_calibration_count=0;self.directed_test_count=0
+        self.model_rejections=0;self.last_model_rejection=None
     def planning_record(self):
         """Keep a shared initial flight isolated from the full weapon family."""
         from shared_launch import can_prefix,prefix_record
@@ -76,6 +77,9 @@ class EvaluationTrial:
             from shared_launch import validated_prefix
             proof=validated_prefix(self.learner.records.get(self.key,{}),self.episode,state['wind'],state['windAngle'])
             return list(dict.fromkeys(proof['validation_ids'])) if proof and proof['model']==self.frozen['model'] else []
+        if self.frozen.get('local_window'):
+            proof=self.window_proof(state)
+            return list(dict.fromkeys(proof['validation_ids'])) if proof and proof['model']==self.frozen['model'] else []
         from autonomous_learning import error,flight_error
         model=self.frozen['model'];record=self.planning_record()
         excluded=set(self.prior_training_ids)|set(self.frozen.get('training_ids',[]))|set(self.frozen.get('validation_baseline_ids',[]))
@@ -87,6 +91,11 @@ class EvaluationTrial:
         if not varied_checks(checks):return []
         if any(error(model,s)>5 or flight_error(model,s) is None or flight_error(model,s)>12 for s in checks):return []
         return [s['id'] for s in checks]
+    def window_proof(self,state):
+        from autonomous_learning import special_continuation
+        if self.prefix_only or special_continuation(self.key):return None
+        from local_launch_window import validated_window
+        return validated_window(self.planning_record(),self.episode,state['wind'],state['windAngle'])
     def reset_episode(self):
         if self.episode!=self.learner.episode:
             self.episode=self.learner.episode;self.seen_episodes.add(self.episode);self.warmups=0;self.frozen=None;self.context_candidate=None;self.phase='calibration';self.episode_calibration_count=0
@@ -99,10 +108,22 @@ class EvaluationTrial:
                 self.prior=refreshed;self.prior_training_ids={s['id'] for s in rows if 'id' in s}
     def probe(self):
         return {'mobile':self.mobile,'shot':self.shot,'power':(100,360,220,300,120,180)[len(self.calibration)%6],'angle':55,'purpose':f'prueba controlada {self.mobile} tiro {self.shot}','wind_band':0}
-    def plan(self,state,player,probe,actual=False,previous=None):
+    def plan(self,state,player,probe,actual=False,previous=None,candidate_selector=None):
         if self.mobile=='RANDOMIZER':raise NoAim('Camaleón: proyectil no identificado antes del tiro',reason='variable-projectile')
         self.reset_episode()
         record=self.planning_record();plan_options={}
+        if self.frozen and not self.prefix_only:
+            from autonomous_learning import error,flight_error
+            latest=next((s for s in reversed(record.get('samples',[])) if s.get('episode')==self.episode and s.get('simple') is True),None)
+            if latest:
+                try:
+                    projected=flight_error(self.frozen['model'],latest)
+                    narrow=bool(self.frozen.get('local_window'))
+                    bad=error(self.frozen['model'],latest)>(2 if narrow else 5) or projected is None or projected>(5 if narrow else 12)
+                except (KeyError,TypeError,ValueError,OverflowError):bad=True
+                if bad:
+                    self.model_rejections+=1;self.last_model_rejection={'id':latest.get('id'),'episode':self.episode,'reason':'new-native-flight-contradicts-frozen-model'}
+                    self.frozen=None;self.context_candidate=None;self.phase='calibration'
         if self.prefix_only:
             from shared_launch import validated_prefix
             if record.get('blocked_episode')==self.episode:
@@ -149,10 +170,21 @@ class EvaluationTrial:
                 elif provenance=='applicable':
                     # Unknown fit membership cannot be reused as DD checks.
                     self.frozen['validation_baseline_ids']=[s['id'] for s in record.get('samples',[]) if s.get('episode')==self.episode]
+        if not self.prefix_only and (not self.frozen or self.frozen.get('local_window')):
+            proof=self.window_proof(state)
+            if proof:
+                self.frozen={'model':copy.deepcopy(proof['model']),'wind':state['wind'],'angle':state['windAngle'],'local_window':proof,'training_ids':list(proof['training_ids'])}
+                self.phase='evaluation'
+            elif self.frozen and self.frozen.get('local_window'):self.frozen=None;self.phase='calibration'
         if self.frozen:
             frozen_model=self.frozen['model']
             applicable=wind_supported(frozen_model,state['wind'],state['windAngle']) if frozen_model.get('wind_mode')=='floor' else abs(state['wind']-self.frozen['wind'])<=1 and (not state['wind'] or abs((state['windAngle']-self.frozen['angle']+180)%360-180)<=5)
             if not applicable:raise NoAim('El viento queda fuera del ajuste congelado; no se envía una carga de prueba',reason='wind-out-of-domain')
+            if self.frozen.get('local_window'):
+                proof=self.frozen['local_window'];plan_options['validation_limits']={'power_range':proof['power_range'],'max_flight_seconds':proof['max_flight_seconds']}
+            if callable(candidate_selector) and not self.prefix_only:
+                def choose(options):return candidate_selector([{**p,'mobile':self.mobile,'shot':self.shot,'profile':self.key,'episode':self.episode,'evaluation_phase':'evaluation'} for p in options])
+                plan_options['candidate_selector']=choose
             plan=self.learner.plan(state,player,probe,actual,previous,model_override=self.frozen['model'],**plan_options)
             if plan.get('stage')!='evaluación con modelo congelado':raise NoAim('Sin trayectoria comprobada para esta geometría o clima; no se dispara',reposition=plan.get('reposition_allowed',False),reason=plan.get('unavailable_reason','trajectory-unavailable'),recovery=plan)
             return {**plan,'evaluation_phase':'evaluation'}
@@ -216,6 +248,6 @@ class EvaluationTrial:
         current=statistics.mean(r['candidate_prediction_error_px'] for r in paired) if paired else None
         improvement=round((previous-current)*100/previous,1) if previous is not None and previous>1e-6 else None
         status='approved' if approved else 'insufficient-data' if self.finished and not enough else 'failed' if self.finished else 'running'
-        return {'status':status,'approved':approved,'prefix_only':self.prefix_only,'scope':'shared-launch-prefix' if self.prefix_only else 'weapon-flight','full_family_validated':False if self.prefix_only else None,'calibration_shots':len(self.calibration),'directed_test_shots':len(self.tests),'skipped_turns':len(self.skips),'skip_reasons':{code:sum(s.get('code')==code for s in self.skips) for code in sorted({s.get('code','unclassified') for s in self.skips})},'near_target_shots':near,'near_target_rate':round(near*100/len(errors),1) if errors else None,'median_path_error_px':round(statistics.median(errors),2) if errors else None,'known_health_windows':len(known),'health_drop_windows':len(damaged),'exploration_budget':min(self.max_shots,self.calibration_limit*max(1,len(self.seen_episodes))),'minimum_directed_tests':10,'paired_prediction_tests':len(paired),'prediction_error_improvement_percent':improvement,'prediction_improvement_proven':len(paired)>=10 and improvement is not None and improvement>=10,'full_autonomy_proven':False}
+        return {'model_rejections':self.model_rejections,'last_model_rejection':self.last_model_rejection,'local_model_window':self.frozen.get('local_window') if self.frozen else None,'status':status,'approved':approved,'prefix_only':self.prefix_only,'scope':'shared-launch-prefix' if self.prefix_only else 'weapon-flight','full_family_validated':False if self.prefix_only else None,'calibration_shots':len(self.calibration),'directed_test_shots':len(self.tests),'skipped_turns':len(self.skips),'skip_reasons':{code:sum(s.get('code')==code for s in self.skips) for code in sorted({s.get('code','unclassified') for s in self.skips})},'near_target_shots':near,'near_target_rate':round(near*100/len(errors),1) if errors else None,'median_path_error_px':round(statistics.median(errors),2) if errors else None,'known_health_windows':len(known),'health_drop_windows':len(damaged),'exploration_budget':min(self.max_shots,self.calibration_limit*max(1,len(self.seen_episodes))),'minimum_directed_tests':10,'paired_prediction_tests':len(paired),'prediction_error_improvement_percent':improvement,'prediction_improvement_proven':len(paired)>=10 and improvement is not None and improvement>=10,'full_autonomy_proven':False}
     def save(self):atomic_write(self.path,json.dumps({'schema':1,'summary':self.summary(),'calibration':self.calibration,'tests':self.tests,'skips':self.skips},allow_nan=False).encode())
     def finish(self):self.finished=True;self.save()
