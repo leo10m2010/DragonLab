@@ -27,7 +27,8 @@ def measured_prior(samples):
     # Estimate one coherent recent regime, never average gravity across matches.
     groups={}
     for row in rows:groups.setdefault(row.get('episode','legacy'),[]).append(row)
-    coherent=next((g for g in reversed(list(groups.values())) if len(g)>=4 and max(s['power'] for s in g)-min(s['power'] for s in g)>=40),rows)
+    coherent=next((g for g in reversed(list(groups.values())) if len(g)>=4 and max(s['power'] for s in g)-min(s['power'] for s in g)>=40),None)
+    if coherent is None:return None
     wind_fit=fit_acceleration(coherent)
     if not wind_fit:return None
     slopes=[(b['speed']-a['speed'])/(b['power']-a['power']) for i,a in enumerate(coherent) for b in coherent[i+1:] if abs(b['power']-a['power'])>=40]
@@ -87,7 +88,15 @@ class EvaluationTrial:
         if any(error(model,s)>5 or flight_error(model,s) is None or flight_error(model,s)>12 for s in checks):return []
         return [s['id'] for s in checks]
     def reset_episode(self):
-        if self.episode!=self.learner.episode:self.episode=self.learner.episode;self.seen_episodes.add(self.episode);self.warmups=0;self.frozen=None;self.context_candidate=None;self.phase='calibration';self.episode_calibration_count=0
+        if self.episode!=self.learner.episode:
+            self.episode=self.learner.episode;self.seen_episodes.add(self.episode);self.warmups=0;self.frozen=None;self.context_candidate=None;self.phase='calibration';self.episode_calibration_count=0
+            # Refresh the hypothesis between matches, never during its held-out
+            # checks. Long-running trials must not keep the startup prior for
+            # hours while new coherent native regimes are being measured.
+            rows=self.planning_record().get('samples',[])
+            refreshed=measured_prior(rows)
+            if refreshed is not None:
+                self.prior=refreshed;self.prior_training_ids={s['id'] for s in rows if 'id' in s}
     def probe(self):
         return {'mobile':self.mobile,'shot':self.shot,'power':(100,360,220,300,120,180)[len(self.calibration)%6],'angle':55,'purpose':f'prueba controlada {self.mobile} tiro {self.shot}','wind_band':0}
     def plan(self,state,player,probe,actual=False,previous=None):
@@ -155,7 +164,7 @@ class EvaluationTrial:
             if probe.get('adaptive'):
                 from shot_feedback import corrected_hypothesis
                 feedback=corrected_hypothesis(hypothesis,record,self.learner.episode,state,player)
-            proposal=self.learner.plan(state,player,probe,actual,previous,model_override=feedback or hypothesis,**plan_options)
+            proposal=self.learner.plan(state,player,probe,actual,previous,model_override=feedback or hypothesis,calibration_search=True,**plan_options)
             if feedback:proposal={**proposal,'feedback_case':feedback.get('feedback_id')}
             if proposal.get('stage')=='evaluación con modelo congelado':return {**proposal,'stage':'calibración dirigida provisional','evaluation_phase':'calibration'}
             raise NoAim('Sin ángulo o recorrido libre para la hipótesis actual',reposition=proposal.get('reposition_allowed',False),reason=proposal.get('unavailable_reason','trajectory-unavailable'),recovery=proposal)

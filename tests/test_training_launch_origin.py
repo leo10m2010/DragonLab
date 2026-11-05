@@ -3,9 +3,22 @@ from pathlib import Path
 from unittest.mock import patch
 
 from autonomous_learning import AutonomousLearner,launch_origin,predicted_path
+from training_orientation import heading
 
 
 MODEL={'scale':2,'offset':0,'gravity':400,'wind_scale':0}
+
+# Anonymous own-launch observations from the 2026-11-04 two-session run.
+# (vehicle, release xy, native look/body/raw angle, actual six-value launch)
+# These are native initial conditions, not a claim about later impact damage.
+REAR_LAUNCH_OBSERVATIONS=(
+    ('ADUKA',(1319,93),1,-7,137,(1290,66,144,380,24,454)),
+    ('ADUKA',(533,52),0,3,123,(560,23,54,232,-9,356)),
+    ('NAK',(1300,69),0,16,111,(1333,47,53,197,91,356)),
+    ('NAK',(1315,38),1,-7,119,(1286,11,126,467,68,367)),
+    ('ADUKA',(1112,146),1,12,136,(1093,111,124,254,-9,355)),
+    ('ADUKA',(144,73),0,1,111,(170,43,68,645,-5,305)),
+)
 
 
 class TrainingLaunchOriginTests(unittest.TestCase):
@@ -41,15 +54,45 @@ class TrainingLaunchOriginTests(unittest.TestCase):
             self.assertEqual(first['origin'],[140,1000]);self.assertEqual(second['origin'],[100,980])
             self.assertNotEqual(first['power'],second['power'])
 
-    def test_body_slope_facing_and_reverse_mobile_transform_the_muzzle(self):
+    def test_body_slope_and_facing_transform_the_native_muzzle_once(self):
         hero=self.scenario()[0]['players'][0]
         cases=[('ARMOR',1,0,(140,1000)),('ARMOR',0,0,(60,1000)),
                ('ARMOR',1,30,(135,1020)),('ARMOR',0,30,(65,980)),
-               ('ADUKA',1,0,(60,1000)),('ADUKA',0,0,(140,1000)),
-               ('NAK',1,30,(65,980))]
+               ('ADUKA',1,0,(140,1000)),('ADUKA',0,0,(60,1000)),
+               ('NAK',1,30,(135,1020))]
         for mobile,look,body,expected in cases:
             with self.subTest(mobile=mobile,look=look,body=body):
                 self.assertEqual(launch_origin({**hero,'look':look,'body':body},mobile,0),(expected,'native-shot-muzzle'))
+
+    def test_rear_muzzle_matches_recorded_native_origins_on_both_slopes_and_facings(self):
+        for mobile,xy,look,body,raw,start in REAR_LAUNCH_OBSERVATIONS:
+            with self.subTest(mobile=mobile,look=look,body=body):
+                hero={'x':xy[0],'y':xy[1],'look':look,'body':body,'muzzles':[{'angle':130,'radius':40}]}
+                origin,source=launch_origin(hero,mobile,0)
+                self.assertEqual(source,'native-shot-muzzle')
+                self.assertEqual(origin,start[:2])
+                self.assertEqual(heading(raw,body,look),start[2])
+                # The previous extra reflection is roughly a hull-width away.
+                old_angle=math.radians((130 if 1-look else 50)-body)
+                old=(xy[0]+round(40*math.cos(old_angle)),xy[1]-round(40*math.sin(old_angle)))
+                self.assertGreater(math.dist(old,start[:2]),50)
+
+    def test_rear_launch_inverse_uses_recorded_origin_instead_of_opposite_hull(self):
+        # Reconstruct a one-second point of each observed initial equation.
+        # Wind below is a controlled equivalent of its measured acceleration,
+        # not an inferred calibration or a fabricated game result.
+        for mobile,xy,look,body,raw,start in REAR_LAUNCH_OBSERVATIONS:
+            with tempfile.TemporaryDirectory() as directory,self.subTest(mobile=mobile,look=look,body=body):
+                learner=AutonomousLearner(Path(directory)/'learner.json')
+                speed,ax,ay=start[3:];known_power=200
+                angle=math.radians(start[2]);target=[start[0]+speed*math.cos(angle)+ax/2,start[1]-speed*math.sin(angle)+ay/2]
+                hero={'id':0,'x':xy[0],'y':xy[1],'look':look,'body':body,'muzzles':[{'angle':130,'radius':40}]}
+                state={'heroId':0,'players':[hero,{'id':1,'x':target[0],'y':target[1]}],'wind':1,'windAngle':0 if ax>=0 else 180,'weather':[]}
+                model={'scale':speed/known_power,'offset':0,'gravity':ay,'wind_scale':abs(ax)}
+                player={**hero,'rawAngle':raw,'minAngle':raw,'maxAngle':raw}
+                result=learner.plan(state,player,{'mobile':mobile,'shot':0,'angle':55,'power':known_power},actual=True,model_override=model)
+                self.assertEqual(result['origin'],list(start[:2]))
+                self.assertEqual(result['power'],known_power)
 
     def test_fresh_pose_overrides_older_serialized_position_and_facing(self):
         with tempfile.TemporaryDirectory() as directory:

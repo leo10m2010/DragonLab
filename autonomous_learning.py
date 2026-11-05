@@ -471,7 +471,7 @@ class AutonomousLearner:
             last=local[-1];projection=flight_error(model,last)
             if abs(last['wind']-wind)<=1 and (wind==0 or abs((last['wind_angle']-wind_angle+180)%360-180)<=5) and error(model,last)<=5 and projection is not None and projection<=12:return model,'apuntar con modelo propio'
         return None,'condiciones sin comprobar'
-    def plan(self,state,player,probe,actual=False,previous=None,model_override=None,calibration_only=False,record_override=None):
+    def plan(self,state,player,probe,actual=False,previous=None,model_override=None,calibration_only=False,record_override=None,calibration_search=False):
         hero=next(p for p in state['players'] if str(p['id'])==str(state['heroId']))
         # PowerReader confirms the final pose after turning or walking. The
         # serialized sample also supplies the per-shot native muzzle definitions.
@@ -494,6 +494,9 @@ class AutonomousLearner:
         if not actual and probe.get('prefer_current_angle'):candidates=list(dict.fromkeys([player['rawAngle']]+candidates))
         if not actual:
             candidates=list(dict.fromkeys(candidates+list(range(math.ceil(low),math.floor(high)+1,4))+[high]))
+        research=calibration_search is True and model_override is not None and not actual
+        if research and len(candidates)>64:candidates=candidates[:63]+[candidates[-1]]
+        research_choices=[]
         weather=state.get('weather') or []
         # Nearby repeated native outcomes can be reused without assuming the
         # weather or a multi-projectile pattern follows a ballistic formula.
@@ -531,7 +534,27 @@ class AutonomousLearner:
                         continue
                     result={**geometry,'power':power,'raw_angle':raw,'heading':world,'elevation':world if right else 180-world,'target':list(target_xy),'stage':model_source,'model_samples':len(record.get('samples',[])),'approximate':True}
                     if prefix_only:result.update(prefix_only=True,scope='shared-launch-prefix',full_family_validated=False,prefix_horizon_s=horizon,prefix_power_range=prefix_powers)
+                    if research:
+                        research_choices.append(result);continue
+                    if actual and isinstance(previous,dict) and isinstance(previous.get('calibration_design'),dict):
+                        result['calibration_design']={**previous['calibration_design'],'initial_solved_power':previous['calibration_design'].get('solved_power'),'solved_power':power,'actual_revalidated':True}
                     self.latest_plan=result;return result
+        if research_choices:
+            # The research charge ranks solved, clear paths to the same target.
+            # It is never sent as an arbitrary force or used to weaken a check.
+            desired=probe.get('power')
+            desired=desired if isinstance(desired,(int,float)) and not isinstance(desired,bool) and math.isfinite(desired) and 1<=desired<=400 else research_choices[0]['power']
+            powers=[]
+            for sample in record.get('samples',[]):
+                if sample.get('episode')!=self.episode or sample.get('simple') is not True or str(sample.get('id','')).startswith('seed:'):continue
+                if not all(isinstance(sample.get(k),(int,float)) and not isinstance(sample[k],bool) and math.isfinite(sample[k]) for k in ('power','wind','wind_angle')):continue
+                if not 1<=sample['power']<=400 or abs(sample['wind']-state['wind'])>1:continue
+                if state['wind'] and abs((sample['wind_angle']-state['windAngle']+180)%360-180)>5:continue
+                powers.append(sample['power'])
+            def separation(candidate):return min((abs(candidate['power']-p) for p in powers),default=400)
+            selected=min(research_choices,key=lambda c:(separation(c)<40,abs(c['power']-desired),-separation(c),abs(c['raw_angle']-player['rawAngle'])))
+            result={**selected,'calibration_design':{'method':'clear-trajectory-power-diversity','requested_power':desired,'solved_power':selected['power'],'candidate_count':len(research_choices),'unique_candidate_powers':len({round(c['power'],6) for c in research_choices}),'native_context_samples':len(powers),'native_power_span':max(powers)-min(powers) if powers else 0,'nearest_observed_power_distance':separation(selected) if powers else None,'actual_revalidated':False}}
+            self.latest_plan=result;return result
         raw=candidates[0];world=heading(raw,body,look)
         recent=record.get('cases',[])[-1:];needs_move=blocked or bool(recent and recent[0].get('ends') and all(math.dist(e,(hero['x'],hero['y']))<60 for e in recent[0]['ends']))
         escape=near_weather_escape(hero,origin,weather_probes) if unsupported_weather else {}

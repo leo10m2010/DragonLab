@@ -309,8 +309,20 @@ class Launcher:
         try:
             from training_ui import open_training,start_training
             instances=getattr(self,'training_instances',1);self.engine.app.training_instances=instances
+            if instances==2:
+                from training_browsers import ready_slots,open_second_browser
+                try:ready_slots(self.engine.app.book.path.parent)
+                except (OSError,ValueError,TypeError,KeyError):
+                    attempts=getattr(self,'training_browser_attempts',0)
+                    if attempts>=30:raise ValueError('No se conectaron las dos ventanas. Abre Aprendizaje y comprueba sus cuentas antes de empezar.')
+                    self.training_browser_attempts=attempts+1
+                    if not getattr(self,'training_second_requested',False):
+                        open_second_browser(self.engine.app.book.path.parent);self.training_second_requested=True
+                    self.status.config(text='Preparando las dos ventanas de entrenamiento…')
+                    self.root.after(1000,self.start_training);return
+            self.training_browser_attempts=0;self.training_second_requested=False
             open_training(self.engine.app);start_training(self.engine.app,instances=instances)
-        except (ValueError,RuntimeError) as error:self.status.config(text=str(error))
+        except (ValueError,RuntimeError,OSError) as error:self.status.config(text=str(error))
     def toggle_game(self):
         if self.busy or time.monotonic()<self.opening_until:return
         worker=getattr(self.engine.app,'worker',None) if self.engine else None
