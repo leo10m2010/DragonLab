@@ -150,8 +150,9 @@ class TrainingGuideStore:
         shots={identity(s):s for s in state.get('shots',[]) if isinstance(s,dict)}
         for ident,pending in list(self.pending.items()):
             if time.monotonic()-pending['at']>25:self.pending.pop(ident,None);continue
+            continued=pending.setdefault('continued',set())
             phases=learner.records.get(pending['profile'],{}).get('observed_phases',[])
-            additions=[(p,shots[p['id']]) for p in phases if isinstance(p,dict) and p.get('verified') is True and p.get('parent') in pending['parents'] and p.get('id') in shots]
+            additions=[(p,shots[p['id']]) for p in phases if isinstance(p,dict) and p.get('verified') is True and p.get('parent') in pending['parents'] and p.get('id') in shots and p['id'] not in continued]
             if not additions:continue
             try:
                 with self.connect() as connection:
@@ -167,7 +168,9 @@ class TrainingGuideStore:
                     if seen:
                         for sample in data['launch_samples']:sample['simple']=False
                     raw=json.dumps(data,allow_nan=False,separators=(',',':'))
-                    if len(raw.encode())<=MAX_PAYLOAD-512:connection.execute('UPDATE guides SET payload=? WHERE id=?',(raw,ident))
+                    if len(raw.encode())<=MAX_PAYLOAD-512:
+                        connection.execute('UPDATE guides SET payload=? WHERE id=?',(raw,ident))
+                        continued.update(phase['id'] for phase,shot in additions if hashed(phase['id']) in seen)
             except (sqlite3.Error,OSError,ValueError,TypeError,KeyError):self.error='No se pudo completar el recorrido guardado'
     def summary(self):
         return {'saved_this_run':self.saved,'error':self.error,'per_mode_limit':self.per_mode,'total_limit':self.limit}

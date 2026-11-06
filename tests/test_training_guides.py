@@ -116,7 +116,8 @@ class TrainingGuideTests(unittest.TestCase):
             store.follow(state,learner);self.assertEqual(len(cases(store)[0]['native']),1)
             phase['verified']=True;store.follow(state,learner);row=cases(store)[0]
             self.assertEqual(len(row['native']),2);self.assertEqual(row['native'][1]['phase'],'verified-continuation');self.assertFalse(row['launch_samples'][0]['simple'])
-            store.follow(state,learner);self.assertEqual(len(cases(store)[0]['native']),2)
+            with patch.object(store,'connect',side_effect=AssertionError('A repeated frame must not rewrite the database')):store.follow(state,learner)
+            self.assertEqual(len(cases(store)[0]['native']),2)
     def test_controller_links_confirmed_release_feedback_and_current_block(self):
         with tempfile.TemporaryDirectory() as folder:
             session=TrainingSession('',None,Path(folder)/'book.json',Mock(),autonomous=True,objective='adaptive')
