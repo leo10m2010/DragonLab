@@ -53,6 +53,7 @@ def refresh(app):
         if not app.has_position_data:text='Aprendiendo · esperando posiciones';color=MUTED
         elif result.get('blocked'):text='Bloqueado · la roca corta el recorrido';color=ORANGE
         elif not result.get('reachable'):text='Bloqueado · cambia el ángulo';color=ORANGE
+        elif getattr(app,'active_learned_profile',None):text='Guía aprendida · dentro del rango comprobado' if result.get('reachable') else result.get('reason','Cambia el ángulo');color=GREEN if result.get('reachable') else ORANGE
         elif c['level']=='measured' and not result.get('interactions') and not result.get('deployment') and app.s.mobile not in ('NAK','KALSIDDON','TRICO'):
             text='Listo · salida calibrada';color=GREEN
         else:text='Aprendiendo · guía estimada';color=MUTED

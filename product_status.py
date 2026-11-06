@@ -37,6 +37,7 @@ def calibration_label(app):
     if settings is None:return '', 'approximate'
     mobile=settings.mobile.title();shot=('1','2','SS')[settings.selected_shot]
     mode=mobile+' · Tiro '+shot
+    if getattr(app,'active_learned_profile',None):return mode+' · APRENDIDA','measured'
     if getattr(app,'clone_id',None)=='gunbound-world' and getattr(app,'profile_required',True):return mode+' · PENDIENTE','pending'
     if getattr(app,'active_measured_profile',False):return mode+' · SALIDA MEDIDA','measured'
     return mode+' · APROXIMADO','approximate'

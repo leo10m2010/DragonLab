@@ -31,6 +31,19 @@ class MenuControlTests(unittest.TestCase):
         cls.root=tk.Tk();cls.root.withdraw()
     @classmethod
     def tearDownClass(cls):cls.root.destroy()
+    def test_manual_learning_catalog_shows_all_shots_without_starting_a_trainer(self):
+        import tempfile
+        from manual_learning import LearnedLaunchLibrary
+        from learning_library_ui import open_library
+        with tempfile.TemporaryDirectory() as folder:
+            app=SimpleNamespace(root=self.root,clone_id='dragonbound',learned_launches=LearnedLaunchLibrary(folder))
+            win=open_library(app);win.withdraw();win.update_idletasks()
+            from rounded_controls import RoundedTable
+            table=next(child for child in win.winfo_children() if isinstance(child,RoundedTable))
+            self.assertEqual(len(table.get_children()),51)
+            self.assertIn('pendiente',table.rows['dragonbound:NAK:1'].cget('text'))
+            self.assertFalse(hasattr(app,'training_session'))
+            win.destroy()
     def test_release_without_press_never_activates_a_button(self):
         command=Mock();button=RoundedButton(self.root,text='Guardar',command=command)
         button.click(SimpleNamespace(x=0,y=0));command.assert_not_called();button.destroy()

@@ -35,6 +35,8 @@ class App:
         from replay_store import ReplayStore
         self.replays=ReplayStore(BASE/'casos-regresion')
         self.book=CalibrationBook(BASE/'calibraciones.json');self.trails=ObservedTrails();self.observed_paths={};self.game_visible=False;self.has_position_data=False;self.live_look=None;self.profile_stamp=None;self.live_launch_offset=None;self.terrain_revision=0
+        from manual_learning import LearnedLaunchLibrary
+        self.learned_launches=LearnedLaunchLibrary(BASE);self.learning_refresh_busy=False;self.learning_refresh_at=0
         prefs={}
         try:
             prefs=json.loads(self.preferences_path.read_text(encoding='utf-8'));self.clone_id=prefs.get('clone','dragonbound');self.adapter_config=prefs.get('adapter')
@@ -116,7 +118,7 @@ class App:
         self.pending_fire=None;self.fire_busy=True;self.fire_cancel.clear();self.footer.config(text='Aplicando fuerza…')
         clone=self.clone_id
         endpoint=self.endpoint.get();target_id=self.browser_target;snapshot=replace(self.s,environment=dict(self.s.environment))
-        if self.book.profile(self.clone_id,self.s.mobile,self.s.selected_shot,self.s.wind):
+        if getattr(self,'active_measured_profile',False):
             speed=plan['power']*snapshot.power_scale+snapshot.speed_offset
             plan['expectedSpeed']=math.trunc(speed) if snapshot.quantize_power else speed
         def run():
@@ -158,7 +160,9 @@ class App:
             self.events.put({'status':'fire-finished','message':message})
         threading.Thread(target=run,daemon=True).start()
     def apply_measured_profile(self):
-        fit=self.book.profile(self.clone_id,self.s.mobile,self.s.selected_shot,self.s.wind)
+        library=getattr(self,'learned_launches',None)
+        fit=library.profile(self.book.key(self.clone_id,self.s.mobile,self.s.selected_shot),self.s.wind,self.s.wind_angle) if library and self.clone_id=='dragonbound' else None
+        if not fit:fit=self.book.profile(self.clone_id,self.s.mobile,self.s.selected_shot,self.s.wind)
         if not fit and getattr(self,'cloud_profiles',None):
             from cloud_profiles import compatible_fit
             fit=compatible_fit(self.cloud_profiles,self.book,self.clone_id,self.s.mobile,self.s.selected_shot,self.s.wind)
@@ -167,6 +171,9 @@ class App:
             from gunbound_profiles import measured_profile
             fit=measured_profile(self.s.mobile,self.s.selected_shot,self.s.wind)
         if self.s.mobile=='RANDOMIZER':fit=None
+        self.active_learned_profile=fit.get('learned_launch') if fit else None
+        if self.active_learned_profile:self.s.environment['learnedLaunch']=self.active_learned_profile
+        else:self.s.environment.pop('learnedLaunch',None)
         self.active_measured_profile=bool(fit)
         self.profile_required=self.s.mobile=='RANDOMIZER' or self.clone_id=='gunbound-world' and not fit
         self.profile_missing_reason='Camaleón: el proyectil cambia; no está identificado antes del tiro.' if self.s.mobile=='RANDOMIZER' else 'GunBound World: falta calibrar fuerza para este vehículo, tiro y viento.'
@@ -177,7 +184,7 @@ class App:
         if observed:self.s.environment['observedAcceleration']=observed
         else:self.s.environment.pop('observedAcceleration',None)
         self.s.wind_mode=fit.get('wind_mode','smooth') if fit else 'smooth'
-        stamp=(self.clone_id,self.s.mobile,self.s.selected_shot,tuple((k,fit.get(k)) for k in ('gravity','power_scale','wind_scale','speed_offset','wind_mode')) if fit else None)
+        stamp=(self.clone_id,self.s.mobile,self.s.selected_shot,tuple((k,fit.get(k)) for k in ('gravity','power_scale','wind_scale','speed_offset','wind_mode'))+(json.dumps(self.active_learned_profile,sort_keys=True),) if fit else None)
         if stamp==self.profile_stamp:return
         previous=getattr(self,'last_applied_profile',self.profile_stamp);self.profile_stamp=stamp;self.last_applied_profile=stamp
         if not fit:
@@ -509,6 +516,12 @@ class App:
         revision=self.book.revision
         try:changed=[] if self.autonomous_training() else self.book.observe(d,self.clone_id)
         except (OSError,ValueError,TypeError):changed=[];self.book.message='No se pudo guardar la medición; el perfil actual se conserva'
+        library=getattr(self,'learned_launches',None)
+        if library and self.clone_id=='dragonbound' and not self.autonomous_training():
+            release=self.book.release if self.book.release and time.monotonic()<self.book.release.get('expires',0) else None
+            try:
+                if library.observe(d,release):self.profile_stamp=None;self.last_fingerprint=None;self.mark()
+            except (OSError,ValueError,TypeError,KeyError):library.error='No se pudo guardar este tiro manual; se conserva el aprendizaje'
         if changed or self.book.revision!=revision:self.profile_stamp=None;self.last_fingerprint=None;self.mark()
         self.apply_auto(d)
         if d['status']!='live':
@@ -628,16 +641,30 @@ class App:
             self.result={};self.computing=False;self.dirty=True
         finally:
             self.root.after(40 if self.game_visible else 150,self.tick)
+    def refresh_learned_launches(self):
+        library=getattr(self,'learned_launches',None)
+        if not library or self.learning_refresh_busy or self.learning_refresh_at and time.monotonic()-self.learning_refresh_at<30:return
+        self.learning_refresh_busy=True;self.learning_refresh_at=time.monotonic()
+        def refresh():
+            try:changed=library.refresh()
+            except (OSError,ValueError,TypeError,KeyError):changed=False;library.error='No se pudo actualizar el aprendizaje compartido'
+            self.events.put({'status':'learning-library','changed':changed})
+        threading.Thread(target=refresh,daemon=True).start()
     def tick_once(self):
+        self.refresh_learned_launches()
         from control_lifecycle import sync_control_mode
         sync_control_mode(self)
         pending=[]
         while not self.events.empty():pending.append(self.events.get_nowait())
-        live=[e for e in pending if e.get('status') not in ('calculated','target-shortcut','fire-shortcut','fire-gesture','fire-finished','fire-confirmed','cancel-shortcut','training-observation','training-settings')]
+        live=[e for e in pending if e.get('status') not in ('calculated','target-shortcut','fire-shortcut','fire-gesture','fire-finished','fire-confirmed','cancel-shortcut','training-observation','training-settings','learning-library')]
         # Consume the latest state before results/shortcuts; old frames must not
         # delay the game or allow an obsolete calculation to replace a new one.
-        pending=([live[-1]] if live else [])+[e for e in pending if e.get('status') in ('calculated','target-shortcut','fire-shortcut','fire-gesture','fire-finished','fire-confirmed','cancel-shortcut','training-observation','training-settings')]
+        pending=([live[-1]] if live else [])+[e for e in pending if e.get('status') in ('calculated','target-shortcut','fire-shortcut','fire-gesture','fire-finished','fire-confirmed','cancel-shortcut','training-observation','training-settings','learning-library')]
         for event in pending:
+            if event.get('status')=='learning-library':
+                self.learning_refresh_busy=False
+                if event.get('changed'):self.profile_stamp=None;self.last_fingerprint=None;self.mark()
+                continue
             if event.get('status')=='training-settings':
                 try:
                     self.apply_live(event['state'])
@@ -700,7 +727,7 @@ class App:
                 def calculate(settings=settings,generation=generation,preview_power=preview_power,context=context,profile_required=profile_required,missing_reason=missing_reason):
                     try:
                         started=time.perf_counter();result={'reachable':False,'reason':missing_reason} if profile_required else solve(settings);solve_seconds=time.perf_counter()-started
-                        if not result.get('reachable') and not result.get('blocked') and preview_power:
+                        if not result.get('reachable') and not result.get('blocked') and preview_power and not settings.environment.get('learnedLaunch'):
                             from physics_extensions import trajectory
                             preview=trajectory(settings,preview_power,step=.06,include_deployment=True)
                             result['preview_paths']=[[(p[0],p[1]) for p in path] for path in preview['display_paths']];result['preview_power']=preview_power
@@ -717,6 +744,7 @@ class App:
         if '--diagnostics' in sys.argv and time.monotonic()-getattr(self,'diagnostic_clock',0)>1:
             self.diagnostic_clock=time.monotonic()
             health={'version':PROGRAM_VERSION,'training':{'active':bool(self.training_session and self.training_session.running),'message':self.training_session.status if self.training_session else '', 'shots':self.training_session.shots if self.training_session else 0},'weather_validation':getattr(self,'weather_validation',[]),'learning_error':getattr(self,'learning_error',''),'learning_status':self.book.message,'learning_samples':len(self.book.records.get(self.book.key(self.clone_id,self.s.mobile,self.s.selected_shot),{}).get('samples',[])),'reader_status':getattr(self,'reader_status',None),'reader_reason':getattr(self,'reader_reason',''),'result_reason':self.result.get('reason'),'guide_visible':bool(self.power_guide and self.power_guide.win.winfo_viewable()),'game_visible':self.game_visible,'bar_detected':bool(self.guide_points),'updated':time.time(),'connected':bool(self.last_live and time.monotonic()-self.last_live<4),'map_detected':bool(self.s.environment.get('terrain')),'camera_detected':bool(self.live_camera and self.live_camera.get('renderWidth')),'weather':[w.get('resolvedTypeId') or w.get('typeId') for w in self.s.environment.get('activeWeathers',[])],'players_detected':len(self.live_players),'overlay_visible':bool(self.overlay and self.overlay.visible),'power':self.result.get('power'),'computing':self.computing,'last_error':getattr(self,'last_error',None),'target':self.auto_target_id,'enemies_detected':len(enemies(self.live_players,self.target_hero_id)),'preview_capture':self.preview_visible,'solve_seconds':getattr(self,'last_solve_seconds',None),'shortcut_events':self.shortcut_count,'fire_shortcut_events':self.fire_shortcut_count,'fire_busy':self.fire_busy,'fire_pending':bool(self.pending_fire),'last_fire_message':self.last_fire_message,'page_shortcuts_active':self.page_shortcuts_active,'shortcut_ready':bool(getattr(self,'shortcuts',None) and self.shortcuts.ready),'shortcut_error':getattr(getattr(self,'shortcuts',None),'error',None)}
+            health['manual_learning']=self.learned_launches.summary();health['learned_launch']=getattr(self,'active_learned_profile',None)
             try:(BASE/'estado-live.json').write_text(json.dumps(health,indent=2),encoding='utf-8')
             except OSError:pass
 

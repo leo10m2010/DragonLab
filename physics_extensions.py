@@ -288,6 +288,7 @@ def solve_extended(s):
     # Coarse-to-fine integer power search; weather interactions are discontinuous,
     # so refine all coarse local minima instead of assuming a single minimum.
     cache={};cluster=s.mobile=='TRICO' and s.selected_shot==1
+    minimum=max(1,math.ceil((s.environment.get('learnedLaunch') or {}).get('power_range',[1])[0]))
     tolerance=s.environment.get('hitTolerance',35)
     def score(candidates):
         distances=[c[0] for c in candidates]
@@ -315,21 +316,21 @@ def solve_extended(s):
             t=math.sqrt(numerator/denominator)
             speed=side*(dx/t-.5*ax*t)*c-(dy/t-.5*ay*t)*sn
             exact=(speed-s.speed_offset)/s.power_scale
-            if 1<=exact<=s.max_power and t<=s.max_time:
+            if minimum<=exact<=s.max_power and t<=s.max_time:
                 seed=round(exact)
-                candidates=list(range(max(1,seed-2),min(int(s.max_power),seed+2)+1))
+                candidates=list(range(max(minimum,seed-2),min(int(s.max_power),seed+2)+1))
                 for candidate in candidates:evaluate(candidate)
                 candidate=min(candidates,key=evaluate)
                 fine=trajectory(s,candidate,step=.02)
                 verified=min((closest(p,s.target_x,s.target_y)[0] for p in fine.get('damage_paths',fine['projectile_paths'])),default=math.inf)
                 if verified<=min(tolerance,max(1,tolerance*.15)):fast_power=candidate
     # Weather creates narrow discontinuities; evaluate every available integer.
-    grid=[] if fast_power is not None else list(range(1,int(s.max_power)+1,1 if tornado or mirror or cluster or s.mobile=='NAK' and s.selected_shot==2 and s.environment.get('players') else 8))
+    grid=[] if fast_power is not None else list(range(minimum,int(s.max_power)+1,1 if tornado or mirror or cluster or s.mobile=='NAK' and s.selected_shot==2 and s.environment.get('players') else 8))
     if fast_power is None:grid.append(int(s.max_power))
     for p in grid:evaluate(p)
     minima=[p for i,p in enumerate(grid) if (i==0 or evaluate(p)<=evaluate(grid[i-1])) and (i==len(grid)-1 or evaluate(p)<=evaluate(grid[i+1]))]
     for p in minima:
-        for fine in range(max(1,p-8),min(int(s.max_power),p+8)+1):evaluate(fine)
+        for fine in range(max(minimum,p-8),min(int(s.max_power),p+8)+1):evaluate(fine)
     power=fast_power if fast_power is not None else min(cache,key=evaluate);error,end=cache[power][1]
     if cluster:
         refined=[]

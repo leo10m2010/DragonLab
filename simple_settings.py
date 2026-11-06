@@ -57,6 +57,9 @@ def open_settings(app):
     RoundedChoice(row,textvariable=performance,values=['Auto','Ligero','Normal'],state='readonly',width=10).pack(side='right')
     tk.Label(speed,text='Auto adapta la captura a la carga; Ligero reduce la frecuencia.',bg=PANEL,fg=MUTED,font=('Bahnschrift',10)).pack(anchor='w',padx=16,pady=(6,6))
     training=section('APRENDIZAJE')
+    from learning_library_ui import open_library
+    RoundedButton(training,text='Ver carros y balas aprendidas',command=lambda:open_library(app)).pack(anchor='w',padx=16,pady=(8,0))
+    tk.Label(training,text='Tus tiros manuales también mejoran la guía automáticamente.',bg=PANEL,fg=MUTED,font=('Bahnschrift',10),wraplength=490).pack(anchor='w',padx=16,pady=6)
     from training_ui import open_training
     RoundedButton(training,text='Entrenamiento automático',command=lambda:open_training(app)).pack(anchor='w',padx=16,pady=8)
     def save():

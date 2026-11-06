@@ -109,6 +109,21 @@ def point(s,power,t):
     return x+side*speed*math.cos(a)*t+.5*ax*t*t,y-speed*math.sin(a)*t+.5*ay*t*t
 
 def solve(s):
+    limits=s.environment.get('learnedLaunch')
+    if not limits:return _solve(s)
+    bounds=limits.get('power_range');horizon=limits.get('max_flight_seconds')
+    if limits.get('key')!=f'dragonbound:{s.mobile}:{s.selected_shot}' or not isinstance(bounds,list) or len(bounds)!=2 or not all(isinstance(v,(int,float)) and math.isfinite(v) for v in bounds) or not 1<=bounds[0]<bounds[1]<=400 or not isinstance(horizon,(int,float)) or not math.isfinite(horizon) or not 0<horizon<=20:
+        return {'reachable':False,'reason':'Los límites del modelo aprendido no son válidos.'}
+    constrained=replace(s,max_time=min(s.max_time,horizon),max_power=min(s.max_power,math.floor(bounds[1])))
+    result=_solve(constrained)
+    # The extended search and its terrain preview obey the same closed range.
+    for key in ('power','guide_power','preview_power'):
+        power=result.get(key)
+        if power is not None and not bounds[0]<=power<=bounds[1]:
+            return {'reachable':False,'reason':'Este ángulo queda fuera de la fuerza comprobada; cambia el ángulo.','learned_launch':limits}
+    return {**result,'learned_launch':limits}
+
+def _solve(s):
     finite_settings(s)
     if s.environment or s.selected_shot or s.quantize_power or s.speed_offset or s.angle_offset or s.is_backshot or s.mobile in ('BIGFOOT','DRAGON'):
         from physics_extensions import solve_extended
