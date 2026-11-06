@@ -537,7 +537,8 @@ class AutonomousLearner:
                         unsupported_weather=True
                         weather_probes.append({**geometry,'power':power,'raw_angle':raw,'heading':world,'elevation':world if right else 180-world,'target':list(target_xy),'weather_crossings':crossed})
                         continue
-                    result={**geometry,'power':power,'raw_angle':raw,'heading':world,'elevation':world if right else 180-world,'target':list(target_xy),'stage':model_source,'model_samples':len(record.get('samples',[])),'approximate':True}
+                    result={**geometry,'power':power,'raw_angle':raw,'heading':world,'elevation':world if right else 180-world,'target':list(target_xy),'stage':model_source,'model_samples':len(record.get('samples',[])),'approximate':True,
+                            'guide_prediction':{'model':{k:model.get(k) for k in ('scale','offset','gravity','wind_scale','wind_mode')},'duration_s':duration}}
                     if prefix_only:result.update(prefix_only=True,scope='shared-launch-prefix',full_family_validated=False,prefix_horizon_s=horizon,prefix_power_range=prefix_powers)
                     if validation_limits is not None:result['local_model_window']={'power_range':list(bounds),'max_flight_seconds':validation_limits['max_flight_seconds']}
                     if research:

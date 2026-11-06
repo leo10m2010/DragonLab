@@ -18,7 +18,7 @@ class TrainingSession:
         self.phase='prepared';self.heartbeat_at=None;self.last_progress_at=None;self.last_progress_kind='';self.confirmed_shot_at=None
         self.input_recovery={};self.input_recoveries=0;self.input_recovery_counts={};self.input_recovery_streak=0;self.last_recovery_code='';self.reconnects=0;self.watchdog_reconnects=0
         self.status_write_error=''
-        self.opponent_progress={};self.opponent_error=''
+        self.opponent_progress={};self.opponent_error='';self.guide_progress={}
     def start(self):
         if self.running:return
         self.cancel.clear();self.started_at=time.monotonic();self.started_wall=time.time();self.running=True;self.heartbeat('starting',progress='started');self.thread=threading.Thread(target=self.run,daemon=True);self.thread.start()
@@ -47,6 +47,7 @@ class TrainingSession:
         data['stop_reason']=self.stop_reason
         data['health']=self.health()
         data['opponents']={**self.opponent_progress,'observer_error':bool(self.opponent_error)}
+        data['saved_guides']=self.guide_progress
         data.update(retirements=self.retirements,passed_turns=self.passed_turns,ui_actions=self.ui_actions[-128:])
         try:
             atomic_write(self.book_path.parent/'entrenamiento-estado.json',json.dumps(data,allow_nan=False).encode());self.status_write_error=''

@@ -41,7 +41,16 @@ class TrainingController:
             else:self.trial=EvaluationTrial(session.book_path.parent/'evaluacion-punteria.json',self.learner,session.max_shots)
             session.trial=self.trial
             self.battle=BattleMetrics(session.book_path.parent/'partidas-observadas.json',self.trial.health_result,outcome_callback=lambda row:self.trial.game_result(row) if hasattr(self.trial,'game_result') else None,episode_provider=lambda:self.learner.episode);session.battle=self.battle
+        from training_guides import TrainingGuideStore
+        self.guides=TrainingGuideStore(session.book_path.parent)
+        if self.battle:self.battle.callback=self.health_result;self.battle.outcome_callback=self.game_result
         self.memory=None if session.autonomous else ActionMemory(session.book_path.parent/'estrategia-entrenamiento.json')
+    def health_result(self,row):
+        self.guides.update_health(row);self.s.guide_progress=self.guides.summary()
+        if self.trial:self.trial.health_result(row)
+    def game_result(self,row):
+        self.guides.update_outcome(row);self.s.guide_progress=self.guides.summary()
+        if self.trial and hasattr(self.trial,'game_result'):self.trial.game_result(row)
     def within_limits(self,started):
         s=self.s
         return not self.cancel.is_set() and time.monotonic()-started<s.max_seconds and (s.continuous or s.shots<s.max_shots)
@@ -152,6 +161,8 @@ class TrainingController:
             if ui.get('game'):
                 state=browser.sample()
                 if self.learner:self.learner.track(state)
+                try:self.guides.follow(state,self.learner)
+                except Exception:self.guides.error='No se pudo completar una guía; el entrenamiento continúa'
                 self.observe_opponents(state,browser)
                 self.battle.observe(state)
                 for item in list(self.battle.pending):
@@ -160,7 +171,7 @@ class TrainingController:
             if self.battle.pending:
                 self.s.publish('Completando las observaciones del bloque; el aprendizaje continuará');self.cancel.wait(.1);return False
         self.trial=self.rolling.rollover();self.s.trial=self.trial
-        if self.battle:self.battle.callback=self.trial.health_result
+        if self.battle:self.battle.callback=self.health_result
         self.sync_report();self.s.publish(f'Aprendizaje continuo · bloque {self.rolling.block}');return True
     def cycle(self,browser):
         s=self.s;s.heartbeat();ui=browser.guard(self.cancel)
@@ -243,6 +254,8 @@ class TrainingController:
         self.observe_opponents(state,browser)
         self.watch_native_progress(('game',ui['url'],state.get('turnSerial'),state.get('activePlayer'),state.get('heroId'),state.get('over'),state.get('wind'),state.get('windAngle'),tuple((p.get('id'),p.get('x'),p.get('y'),p.get('dead')) for p in state.get('players',[])[:32])))
         if self.learner:self.learner.track(state)
+        try:self.guides.follow(state,self.learner)
+        except Exception:self.guides.error='No se pudo completar una guía; el entrenamiento continúa'
         if self.battle:self.battle.observe(state)
         if self.rolling:s.report=self.rolling.report()
         if key!=self.current:
@@ -368,7 +381,13 @@ class TrainingController:
         if s.objective=='adaptive' and self.trial:self.trial.turn_recovered(self.current)
         if self.learner and not release.get('item'):self.learner.observe(probe,release,observation)
         if self.trial:
-            token=self.trial.record(release,observation);self.battle.note(release,release.get('learner') or {},observation,token)
+            token=self.trial.record(release,observation)
+        else:
+            import uuid
+            token=uuid.uuid4().hex
+        self.guides.record(token,probe,release,observation,self.learner.episode if self.learner else 'unknown-'+token,self.battle.game.get('id') if self.battle and self.battle.game else None)
+        s.guide_progress=self.guides.summary()
+        if self.trial:self.battle.note(release,release.get('learner') or {},observation,token)
         self.sync_report()
         s.emit({'status':'training-observation','release':release,'observation':observation})
         weather=[{k:w[k] for k in ('typeId','resolvedTypeId','x','size') if isinstance(w.get(k),(int,float))} for w in observation.get('weather',[])[:32] if isinstance(w,dict)]

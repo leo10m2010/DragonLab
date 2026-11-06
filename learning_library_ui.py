@@ -24,7 +24,7 @@ def open_library(app):
             for mobile in TRAINING_MOBILES:
                 for shot,label in enumerate(('1','2','SS')):
                     key=f'dragonbound:{mobile}:{shot}';proofs=library.profiles.get(key,[]);data=library.coverage.get(key,{})
-                    text='Proyectil variable · pendiente' if mobile=='RANDOMIZER' else 'Aprendida · rango comprobado' if proofs else 'Mecanismo especial pendiente' if special_continuation(key) or data.get('special') else 'Faltan comprobaciones' if data.get('samples') else 'Sin tiros útiles todavía'
+                    text='Proyectil variable · pendiente' if mobile=='RANDOMIZER' else 'Mecanismo especial pendiente' if special_continuation(key) or data.get('special') else 'Aprendida · rango comprobado' if proofs else 'Faltan comprobaciones' if data.get('samples') else 'Sin tiros útiles todavía'
                     values=(mobile.title()+' · '+label,text,data.get('samples',0))
                     if table.exists(key):table.item(key,values=values)
                     else:table.insert('','end',iid=key,values=values)

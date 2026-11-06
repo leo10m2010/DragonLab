@@ -3,7 +3,7 @@
 Each match is fitted separately. A saved model is a bounded historical launch
 certificate, not proof of a special weapon family or a new match's physics.
 """
-import copy,hashlib,json,math,threading,time
+import copy,hashlib,json,math,threading,time,sqlite3
 from pathlib import Path
 from autonomous_learning import fit,error,flight_error,special_continuation
 from calibration_book import mobile_name
@@ -88,7 +88,9 @@ class LearnedLaunchLibrary:
         except FileNotFoundError:pass
         except (OSError,ValueError,TypeError,AttributeError):self.error='No se pudo leer el aprendizaje guardado'
     def sources(self):
-        return [self.directory/'aprendizaje-autonomo.json',*(self.directory/f'entrenamiento-paralelo/sesion-{i}/aprendizaje-autonomo.json' for i in (1,2))]
+        from training_guides import FILENAME
+        directories=[self.directory,*(self.directory/f'entrenamiento-paralelo/sesion-{i}' for i in (1,2))]
+        return [directory/name for directory in directories for name in ('aprendizaje-autonomo.json',FILENAME)]
     def save(self):
         atomic_write(self.path,json.dumps({'schema':1,'profiles':self.profiles,'manual':self.manual,'coverage':self.coverage},allow_nan=False).encode())
     def retain(self,profile):
@@ -111,7 +113,10 @@ class LearnedLaunchLibrary:
             if stamp is None:continue
             try:
                 if size>MAX_FILE:raise ValueError('Oversized observations')
-                data=json.loads(p.read_text(encoding='utf-8'))
+                if p.suffix=='.sqlite3':
+                    from training_guides import TrainingGuideStore
+                    records,_=TrainingGuideStore.read_records(p);data={'schema':1,'records':records}
+                else:data=json.loads(p.read_text(encoding='utf-8'))
                 if data.get('schema')!=1 or not isinstance(data.get('records'),dict):raise ValueError('Invalid observations')
                 for key,record in data['records'].items():
                     if not valid_key(key) or not isinstance(record,dict):continue
@@ -124,7 +129,7 @@ class LearnedLaunchLibrary:
                     for episode,rows in groups.items():
                         proof=certificate(key,rows,episode)
                         if proof:proposed.append(proof)
-            except (OSError,ValueError,TypeError,KeyError,OverflowError):failed=True
+            except (OSError,ValueError,TypeError,KeyError,OverflowError,sqlite3.Error):failed=True
         with self.lock:
             changed=any([self.retain(p) for p in proposed])
             self.coverage=coverage or self.coverage
@@ -135,6 +140,7 @@ class LearnedLaunchLibrary:
     def profile(self,key,wind,angle):
         if not number(wind) or not 0<=wind<=100 or not number(angle):return None
         with self.lock:
+            if self.coverage.get(key,{}).get('special'):return None
             options=[]
             for row in self.profiles.get(key,[]):
                 fit=row['fit'];model={**fit,'scale':fit['power_scale'],'offset':fit['speed_offset']}
@@ -180,7 +186,7 @@ class LearnedLaunchLibrary:
             proof=certificate(key,self.live[key],self.episode);self.retain(proof);self.revision+=1;self.save()
         return True
     def summary(self):
-        with self.lock:return {'available_modes':sum(bool(v) for v in self.profiles.values()),'profiles':sum(len(v) for v in self.profiles.values()),'error':self.error}
+        with self.lock:return {'available_modes':sum(bool(v) and not self.coverage.get(k,{}).get('special') for k,v in self.profiles.items()),'profiles':sum(len(v) for v in self.profiles.values()),'error':self.error}
     def rows(self):
         from core import PROFILES
         result=[]
@@ -189,7 +195,7 @@ class LearnedLaunchLibrary:
             for mode,label in enumerate(('1','2','SS')):
                 key=f'dragonbound:{name}:{mode}';profiles=self.profiles.get(key,[]);c=self.coverage.get(key,{})
                 count+=c.get('samples',0)
-                value='proyectil variable' if name=='RANDOMIZER' else 'aprendida' if profiles else 'mecanismo pendiente' if c.get('special') or special_continuation(key) else 'faltan comprobaciones' if c.get('samples') else 'sin tiros útiles'
+                value='proyectil variable' if name=='RANDOMIZER' else 'mecanismo pendiente' if c.get('special') or special_continuation(key) else 'aprendida' if profiles else 'faltan comprobaciones' if c.get('samples') else 'sin tiros útiles'
                 labels.append(label+': '+value)
             result.append((name,' · '.join(labels),count))
         return result

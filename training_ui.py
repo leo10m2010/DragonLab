@@ -74,6 +74,7 @@ def open_training(app):
     trial_card=RoundedPanel(content,PANEL);trial_card.pack(fill='x',pady=(0,10))
     tk.Label(trial_card.body,text='Bloque actual · carros y modalidades con datos',bg=PANEL,fg=TEXT,font=('Bahnschrift',13,'bold')).pack(anchor='w',padx=16,pady=(8,4))
     result_label=tk.Label(trial_card.body,bg=PANEL,fg=GREEN,font=('Bahnschrift',11),justify='left',wraplength=520);result_label.pack(anchor='w',padx=16,pady=(0,10))
+    guide_label=tk.Label(trial_card.body,bg=PANEL,fg=MUTED,font=('Bahnschrift',10),justify='left',wraplength=520);guide_label.pack(anchor='w',padx=16,pady=(0,10))
     rival_card=RoundedPanel(content,PANEL);rival_card.pack(fill='x',pady=(0,10))
     tk.Label(rival_card.body,text='Aprender del rival',bg=PANEL,fg=TEXT,font=('Bahnschrift',13,'bold')).pack(anchor='w',padx=16,pady=(8,4))
     rival_label=tk.Label(rival_card.body,bg=PANEL,fg=MUTED,font=('Bahnschrift',10),justify='left',wraplength=520);rival_label.pack(anchor='w',padx=16,pady=(0,10))
@@ -126,6 +127,8 @@ def open_training(app):
         if session and hasattr(session,'sessions'):session.selected=0 if view.get()=='Sesión 1' else 1
         learner=session.learner if session else None
         running=bool(session and session.running)
+        saved=getattr(session,'guide_progress',{}) if session else {}
+        guide_label.config(text=saved.get('error') or f"Guías guardadas en esta ejecución: {saved.get('saved_this_run',0)} · cálculo previo, recorrido observado y resultado")
         for control,state in [(start_button,'disabled' if running else 'normal'),(stop_button,'normal' if running else 'disabled'),(duration,'disabled' if running else 'readonly'),(mode_choice,'disabled' if running else 'readonly'),(instance_choice,'disabled' if running else 'readonly'),(view_choice,'readonly' if session and hasattr(session,'sessions') else 'disabled')]:
             if control.cget('state')!=state:control.config(state=state)
         if not session:result_label.config(text='La prueba separa calibración y evaluación.\nSolo considera dirigidos los tiros con una solución comprobada.')
