@@ -36,6 +36,15 @@ class ManualPipelineTests(unittest.TestCase):
                 worker=LatestCalculation(output.put,solver);worker.submit(self.job(1));self.assertTrue(started.wait(2))
                 worker.close() if close else worker.invalidate();done.set();worker.thread.join(2) if close else time.sleep(.03)
                 self.assertTrue(output.empty());worker.close()
+    def test_unidentified_vehicle_never_draws_a_preview_with_previous_physics(self):
+        output=queue.Queue();solver=Mock();worker=LatestCalculation(output.put,solver)
+        try:
+            with patch('physics_extensions.trajectory') as trajectory:
+                worker.submit({**self.job(1),'profile_required':True,'missing_reason':'unknown vehicle','preview_power':150})
+                result=output.get(timeout=2)['result']
+                solver.assert_not_called();trajectory.assert_not_called()
+                self.assertFalse(result['reachable']);self.assertNotIn('preview_paths',result)
+        finally:worker.close()
     def test_mark_cancels_obsolete_work_without_changing_shot_state(self):
         app=SimpleNamespace(dirty=False,compute_generation=4,calculations=Mock(),pending_fire=None,fire_busy=False)
         App.mark(app);self.assertTrue(app.dirty);self.assertEqual(app.compute_generation,5);app.calculations.invalidate.assert_called_once()

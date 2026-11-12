@@ -33,7 +33,7 @@ class LatestCalculation:
                 result={'reachable':False,'reason':job.get('missing_reason','Falta un perfil aplicable.')} if job.get('profile_required') else self.solver(settings,cancel=cancel)
                 check_cancel(cancel)
                 preview=job.get('preview_power')
-                if not result.get('reachable') and not result.get('blocked') and preview and not settings.environment.get('learnedLaunch'):
+                if not job.get('profile_required') and not result.get('reachable') and not result.get('blocked') and preview and not settings.environment.get('learnedLaunch'):
                     from physics_extensions import trajectory
                     traces=trajectory(settings,preview,step=.06,include_deployment=True,cancel=cancel)
                     result['preview_paths']=[[(p[0],p[1]) for p in path] for path in traces['display_paths']];result['preview_power']=preview

@@ -22,7 +22,7 @@ Se corrigieron el estado «Calculando» que podía quedar retenido después de u
 
 ## Validación
 
-Pasan 750 pruebas de Python y siete suites de navegador. Las pruebas cubren cancelación, sustitución de solicitudes, ausencia de datos y recuperación, separación de entradas, geometría de las líneas, Q, Drag, aislamiento de sesiones y controles visibles del launcher. Los seis casos de física conservan la salida completa de la versión anterior. La comprobación de límites de controles se ejecutó con Tk en esta PC; la herramienta de capturas de Windows falló al iniciar, por lo que no se presenta una comparación visual en vivo ni una prueba de precisión en una partida nueva.
+Pasan 751 pruebas de Python y siete suites de navegador. Las pruebas cubren cancelación, sustitución de solicitudes, ausencia de datos y recuperación, separación de entradas, geometría de las líneas, Q, Drag, aislamiento de sesiones y controles visibles del launcher. Si falta identificar o calibrar un vehículo, tampoco se dibuja una curva de referencia usando la física anterior. Los seis casos de física conservan la salida completa de la versión anterior. La comprobación de límites de controles se ejecutó con Tk en esta PC; la herramienta de capturas de Windows falló al iniciar, por lo que no se presenta una comparación visual en vivo ni una prueba de precisión en una partida nueva.
 
 ## Actualización revisada
 
