@@ -7,7 +7,7 @@ from launcher import Launcher
 
 class TrainingColdStartTests(unittest.TestCase):
     def app(self,folder):
-        value=SimpleNamespace(closed=False,authenticated=True,engine=SimpleNamespace(app=SimpleNamespace(book=SimpleNamespace(path=Path(folder)/'book.json'))),training_instances=2,status=Mock(),root=Mock())
+        value=SimpleNamespace(closed=False,authenticated=True,training_mode=True,engine=SimpleNamespace(app=SimpleNamespace(book=SimpleNamespace(path=Path(folder)/'book.json'))),training_instances=2,status=Mock(),root=Mock())
         value.start_training=lambda:Launcher.start_training(value)
         return value
     def test_second_browser_opens_once_and_only_ready_sessions_start(self):

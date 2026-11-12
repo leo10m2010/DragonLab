@@ -18,18 +18,28 @@ from shortcuts import GameShortcuts
 
 BASE=pathlib.Path(sys.executable).parent if getattr(sys,'frozen',False) else pathlib.Path(__file__).parent
 ASSETS=pathlib.Path(getattr(sys,'_MEIPASS',BASE))
-BG='#11191c'; PANEL='#1a262b'; TEXT='#edf4f1'; MUTED='#a4b6b2'; GREEN='#72dfba'; ORANGE='#ffb86c'
+from theme import BG,PANEL,TEXT,MUTED,GREEN,ORANGE,LINE,OBSERVED,GREEN_HOVER
+
+def manual_input_issue(state,hero):
+    def finite(value):return isinstance(value,(int,float)) and not isinstance(value,bool) and math.isfinite(value)
+    if not finite(hero.get('angle')):return 'Esperando ángulo del juego'
+    wind=state.get('wind')
+    if not finite(wind) or wind<0 or wind and not finite(state.get('windAngle')):return 'Esperando viento del juego'
+    if isinstance(state.get('selectedShot'),bool) or state.get('selectedShot') not in (0,1,2):return 'Esperando modalidad del tiro'
+    return ''
 
 class App:
     def __init__(self,root,embedded=False):
         self.root=root;root.title('DragonLab');root.geometry('760x620');root.minsize(680,620);root.configure(bg=BG)
         self.s=Settings();self.vars={};self.image=None;self.photo=None;self.mode='target';self.result={};self.overlay=None
         self.screen_box=None;self.events=queue.Queue();self.live_stop=threading.Event();self.worker=None;self.live_players=[];self.last_live=0;self.live_camera=None
+        from latest_calculation import LatestCalculation
+        self.calculations=LatestCalculation(self.events.put);self.training_enabled=False
         self.profiles={};self.server=None;self.share_token=secrets.token_urlsafe(24);self.shared={};self.dirty=True;self.last_input='';self.selected_target=None;self.target_ids={}
         self.base=BASE;self.clone_id='dragonbound';self.adapter_config=None;self.browser_target=None;self.viewport=(800,600);self.last_fingerprint=None;self.last_computed=0;self.compute_generation=0;self.computing=False;self.direction='Auto'
         self.power_guide=None;self.guide_points=None;self.current_game_power=None;self.auto_visible=False;self.auto_enabled=True;self.auto_points=None;self.auto_guide_enabled=True;self.auto_target_id=None;self.target_hero_id=None
-        self.training_session=None;self.preferences_path=BASE/'preferencias.json';self.target_key='Ctrl';self.fire_key='Q';self.auto_shot_enabled=True;self.performance='Ligero';self.map_expanded=False;self.fire_busy=False;self.pending_fire=None;self.result_context=None;self.fire_shortcut_count=0;self.page_shortcuts_active=False;self.last_page_gesture=None;self.last_fire_message=None;self.fire_cancel=threading.Event();self.capture_dpr=1
-        self.player_tracker=PlayerTracker();self.compact=False;self.large_text=False;self.path_color='Menta';self.path_width=3
+        self.training_session=None;self.preferences_path=BASE/'preferencias.json';self.target_key='Ctrl';self.fire_key='Q';self.auto_shot_enabled=True;self.performance='Auto';self.map_expanded=False;self.fire_busy=False;self.pending_fire=None;self.result_context=None;self.fire_shortcut_count=0;self.page_shortcuts_active=False;self.last_page_gesture=None;self.last_fire_message=None;self.fire_cancel=threading.Event();self.capture_dpr=1
+        self.player_tracker=PlayerTracker();self.compact=False;self.large_text=False;self.path_color='Verde';self.path_width=3;self.unrecognized_mobile_id=None;self.live_input_issue=''
         from shot_review import ShotReview
         self.shot_review=ShotReview(BASE/'revision-tiros.json')
         from replay_store import ReplayStore
@@ -171,12 +181,17 @@ class App:
             from gunbound_profiles import measured_profile
             fit=measured_profile(self.s.mobile,self.s.selected_shot,self.s.wind)
         if self.s.mobile=='RANDOMIZER':fit=None
+        unknown=getattr(self,'unrecognized_mobile_id',None)
+        if unknown is not None:fit=None
         self.active_learned_profile=fit.get('learned_launch') if fit else None
         if self.active_learned_profile:self.s.environment['learnedLaunch']=self.active_learned_profile
         else:self.s.environment.pop('learnedLaunch',None)
         self.active_measured_profile=bool(fit)
-        self.profile_required=self.s.mobile=='RANDOMIZER' or self.clone_id=='gunbound-world' and not fit
+        self.profile_required=unknown is not None or self.s.mobile=='RANDOMIZER' or self.clone_id=='gunbound-world' and not fit
         self.profile_missing_reason='Camaleón: el proyectil cambia; no está identificado antes del tiro.' if self.s.mobile=='RANDOMIZER' else 'GunBound World: falta calibrar fuerza para este vehículo, tiro y viento.'
+        if unknown is not None:self.profile_missing_reason=f'Vehículo {unknown}: falta identificar su modelo antes de recomendar fuerza.'
+        if getattr(self,'live_input_issue',''):
+            self.profile_required=True;self.profile_missing_reason=self.live_input_issue
         if fit and fit.get('native_euler_step'):self.s.environment['nativeEulerStep']=fit['native_euler_step']
         else:self.s.environment.pop('nativeEulerStep',None)
         if not fit:fit=self.book.provisional(self.clone_id,self.s.mobile,self.s.selected_shot,self.s.wind,self.s.wind_angle)
@@ -208,9 +223,11 @@ class App:
     def field(self,p,label,key,value,row,minimum,maximum):
         tk.Label(p,text=label,bg=PANEL,fg=TEXT,font=('Bahnschrift',10)).grid(row=row,column=0,sticky='w',pady=4)
         v=tk.StringVar(value=str(value));self.vars[key]=v;v.trace_add('write',lambda *a:self.mark())
-        tk.Spinbox(p,textvariable=v,from_=minimum,to=maximum,increment=.1 if key in ('power_scale','wind_scale') else 1,width=9,bg=BG,fg=TEXT,insertbackground=TEXT,buttonbackground='#294353',relief='flat').grid(row=row,column=1,sticky='e',padx=(10,0),ipady=4)
+        tk.Spinbox(p,textvariable=v,from_=minimum,to=maximum,increment=.1 if key in ('power_scale','wind_scale') else 1,width=9,bg=BG,fg=TEXT,insertbackground=TEXT,buttonbackground=LINE,relief='flat').grid(row=row,column=1,sticky='e',padx=(10,0),ipady=4)
         p.columnconfigure(1,weight=1)
-    def mark(self):self.dirty=True
+    def mark(self):
+        self.dirty=True;self.compute_generation+=1
+        if getattr(self,'calculations',None):self.calculations.invalidate()
     def persist_preferences(self):
         self.preferences_path.write_text(json.dumps({'clone':self.clone_id,'adapter':self.adapter_config,'viewport':self.viewport,'target_key':self.target_key,'fire_key':self.fire_key,'auto_shot':self.auto_shot_enabled,'performance':self.performance,'trajectories':self.trajectory_enabled.get(),'guide':self.guide_enabled.get(),'compact':self.compact,'large_text':self.large_text,'path_color':self.path_color,'path_width':self.path_width},indent=2),encoding='utf-8')
     def profile_key(self):return self.clone_id+':'+self.mobile.get()
@@ -239,7 +256,7 @@ class App:
         return (self.clone_id,self.mobile.get(),self.s.selected_shot,self.target_hero_id,self.auto_target_id,
                 self.s.hero_x,self.s.hero_y,self.s.target_x,self.s.target_y,self.terrain_revision)
     def display_result(self):
-        if self.autonomous_training():return {}
+        if self.autonomous_training() or getattr(self,'live_input_issue',''):return {}
         if getattr(self,'result_context',None)!=self.visual_context():return {}
         if (self.dirty or self.computing) and time.monotonic()-self.last_computed>1.5:return {}
         return self.result
@@ -256,19 +273,19 @@ class App:
             size=(max(1,round(vw*scale)),max(1,round(vh*scale)))
             self.photo=ImageTk.PhotoImage(self.image.resize(size,Image.Resampling.LANCZOS));c.create_image(ox,oy,image=self.photo,anchor='nw')
         else:
-            for x in range(0,vw+1,50):c.create_line(ox+x*scale,oy,ox+x*scale,oy+vh*scale,fill='#1a2b38')
-            for y in range(0,vh+1,50):c.create_line(ox,oy+y*scale,ox+vw*scale,oy+y*scale,fill='#1a2b38')
+            for x in range(0,vw+1,50):c.create_line(ox+x*scale,oy,ox+x*scale,oy+vh*scale,fill=LINE)
+            for y in range(0,vh+1,50):c.create_line(ox,oy+y*scale,ox+vw*scale,oy+y*scale,fill=LINE)
             c.create_text(ox+vw/2*scale,oy+35*scale,text='El mapa aparecerá al comenzar la partida',font=('Consolas',10),fill=MUTED)
         if self.has_position_data and self.trajectory_enabled.get() and self.planned_paths():
             for index,path in enumerate(self.planned_paths()):
                 points=[v for p in path for v in xy(*p)]
-                if len(points)>=4:c.create_line(*points,fill=GREEN if index==0 else '#559f90',width=2.5 if index==0 else 1.5,dash=(5,4) if self.result.get('approximate') else None)
+                if len(points)>=4:c.create_line(*points,fill=GREEN if index==0 else OBSERVED,width=self.path_width if index==0 else max(1,self.path_width-1),capstyle='round',joinstyle='round')
             if self.result.get('reachable'):
                 end=self.result['end'];x,y=xy(*end);c.create_oval(x-5,y-5,x+5,y+5,outline=GREEN,width=2)
         if self.trajectory_enabled.get():
             for path in self.observed_paths.values():
                 pts=[v for point in path for v in xy(*point)]
-                if len(pts)>=4:c.create_line(*pts,fill='#73bcff',width=2)
+                if len(pts)>=4:c.create_line(*pts,fill=OBSERVED,width=2,capstyle='round',joinstyle='round')
         positions=[(self.s.hero_x,self.s.hero_y,'TÚ',GREEN),(self.s.target_x,self.s.target_y,'OBJETIVO',ORANGE)] if self.has_position_data else []
         if self.has_position_data:
             for i,p in enumerate(enemies(self.live_players,self.target_hero_id),1):
@@ -339,7 +356,7 @@ class App:
             return
         if not self.overlay:self.overlay=TrajectoryOverlay(getattr(self,'ui_parent',self.root))
         planned=self.planned_paths()
-        self.overlay.update(self.screen_box,self.viewport,self.projected,planned,self.observed_paths,True,players=self.live_players,target_id=self.auto_target_id,hero_id=self.target_hero_id,weather=self.s.environment.get('activeWeathers',[]),style={'color':MUTED if self.dirty or self.computing else '#80cfff' if self.path_color=='Azul' else GREEN,'width':self.path_width,'font_size':13 if self.large_text else 11,'target_key':self.target_key,'events':self.display_result().get('interactions',[]),'weather_name':getattr(self,'weather_current','')})
+        self.overlay.update(self.screen_box,self.viewport,self.projected,planned,self.observed_paths,True,players=self.live_players,target_id=self.auto_target_id,hero_id=self.target_hero_id,weather=self.s.environment.get('activeWeathers',[]),style={'color':MUTED if self.dirty or self.computing else TEXT if self.path_color=='Blanco' else '#80cfff' if self.path_color=='Azul' else GREEN,'width':self.path_width,'font_size':13 if self.large_text else 11,'target_key':self.target_key,'events':self.display_result().get('interactions',[]),'weather_name':getattr(self,'weather_current','')})
     def hide_overlay(self):
         if self.overlay:self.overlay.close();self.overlay=None
     def copy_power(self):
@@ -352,7 +369,7 @@ class App:
         from product_status import calibration_label
         label,state=calibration_label(self)
         r={**self.display_result(),'guide_label':label,'guide_state':state};updating=self.dirty or self.computing
-        if hasattr(self,'force_canvas'):draw_force(self.force_canvas,r,self.s.max_power,self.current_game_power,updating)
+        if hasattr(self,'force_canvas') and not getattr(self,'embedded',False):draw_force(self.force_canvas,r,self.s.max_power,self.current_game_power,updating)
         if self.clone_id=='gunbound-world' and getattr(self,'profile_required',True) and not r.get('reachable') and not r.get('blocked') and not updating:
             from product_status import pending_calibration
             title,message=pending_calibration(self);r={**r,'guide_message':title+' · '+message}
@@ -442,7 +459,7 @@ class App:
                         shot_events=BrowserShotEvents(client.endpoint,client.target['id'],capture.gesture_owner,lambda:self.fire_key,lambda gesture:self.events.put({'status':'fire-gesture','gesture':gesture}))
                         shot_events.start();self.browser_shot_events=shot_events
                     while not stop.is_set():
-                        interval,capture.capture_interval,client.terrain_interval=governor.intervals(self.performance,active=sample.get('status')=='live',own_turn=str(sample.get('activePlayer'))==str(sample.get('heroId')))
+                        interval,capture.capture_interval,client.terrain_interval=governor.intervals(self.performance,active=sample.get('status')=='live',own_turn=str(sample.get('activePlayer'))==str(sample.get('heroId')),manual=not self.autonomous_training())
                         auto=capture.read(capture=self.preview_visible,fire_key=self.fire_key) if clone in ('dragonbound','gunbound-world') else {}
                         if clone=='dragonbound' and not auto.get('geometry',{}).get('active'):
                             sample={'status':'waiting','reason':'Navegador conectado. La captura aparecerá al empezar la partida.'}
@@ -492,6 +509,8 @@ class App:
         return stamp[3]>0 and -.05<=time.time()-gesture['at']/1000<.8
     def apply_live(self,d):
         self.learning_error=d.get('learning_error','');self.reader_status=d.get("status");self.reader_reason=d.get("reason","");self.weather_current=d.get('weatherCurrent','')
+        raw_hero=find_hero(normalize_players(d.get('players',[])),d.get('heroId')) or {}
+        input_issue=manual_input_issue(d,raw_hero) if d.get('status')=='live' else ''
         if d.get('status')=='live':d['players']=self.player_tracker.update(d.get('players',[]))
         else:self.player_tracker.reset()
         try:
@@ -525,6 +544,7 @@ class App:
         if changed or self.book.revision!=revision:self.profile_stamp=None;self.last_fingerprint=None;self.mark()
         self.apply_auto(d)
         if d['status']!='live':
+            self.live_input_issue=''
             self.last_page_gesture=None;self.page_shortcuts_active=False
             self.result={};self.power.config(text='—');self.details.config(text='Abre el juego e inicia una partida.\nLa guía aparecerá automáticamente.');self.s.environment={};self.draw_force()
             self.last_live=0;self.live_camera=None;self.live_look=None;self.live_launch_offset=None;self.s.launch_offset=None;self.has_position_data=False;self.game_visible=False;self.current_game_power=None;self.hide_overlay();self.trails.reset();self.observed_paths={};self.last_fingerprint=None;self.auto_target_id=None;self.target_hero_id=None;self.selected_target=None;self.live_players=[];self.target_ids={};self.target_name.set('Objetivo automático');self.target_box.config(values=['Objetivo automático'])
@@ -553,8 +573,17 @@ class App:
         self.live_camera=d.get('camera')
         self.live_look=hero.get('look');self.s.hero_x=hero['x'];self.s.hero_y=hero['y']
         self.s.target_x=target['x'];self.s.target_y=target['y']
-        mid=hero.get('mobile')
+        issue=input_issue
+        self.live_input_issue=issue
+        if issue:
+            from control_lifecycle import invalidate_guide
+            invalidate_guide(self);self.computing=False;self.dirty=False;self.last_fingerprint=None
+            self.power.config(text='—');self.details.config(text=issue);self.footer.config(text=issue,fg=MUTED)
+            self.draw_force();self.draw_overlay();return
+        mid=raw_hero.get('mobile')
         detected_mobile=mobile_name(mid)
+        self.unrecognized_mobile_id=(mid if mid is not None else 'sin identificar') if detected_mobile is None else None
+        if detected_mobile=='RANDOM':self.unrecognized_mobile_id=mid
         if detected_mobile and self.mobile.get()!=detected_mobile:self.mobile.set(detected_mobile);self.change_mobile()
         if isinstance(hero.get('angle'),(int,float)) and math.isfinite(hero['angle']):self.set_live_value('angle',(hero['angle']+180)%360-180)
         if d.get('wind') is not None:self.set_live_value('wind',d['wind'])
@@ -576,7 +605,7 @@ class App:
         underground=self.book.underground_gravity(self.clone_id)
         if underground:self.s.environment['nakUndergroundGravity']=underground
         if isinstance(terrain,dict):self.s.environment['mapHeight']=terrain.get('height',len(terrain.get('surface',[]))) or 1200
-        self.vehicle_label.config(text=self.mobile.get())
+        self.vehicle_label.config(text=f'Vehículo {self.unrecognized_mobile_id} · pendiente' if self.unrecognized_mobile_id is not None else self.mobile.get())
         black=any((w.get('resolvedTypeId') or w.get('typeId'))==5 for w in self.s.environment['activeWeathers'])
         if not self.fire_busy and time.monotonic()>getattr(self,'notice_until',0):
             self.footer.config(text='Negro: reduce el daño del tiro.' if black else 'La guía se muestra sobre la ventana del juego.',fg=MUTED)
@@ -584,7 +613,7 @@ class App:
         if terrain is not self.last_terrain:
             if terrain!=self.last_terrain:self.terrain_revision+=1
             self.last_terrain=terrain
-        fingerprint=(tuple(hero.get(k) for k in ('id','x','y','angle','body','look','mobile')),target['id'],target['x'],target['y'],self.s.selected_shot,d.get('wind'),d.get('windAngle'),self.terrain_revision,json.dumps(self.s.environment['activeWeathers'],sort_keys=True),self.profile_stamp)
+        fingerprint=(tuple(hero.get(k) for k in ('id','x','y','angle','body','look','mobile')),target['id'],target['x'],target['y'],self.s.selected_shot,d.get('wind'),d.get('windAngle'),self.terrain_revision,json.dumps(self.s.environment['activeWeathers'],sort_keys=True),self.book.revision,self.learned_launches.revision)
         if self.s.mobile=='NAK' and self.s.selected_shot==2:fingerprint+=(tuple((p['id'],p['x'],p['y'],p.get('dead')) for p in ps),)
         if fingerprint!=self.last_fingerprint:self.last_fingerprint=fingerprint;self.mark()
         self.draw();self.draw_overlay()
@@ -706,7 +735,8 @@ class App:
                 if event.get('hero')==self.target_hero_id and self.auto_enabled and self.has_position_data and self.last_live and time.monotonic()-self.last_live<4:self.shortcut_count+=1;self.cycle_target()
                 continue
             if event.get('status')=='calculated':
-                self.computing=False
+                if event['generation']==self.compute_generation:
+                    self.computing=False
                 if event['generation']==self.compute_generation and not self.dirty:
                     self.result=event['result'];self.result_context=event['context'];self.last_solve_seconds=event.get('solve_seconds');self.show_result(event.get('error'))
                     if self.result.get('blocked'):
@@ -716,25 +746,16 @@ class App:
         if self.last_live and time.monotonic()-self.last_live>4:
             self.status.config(text='●  Esperando datos',fg=MUTED);self.auto_visible=False;self.hide_overlay();self.hide_power_guide()
             if self.power_guide:self.power_guide.draw({},self.s.max_power)
-        if self.dirty and not self.computing and not self.autonomous_training():
-            self.dirty=False;self.compute_generation+=1
+        if self.dirty and not self.autonomous_training() and (self.has_position_data or not self.auto_enabled):
             try:
-                settings=replace(self.read(),environment=dict(self.s.environment));profile_required=getattr(self,'profile_required',False);missing_reason=getattr(self,'profile_missing_reason','Falta un perfil aplicable.');generation=self.compute_generation;context=self.visual_context();self.computing=True
-                self.power.config(text='…')
+                settings=replace(self.read(),environment=dict(self.s.environment));profile_required=getattr(self,'profile_required',False);missing_reason=getattr(self,'profile_missing_reason','Falta un perfil aplicable.');self.dirty=False;self.compute_generation+=1;generation=self.compute_generation;context=self.visual_context();self.computing=True
+                if not self.result:self.power.config(text='…')
                 self.draw_force()
                 if self.overlay:self.draw_overlay()
                 preview_power=self.current_game_power if isinstance(self.current_game_power,(int,float)) and 1<=self.current_game_power<=settings.max_power else None
-                def calculate(settings=settings,generation=generation,preview_power=preview_power,context=context,profile_required=profile_required,missing_reason=missing_reason):
-                    try:
-                        started=time.perf_counter();result={'reachable':False,'reason':missing_reason} if profile_required else solve(settings);solve_seconds=time.perf_counter()-started
-                        if not result.get('reachable') and not result.get('blocked') and preview_power and not settings.environment.get('learnedLaunch'):
-                            from physics_extensions import trajectory
-                            preview=trajectory(settings,preview_power,step=.06,include_deployment=True)
-                            result['preview_paths']=[[(p[0],p[1]) for p in path] for path in preview['display_paths']];result['preview_power']=preview_power
-                        self.events.put({'status':'calculated','generation':generation,'context':context,'result':result,'solve_seconds':solve_seconds})
-                    except Exception as e:self.events.put({'status':'calculated','generation':generation,'context':context,'result':{},'error':str(e)})
-                threading.Thread(target=calculate,daemon=True).start()
-            except Exception as e:self.result={};self.show_result(str(e))
+                self.calculations.submit({'settings':settings,'generation':generation,'context':context,'preview_power':preview_power,'profile_required':profile_required,'missing_reason':missing_reason})
+            except Exception as e:
+                self.computing=False;self.dirty=False;self.result_context=None;self.result={};self.show_result(str(e))
         self.process_pending_fire()
         if (self.dirty or self.computing) and time.monotonic()-self.last_computed>1.5:
             self.draw_force();self.draw_overlay()
@@ -745,11 +766,17 @@ class App:
             self.diagnostic_clock=time.monotonic()
             health={'version':PROGRAM_VERSION,'training':{'active':bool(self.training_session and self.training_session.running),'message':self.training_session.status if self.training_session else '', 'shots':self.training_session.shots if self.training_session else 0},'weather_validation':getattr(self,'weather_validation',[]),'learning_error':getattr(self,'learning_error',''),'learning_status':self.book.message,'learning_samples':len(self.book.records.get(self.book.key(self.clone_id,self.s.mobile,self.s.selected_shot),{}).get('samples',[])),'reader_status':getattr(self,'reader_status',None),'reader_reason':getattr(self,'reader_reason',''),'result_reason':self.result.get('reason'),'guide_visible':bool(self.power_guide and self.power_guide.win.winfo_viewable()),'game_visible':self.game_visible,'bar_detected':bool(self.guide_points),'updated':time.time(),'connected':bool(self.last_live and time.monotonic()-self.last_live<4),'map_detected':bool(self.s.environment.get('terrain')),'camera_detected':bool(self.live_camera and self.live_camera.get('renderWidth')),'weather':[w.get('resolvedTypeId') or w.get('typeId') for w in self.s.environment.get('activeWeathers',[])],'players_detected':len(self.live_players),'overlay_visible':bool(self.overlay and self.overlay.visible),'power':self.result.get('power'),'computing':self.computing,'last_error':getattr(self,'last_error',None),'target':self.auto_target_id,'enemies_detected':len(enemies(self.live_players,self.target_hero_id)),'preview_capture':self.preview_visible,'solve_seconds':getattr(self,'last_solve_seconds',None),'shortcut_events':self.shortcut_count,'fire_shortcut_events':self.fire_shortcut_count,'fire_busy':self.fire_busy,'fire_pending':bool(self.pending_fire),'last_fire_message':self.last_fire_message,'page_shortcuts_active':self.page_shortcuts_active,'shortcut_ready':bool(getattr(self,'shortcuts',None) and self.shortcuts.ready),'shortcut_error':getattr(getattr(self,'shortcuts',None),'error',None)}
             health['manual_learning']=self.learned_launches.summary();health['learned_launch']=getattr(self,'active_learned_profile',None)
+            health['manual_calculations']=self.calculations.summary()
             try:(BASE/'estado-live.json').write_text(json.dumps(health,indent=2),encoding='utf-8')
             except OSError:pass
 
     def compute(self):
-        self.compute_generation+=1;self.result={'reachable':False,'reason':getattr(self,'profile_missing_reason','Falta un perfil aplicable.')} if getattr(self,'profile_required',False) else solve(self.read());self.result_context=self.visual_context();self.show_result();return self.result
+        if getattr(self,'calculations',None):self.calculations.invalidate()
+        settings=self.read()
+        self.compute_generation+=1;self.computing=False;self.dirty=True
+        self.result={}
+        self.result={'reachable':False,'reason':getattr(self,'profile_missing_reason','Falta un perfil aplicable.')} if getattr(self,'profile_required',False) else solve(settings)
+        self.dirty=False;self.result_context=self.visual_context();self.show_result();return self.result
     def show_result(self,error=None):
         if not self.has_position_data and self.auto_enabled:
             self.result={};self.power.config(text='—');self.details.config(text='Abre el juego e inicia una partida.\nLa guía aparecerá automáticamente.');self.draw();self.draw_force();return
@@ -760,7 +787,7 @@ class App:
             if self.result.get('reachable'):
                 r=self.result
                 if self.clone_id=='gunbound-world':r['quality']='Salida medida · viento aproximado' if not getattr(self,'profile_required',True) else 'GunBound World: perfil sin calibrar';r['approximate']=True
-                self.power.config(text=str(r['power']),fg=ORANGE if r['approximate'] else GREEN)
+                self.power.config(text=str(r['power']),fg=GREEN)
                 cluster=f' · {r.get("cluster_hits",0)}/{r.get("projectile_count",3)} bolas próximas' if self.s.mobile=="TRICO" and self.s.selected_shot==1 else ""
                 self.details.config(text=f'{"Fuerza aproximada" if r["approximate"] else "Fuerza recomendada"}\n{self.s.mobile} · Tiro {self.s.selected_shot+1 if self.s.selected_shot<2 else "SS"}{cluster}')
             else:
@@ -774,6 +801,7 @@ class App:
         refresh(self)
         self.draw();self.draw_overlay();self.draw_force()
     def close(self):
+        if getattr(self,'calculations',None):self.calculations.close()
         if getattr(self,'training_session',None):
             self.training_session.stop()
             if self.training_session.thread:self.training_session.thread.join(timeout=1)

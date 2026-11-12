@@ -40,7 +40,8 @@ class MenuControlTests(unittest.TestCase):
             win=open_library(app);win.withdraw();win.update_idletasks()
             from rounded_controls import RoundedTable
             table=next(child for child in win.winfo_children() if isinstance(child,RoundedTable))
-            self.assertEqual(len(table.get_children()),51)
+            self.assertEqual(len(table.get_children()),66)
+            for mobile in ('FOX','ELECTRICO','KNIGHT','DRAGON','DRAGON2'):self.assertTrue(table.exists('dragonbound:'+mobile+':0'))
             self.assertIn('pendiente',table.rows['dragonbound:NAK:1'].cget('text'))
             self.assertFalse(hasattr(app,'training_session'))
             win.destroy()

@@ -5,6 +5,7 @@ from tkinter import ttk
 from rounded_widgets import RoundedPanel,RoundedButton
 from shortcuts import KEYS,validate_bindings
 from ui_shell import BG,PANEL,TEXT,MUTED,GREEN,refresh,apply_layout
+from theme import GREEN_HOVER,ORANGE
 
 def open_settings(app):
     existing=getattr(app,'settings_window',None)
@@ -12,7 +13,7 @@ def open_settings(app):
     win=tk.Toplevel(getattr(app,'ui_parent',app.root));app.settings_window=win;win.title('DragonLab · Ajustes');height=min(720,max(540,win.winfo_screenheight()-100));win.geometry(f'620x{height}');win.minsize(620,min(640,height));win.configure(bg=BG)
     tk.Label(win,text='Ajustes',bg=BG,fg=TEXT,font=('Bahnschrift',25,'bold')).pack(anchor='w',padx=26,pady=(18,4))
     tk.Label(win,text='Guía y controles',bg=BG,fg=MUTED,font=('Bahnschrift',11)).pack(anchor='w',padx=26,pady=(0,14))
-    feedback=tk.Label(win,text='',bg=BG,fg='#ffb86c',font=('Bahnschrift',10),wraplength=440);feedback.pack(fill='x',padx=26)
+    feedback=tk.Label(win,text='',bg=BG,fg=ORANGE,font=('Bahnschrift',10),wraplength=440);feedback.pack(fill='x',padx=26)
     actions=tk.Frame(win,bg=BG);actions.pack(side='bottom',fill='x',padx=26,pady=12)
     holder=tk.Frame(win,bg=BG);holder.pack(fill='both',expand=True)
     viewport=tk.Canvas(holder,bg=BG,highlightthickness=0);viewport.pack(side='left',fill='both',expand=True)
@@ -38,7 +39,8 @@ def open_settings(app):
     colors=tk.StringVar(value=app.path_color);width=tk.StringVar(value=str(app.path_width))
     visual=tk.Frame(display,bg=PANEL);visual.pack(fill='x',padx=16,pady=(4,8))
     tk.Label(visual,text='Líneas',bg=PANEL,fg=TEXT,font=('Bahnschrift',11)).pack(side='left')
-    RoundedChoice(visual,textvariable=colors,values=['Menta','Azul'],state='readonly',width=10).pack(side='left',padx=14)
+    if colors.get()=='Menta':colors.set('Verde')
+    RoundedChoice(visual,textvariable=colors,values=['Verde','Blanco','Azul'],state='readonly',width=10).pack(side='left',padx=14)
     tk.Label(visual,text='Grosor',bg=PANEL,fg=TEXT,font=('Bahnschrift',11)).pack(side='left')
     RoundedChoice(visual,textvariable=width,values=['1','2','3','4','5'],state='readonly',width=4).pack(side='left',padx=14)
     keys=section('ATAJOS')
@@ -60,8 +62,9 @@ def open_settings(app):
     from learning_library_ui import open_library
     RoundedButton(training,text='Ver carros y balas aprendidas',command=lambda:open_library(app)).pack(anchor='w',padx=16,pady=(8,0))
     tk.Label(training,text='Tus tiros manuales también mejoran la guía automáticamente.',bg=PANEL,fg=MUTED,font=('Bahnschrift',10),wraplength=490).pack(anchor='w',padx=16,pady=6)
-    from training_ui import open_training
-    RoundedButton(training,text='Entrenamiento automático',command=lambda:open_training(app)).pack(anchor='w',padx=16,pady=8)
+    if getattr(app,'training_enabled',False):
+        from training_ui import open_training
+        RoundedButton(training,text='Entrenamiento automático',command=lambda:open_training(app)).pack(anchor='w',padx=16,pady=8)
     def save():
         try:
             validate_bindings(target.get(),fire.get())
@@ -74,5 +77,5 @@ def open_settings(app):
         from settings_panel import open_settings as tools
         win.destroy();tools(app)
     if not getattr(app,'embedded',False):app.button(actions,'Opciones avanzadas',advanced).pack(side='left')
-    save_button=app.button(actions,'Guardar cambios',save);save_button.configure(bg=GREEN,fg=BG,activebackground='#9beacd',activeforeground=BG);save_button.pack(side='right')
+    save_button=app.button(actions,'Guardar cambios',save);save_button.configure(bg=GREEN,fg=BG,activebackground=GREEN_HOVER,activeforeground=BG);save_button.pack(side='right')
     win.bind('<Escape>',lambda e:win.destroy());return win

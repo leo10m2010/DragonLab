@@ -4,6 +4,7 @@ from core import PROFILES,fit_calibration
 from calibration_validation import validated_fit,current_fit
 
 def mobile_name(value):
+    if isinstance(value,bool):return None
     if isinstance(value,int) and 0<=value<len(PROFILES):return list(PROFILES)[value]
     if isinstance(value,str):
         name=value.upper().replace('.','').replace(' ','')

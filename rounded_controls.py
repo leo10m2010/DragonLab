@@ -2,7 +2,7 @@
 import tkinter as tk
 from tkinter import font as tkfont
 from rounded_widgets import rounded,RoundedButton,RoundedPanel
-TEXT='#edf4f1';MUTED='#a4b6b2';GREEN='#72dfba';FIELD='#25383e'
+from theme import BG,PANEL,TEXT,MUTED,GREEN,FIELD,LINE
 
 class RoundedChoice(tk.Canvas):
     def __init__(self,master,textvariable=None,values=(),width=18,font=('Bahnschrift',11),state='readonly',**kwargs):
@@ -96,10 +96,10 @@ class RoundedChoice(tk.Canvas):
     def render_menu(self):
         c=self.menu_canvas;c.delete('all');height=self.visible_count*self.row_height+16;w=self.menu_width
         self.start=max(0,min(self.start,len(self.values)-self.visible_count))
-        rounded(c,0,0,w,height,18,fill='#17282e',outline='#3b555c')
+        rounded(c,0,0,w,height,18,fill=PANEL,outline=LINE)
         for row,index in enumerate(range(self.start,self.start+self.visible_count)):
             y=8+row*self.row_height
-            if index==self.active:rounded(c,6,y,w-12,self.row_height,14,fill='#2b454b',outline='')
+            if index==self.active:rounded(c,6,y,w-12,self.row_height,14,fill=FIELD,outline='')
             value=str(self.values[index]);font=tkfont.Font(self,font=self.typeface)
             while value and font.measure(value)>w-44:value=value[:-1]
             if value!=str(self.values[index]):value=value[:-1]+'…'
@@ -149,8 +149,8 @@ class RoundedSwitch(tk.Canvas):
         return 'break'
     def draw(self):
         self.delete('all');on=self.variable.get()
-        rounded(self,2,5,42,24,12,fill=GREEN if on else '#3b5057',outline=TEXT if self.focused else '')
-        x=31 if on else 15;self.create_oval(x-8,9,x+8,25,fill='#11191c' if on else TEXT,outline='')
+        rounded(self,2,5,42,24,12,fill=GREEN if on else LINE,outline=TEXT if self.focused else '')
+        x=31 if on else 15;self.create_oval(x-8,9,x+8,25,fill=BG if on else TEXT,outline='')
         self.create_text(56,17,text=self.text,anchor='w',fill=TEXT,font=self.typeface)
 
 class RoundedEntry(RoundedPanel):
@@ -180,7 +180,7 @@ class RoundedScroll(tk.Canvas):
     def set(self,first,last):self.first=float(first);self.last=float(last);self.draw()
     def draw(self):
         self.delete('all');h=self.winfo_height()
-        if self.last-self.first<.999:rounded(self,4,max(3,h*self.first),4,max(18,h*(self.last-self.first)-6),2,fill='#607b82',outline='')
+        if self.last-self.first<.999:rounded(self,4,max(3,h*self.first),4,max(18,h*(self.last-self.first)-6),2,fill=MUTED,outline='')
     def move(self,event):
         if self.command:self.command('moveto',max(0,min(1,event.y/max(1,self.winfo_height())-(self.last-self.first)/2)))
 
@@ -189,10 +189,10 @@ class RoundedTabs(tk.Frame):
         super().__init__(master,bg=master.cget('bg'));self.buttons=[];self.pages=[];self.current=None
         self.header=tk.Frame(self,bg=self.cget('bg'));self.header.pack(fill='x',pady=(0,10))
         self.surface=tk.Canvas(self,bg=self.cget('bg'),highlightthickness=0);self.surface.pack(fill='both',expand=True)
-        self.content=tk.Frame(self.surface,bg='#1a262b');self.content_id=self.surface.create_window(12,12,window=self.content,anchor='nw')
+        self.content=tk.Frame(self.surface,bg=PANEL);self.content_id=self.surface.create_window(12,12,window=self.content,anchor='nw')
         self.surface.bind('<Configure>',self.resize)
     def resize(self,event=None):
-        w=max(25,self.surface.winfo_width());h=max(25,self.surface.winfo_height());color=self.pages[self.current].cget('bg') if self.current is not None else '#1a262b'
+        w=max(25,self.surface.winfo_width());h=max(25,self.surface.winfo_height());color=self.pages[self.current].cget('bg') if self.current is not None else PANEL
         self.content.configure(bg=color);self.surface.itemconfigure(self.content_id,width=w-24,height=h-24)
         stamp=(w,h,color)
         if getattr(self,'shape_stamp',None)!=stamp:
@@ -204,7 +204,7 @@ class RoundedTabs(tk.Frame):
         if self.current is None:self.select(index)
     def select(self,index):
         if self.current is not None:self.pages[self.current].pack_forget();self.buttons[self.current].config(bg=FIELD,fg=TEXT)
-        self.current=index;self.pages[index].pack(in_=self.content,fill='both',expand=True);self.buttons[index].config(bg=GREEN,fg='#11191c')
+        self.current=index;self.pages[index].pack(in_=self.content,fill='both',expand=True);self.buttons[index].config(bg=GREEN,fg=BG)
         self.resize()
 
 class RoundedTable(tk.Frame):
@@ -232,7 +232,7 @@ class RoundedTable(tk.Frame):
     def choose(self,iid):
         for key in self.selected:
             if key in self.rows:self.rows[key].config(bg=FIELD,fg=TEXT)
-        self.selected=(iid,);self.rows[iid].config(bg='#37544e',fg=GREEN)
+        self.selected=(iid,);self.rows[iid].config(bg=LINE,fg=GREEN)
     def selection(self):return self.selected
     def get_children(self):return tuple(self.order)
     def delete(self,*ids):

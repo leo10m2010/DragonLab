@@ -3,7 +3,7 @@ import tkinter as tk
 from rounded_controls import RoundedChoice,RoundedSwitch,RoundedEntry,RoundedTabs,RoundedTable,RoundedScroll
 from tkinter import ttk
 from rounded_widgets import RoundedPanel,RoundedButton
-BG='#11191c';PANEL='#1a262b';TEXT='#edf4f1';MUTED='#a4b6b2';GREEN='#72dfba';ORANGE='#ffb86c';LINE='#2d4147'
+from theme import BG,PANEL,TEXT,MUTED,GREEN,ORANGE,LINE,FIELD,GREEN_HOVER
 
 def build(app,prefs):
     root=app.root
@@ -13,7 +13,7 @@ def build(app,prefs):
     tk.Label(brand,text='DragonLab',font=('Bahnschrift',26,'bold'),fg=TEXT,bg=BG).pack(anchor='w')
     app.brand_caption=tk.Label(brand,text='GUÍA DE TIRO',font=('Bahnschrift',9),fg=MUTED,bg=BG);app.brand_caption.pack(anchor='w',pady=(2,0))
     app.button(header,'Ajustes',app.open_settings).pack(side='right',padx=(10,0))
-    open_button=app.button(header,'Abrir juego',app.open_game_browser);open_button.configure(bg=GREEN,fg=BG,activeforeground=BG,activebackground='#9beacd');open_button.pack(side='right')
+    open_button=app.button(header,'Abrir juego',app.open_game_browser);open_button.configure(bg=GREEN,fg=BG,activeforeground=BG,activebackground=GREEN_HOVER);open_button.pack(side='right')
     state=tk.Frame(root,bg=BG);state.pack(fill='x',padx=26,pady=(0,14))
     app.status=tk.Label(state,text='●  Esperando partida',font=('Bahnschrift',11),fg=MUTED,bg=BG);app.status.pack(side='left')
     app.connect=app.button(state,'Pausar captura',app.toggle_live);app.connect.configure(bg=BG,fg=MUTED,pady=3);app.connect.pack(side='right')
@@ -25,7 +25,7 @@ def build(app,prefs):
     tk.Label(target,text='OBJETIVO',font=('Bahnschrift',9),fg=MUTED,bg=PANEL).pack(anchor='w',pady=(0,5))
     app.target_name=tk.StringVar(value='Automático');app.target_box=RoundedChoice(target,textvariable=app.target_name,values=['Objetivo automático'],state='readonly',width=24);app.target_box.pack();app.target_box.bind('<<ComboboxSelected>>',lambda e:app.select_target())
     app.trajectory_enabled=tk.BooleanVar(value=bool(prefs.get('trajectories',True)));app.guide_enabled=tk.BooleanVar(value=bool(prefs.get('guide',True)));app.auto_guide_enabled=app.guide_enabled.get()
-    app.canvas=tk.Canvas(root,bg='#0c1518',highlightthickness=0);app.canvas.bind('<Button-1>',app.click);app.canvas.bind('<Configure>',lambda e:app.draw())
+    app.canvas=tk.Canvas(root,bg=BG,highlightthickness=0);app.canvas.bind('<Button-1>',app.click);app.canvas.bind('<Configure>',lambda e:app.draw())
     summary_panel=RoundedPanel(root,PANEL);app.summary_panel=summary_panel;summary_panel.pack(fill='x',padx=26);summary=summary_panel.body
     top=tk.Frame(summary,bg=PANEL);top.pack(fill='x',padx=20,pady=(18,0))
     tk.Label(top,text='FUERZA',font=('Bahnschrift',10,'bold'),fg=MUTED,bg=PANEL).pack(side='left')

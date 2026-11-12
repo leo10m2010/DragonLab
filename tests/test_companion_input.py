@@ -164,6 +164,7 @@ class OverlayTests(unittest.TestCase):
         removed=[]
         a=TrajectoryOverlay.__new__(TrajectoryOverlay)
         a.lines={'aim:0':42};a.marks={};a.labels={};a.visible=True;a.key=(0,0,800,516)
+        a.line_stamps={};a.mark_stamps={};a.label_stamps={}
         a.canvas=type('Canvas',(),{'delete':lambda self,item:removed.append(item)})()
         a.update((0,0,800,600),(800,600),lambda x,y:(x,y),
                  [[(float('nan'),0),(None,None)]],{},True)

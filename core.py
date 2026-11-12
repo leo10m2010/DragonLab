@@ -6,6 +6,7 @@ and application code are original. Special projectiles need calibration.
 from dataclasses import dataclass, asdict, field, replace, fields
 import math
 from wind_models import acceleration as wind_acceleration
+from solve_control import SolveCancelled,check_cancel
 
 # name: gravity, wind coupling, speed per UI power, muzzle angle, muzzle radius
 PROFILES = {
@@ -108,14 +109,15 @@ def point(s,power,t):
     if s.quantize_power:speed=math.trunc(speed)
     return x+side*speed*math.cos(a)*t+.5*ax*t*t,y-speed*math.sin(a)*t+.5*ay*t*t
 
-def solve(s):
+def solve(s,cancel=None):
+    check_cancel(cancel)
     limits=s.environment.get('learnedLaunch')
-    if not limits:return _solve(s)
+    if not limits:return _solve(s,cancel=cancel)
     bounds=limits.get('power_range');horizon=limits.get('max_flight_seconds')
     if limits.get('key')!=f'dragonbound:{s.mobile}:{s.selected_shot}' or not isinstance(bounds,list) or len(bounds)!=2 or not all(isinstance(v,(int,float)) and math.isfinite(v) for v in bounds) or not 1<=bounds[0]<bounds[1]<=400 or not isinstance(horizon,(int,float)) or not math.isfinite(horizon) or not 0<horizon<=20:
         return {'reachable':False,'reason':'Los límites del modelo aprendido no son válidos.'}
     constrained=replace(s,max_time=min(s.max_time,horizon),max_power=min(s.max_power,math.floor(bounds[1])))
-    result=_solve(constrained)
+    result=_solve(constrained,cancel=cancel)
     # The extended search and its terrain preview obey the same closed range.
     for key in ('power','guide_power','preview_power'):
         power=result.get(key)
@@ -123,11 +125,12 @@ def solve(s):
             return {'reachable':False,'reason':'Este ángulo queda fuera de la fuerza comprobada; cambia el ángulo.','learned_launch':limits}
     return {**result,'learned_launch':limits}
 
-def _solve(s):
+def _solve(s,cancel=None):
     finite_settings(s)
+    check_cancel(cancel)
     if s.environment or s.selected_shot or s.quantize_power or s.speed_offset or s.angle_offset or s.is_backshot or s.mobile in ('BIGFOOT','DRAGON'):
         from physics_extensions import solve_extended
-        return solve_extended(s)
+        return solve_extended(s,cancel=cancel)
     x,y,side=launch(s); dx=s.target_x-x;dy=s.target_y-y
     a=math.radians(s.angle);ax,ay=acceleration(s)
     c=math.cos(a);sn=math.sin(a)
@@ -146,7 +149,16 @@ def _solve(s):
     end=point(s,power,t)
     error=math.hypot(end[0]-s.target_x,end[1]-s.target_y)
     count=max(25,min(400,int(t/.02)))
-    path=[point(s,power,t*i/count) for i in range(count+1)]
+    # launch/profile/angle are constant along this path. Preserve the same
+    # arithmetic as point(), without recomputing its geometry for every point.
+    actual_speed=max(0,power*s.power_scale+s.speed_offset)
+    if s.quantize_power:actual_speed=math.trunc(actual_speed)
+    path=[]
+    for i in range(count+1):
+        if i%32==0:check_cancel(cancel)
+        clock=t*i/count
+        path.append((x+side*actual_speed*c*clock+.5*ax*clock*clock,y-actual_speed*sn*clock+.5*ay*clock*clock))
+    check_cancel(cancel)
     approximate=s.mobile in SPECIAL or s.weather!='Normal'
     return {'reachable':True,'power':power,'exact_power':round(exact,3),
             'time':round(t,3),'error':round(error,2),'path':path,

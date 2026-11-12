@@ -33,6 +33,29 @@ class VersionTests(unittest.TestCase):
 
 @unittest.skipUnless(os.name=='nt' or os.environ.get('DISPLAY'),'requires desktop')
 class LauncherUITests(unittest.TestCase):
+    def test_dashboard_keeps_help_settings_and_sharing_explanation_visible(self):
+        import tkinter as tk
+        from types import SimpleNamespace
+        for demo,training in ((True,False),(True,True),(False,False)):
+            with self.subTest(demo=demo,training=training),tempfile.TemporaryDirectory() as folder:
+                client=SimpleNamespace(directory=pathlib.Path(folder),session=None,account=None)
+                with patch('launcher.CloudClient',return_value=client),patch('launcher.sys.argv',['launcher.py','--check']+(['--trainer'] if training else [])):
+                    root=tk.Tk();root.withdraw();app=Launcher(root,demo=demo)
+                    try:
+                        if demo:app.enter_demo()
+                        else:app.show_dashboard({'active':True})
+                        root.deiconify();root.update();root.update_idletasks()
+                        for child in app.dashboard_page.winfo_children():
+                            if child.winfo_manager():
+                                self.assertTrue(child.winfo_ismapped());self.assertGreaterEqual(child.winfo_height(),child.winfo_reqheight())
+                        buttons=[]
+                        def visit(widget):
+                            for child in widget.winfo_children():
+                                if isinstance(child,LauncherButton) and child.winfo_ismapped():buttons.append(child.cget('text'))
+                                visit(child)
+                        visit(app.dashboard_page)
+                        self.assertIn('Cómo usarlo',buttons);self.assertIn('Ajustes',buttons)
+                    finally:app.close()
     def test_production_build_does_not_allow_demo_flag_to_skip_login(self):
         import tkinter as tk
         root=tk.Tk();root.withdraw()
@@ -114,8 +137,9 @@ class LauncherUITests(unittest.TestCase):
             button=LauncherButton(root,text='Entrar',bg='#54d7ee',fg=BG,state='disabled',command=lambda:calls.append(1))
             button.set_hover(True);button.invoke();self.assertEqual(calls,[])
             polygon=button.find_all()[0];label=button.find_all()[-1]
-            self.assertEqual(button.itemcget(polygon,'fill'),'#26384c')
-            self.assertEqual(button.itemcget(label,'fill'),'#a8b9cf')
+            from theme import DISABLED,MUTED
+            self.assertEqual(button.itemcget(polygon,'fill'),DISABLED)
+            self.assertEqual(button.itemcget(label,'fill'),MUTED)
         finally:destroy_root(root)
     def test_missing_server_disables_login_and_sharing_but_shows_version(self):
         import tkinter as tk

@@ -3,7 +3,22 @@ import tkinter as tk,os,time,math
 from strength_guide import clickthrough
 from native_paths import trail
 from targeting import enemies
-GREEN='#72dfba';BLUE='#73bcff'
+from theme import GREEN,OBSERVED,BG,LINE,ORANGE,TEXT
+
+def projected_runs(path,project,x_scale,y_scale):
+    """Project the supplied geometry without smoothing, skipping or bridging gaps."""
+    runs=[];coords=[]
+    for point in path:
+        if not isinstance(point,(list,tuple)) or len(point)<2 or not all(isinstance(v,(int,float)) and not isinstance(v,bool) and math.isfinite(v) for v in point[:2]):
+            if len(coords)>=4:runs.append(tuple(coords))
+            coords=[];continue
+        px,py=project(*point[:2])
+        if not all(isinstance(v,(int,float)) and math.isfinite(v) for v in (px,py)):
+            if len(coords)>=4:runs.append(tuple(coords))
+            coords=[];continue
+        coords.extend((px*x_scale,py*y_scale))
+    if len(coords)>=4:runs.append(tuple(coords))
+    return runs
 
 class TrajectoryOverlay:
     def __init__(self,root):
@@ -11,6 +26,7 @@ class TrajectoryOverlay:
         self.win.configure(bg='#010203');self.win.wm_attributes('-transparentcolor','#010203')
         self.canvas=tk.Canvas(self.win,bg='#010203',highlightthickness=0);self.canvas.pack(fill='both',expand=True)
         self.lines={};self.marks={};self.labels={};self.label_backgrounds={};self.key=None;self.visible=False
+        self.line_stamps={};self.mark_stamps={};self.label_stamps={}
         self.win.update_idletasks();clickthrough(self.win)
         if os.name=='nt':self.win.wm_attributes('-disabled',True)
     def update(self,box,viewport,project,planned,observed,visible,players=(),target_id=None,hero_id=None,weather=(),style=None):
@@ -19,28 +35,28 @@ class TrajectoryOverlay:
             if self.visible:self.win.withdraw();self.visible=False
             return
         x,y,right,bottom=box;vw,vh=viewport
-        if right<=x or bottom<=y:return
+        if right<=x or bottom<=y or vw<=0 or vh<=0:return
         # Keep all game controls below the field uncovered.
         height=round((bottom-y)*min(1,516/vh));width=right-x
         geometry=(x,y,width,height)
         if geometry!=self.key:
             self.win.geometry(f'{width}x{height}{x:+d}{y:+d}');self.key=geometry
         wanted={}
-        for i,path in enumerate(planned):wanted['aim:'+str(i)]=(path,aim_color,True)
-        for key,path in observed.items():wanted['shot:'+str(key)]=(path,BLUE,False)
+        for i,path in enumerate(planned):wanted['aim:'+str(i)]=(path,aim_color,line_width)
+        for key,path in observed.items():wanted['shot:'+str(key)]=(path,style.get('observed_color',OBSERVED),max(1.5,line_width*.7))
         rendered=set()
-        for key,(path,color,dashed) in wanted.items():
-            coords=[]
-            step=max(1,(len(path)+399)//400)
-            for point in path[::step]:
-                if len(point)<2 or not all(isinstance(v,(int,float)) and math.isfinite(v) for v in point[:2]):continue
-                px,py=project(*point[:2]);coords.extend((px*(right-x)/vw,py*(bottom-y)/vh))
-            if len(coords)<4:continue
-            rendered.add(key)
-            if key not in self.lines:self.lines[key]=self.canvas.create_line(*coords,fill=color,width=line_width,dash=(6,4) if dashed else ())
-            else:self.canvas.coords(self.lines[key],*coords);self.canvas.itemconfigure(self.lines[key],state='normal',fill=color,width=line_width)
+        for base,(path,color,stroke) in wanted.items():
+            for index,coords in enumerate(projected_runs(path,project,(right-x)/vw,(bottom-y)/vh)):
+                key=base if index==0 else base+':segment:'+str(index);rendered.add(key)
+                stamp=(coords,color,stroke)
+                if key not in self.lines:self.lines[key]=self.canvas.create_line(*coords,fill=color,width=stroke,dash=(),capstyle='round',joinstyle='round')
+                else:
+                    previous=self.line_stamps.get(key)
+                    if previous is None or previous[0]!=coords:self.canvas.coords(self.lines[key],*coords)
+                    if previous is None or previous[1:]!=stamp[1:]:self.canvas.itemconfigure(self.lines[key],state='normal',fill=color,width=stroke,dash=(),capstyle='round',joinstyle='round')
+                self.line_stamps[key]=stamp
         for key in list(self.lines):
-            if key not in rendered:self.canvas.delete(self.lines.pop(key))
+            if key not in rendered:self.canvas.delete(self.lines.pop(key));self.line_stamps.pop(key,None)
         annotations={};labels={};outside_split=False
         for i,event in enumerate(style.get('events',[])):
             kind=event.get('kind')
@@ -66,18 +82,18 @@ class TrajectoryOverlay:
                 rawx,rawy=px,py;px=max(20,min(width-20,px));py=max(35,min(height-25,py))
                 direction=math.atan2(rawy-py,rawx-px)
                 dx,dy=math.cos(direction),math.sin(direction)
-                color='#ffb86c' if p.get('id')==target_id else '#ecf3f7'
+                color=ORANGE if p.get('id')==target_id else TEXT
                 annotations['player:'+str(p.get('id'))]=([px-10*dx,py-10*dy,px,py,px-7*dx-4*dy,py-7*dy+4*dx,px,py,px-7*dx+4*dy,py-7*dy-4*dx],color)
                 labels['player:'+str(p['id'])]=(px,py+13,(str(numbers[p['id']]) if p['id'] in numbers else 'Tú')+' · fuera de vista',color)
                 continue
-            color=GREEN if p.get('id')==hero_id else '#ffb86c' if p.get('id')==target_id else '#c4d1db'
+            color=GREEN if p.get('id')==hero_id else ORANGE if p.get('id')==target_id else OBSERVED
             annotations['player:'+str(p.get('id'))]=([px-8,py,px+8,py,px,py,px,py-12],color)
             if p.get('id') in numbers:
                 selected=p.get('id')==target_id
-                labels['player:'+str(p['id'])]=(px,py-23,('▶ ' if selected else '')+'ENEMIGO '+str(numbers[p['id']]),'#ffb86c' if selected else '#ecf3f7')
+                labels['player:'+str(p['id'])]=(px,py-23,('▶ ' if selected else '')+'ENEMIGO '+str(numbers[p['id']]),ORANGE if selected else TEXT)
         if style.get('weather_name'):
             from gunbound_weather import weather_name
-            labels['current-weather']=(width-150,16,'Clima: '+weather_name(style['weather_name']),BLUE)
+            labels['current-weather']=(width-150,16,'Clima: '+weather_name(style['weather_name']),OBSERVED)
         for i,w in enumerate(weather):
             kind=w.get('resolvedTypeId') or w.get('typeId');center=w.get('x')
             if w.get('unresolved'):kind=0
@@ -88,11 +104,16 @@ class TrajectoryOverlay:
                 annotations['climate:'+str(i)]=([px,0,px,height],color)
                 labels['climate:'+str(i)]=(px,43,{0:'Aleatorio · sin revelar',3:'Fuerza',4:'Rayo',5:'Negro · menos daño',7:'Mirror',8:'Tornado'}[kind],color)
         for key,(coords,color) in annotations.items():
-            if key not in self.marks:self.marks[key]=self.canvas.create_line(*coords,fill=color,width=3 if key.startswith('player:') else 1.5,dash=(3,5) if key.startswith('climate:') else ())
-            else:self.canvas.coords(self.marks[key],*coords);self.canvas.itemconfigure(self.marks[key],fill=color,width=3 if key.startswith('player:') else 1.5)
+            stamp=(tuple(coords),color,3 if key.startswith('player:') else 1.5)
+            if key not in self.marks:self.marks[key]=self.canvas.create_line(*coords,fill=color,width=stamp[2],dash=(),capstyle='round',joinstyle='round')
+            elif self.mark_stamps.get(key)!=stamp:
+                self.canvas.coords(self.marks[key],*coords);self.canvas.itemconfigure(self.marks[key],fill=color,width=stamp[2])
+            self.mark_stamps[key]=stamp
         for key in list(self.marks):
-            if key not in annotations:self.canvas.delete(self.marks.pop(key))
+            if key not in annotations:self.canvas.delete(self.marks.pop(key));self.mark_stamps.pop(key,None)
         for key,(px,py,text,color) in labels.items():
+            stamp=(px,py,text,color,font_size,width)
+            if key in self.labels and self.label_stamps.get(key)==stamp:continue
             if key not in self.labels:self.labels[key]=self.canvas.create_text(px,py,text=text,fill=color,font=('Bahnschrift',font_size,'bold'))
             else:self.canvas.coords(self.labels[key],px,py);self.canvas.itemconfigure(self.labels[key],text=text,fill=color,font=('Bahnschrift',font_size,'bold'))
             bounds=self.canvas.bbox(self.labels[key])
@@ -101,12 +122,13 @@ class TrajectoryOverlay:
                 if shift:self.canvas.move(self.labels[key],shift,0);bounds=self.canvas.bbox(self.labels[key])
                 l,t,r,b=bounds;l-=4;t-=2;r+=4;b+=2;radius=5
                 shape=[l+radius,t,r-radius,t,r,t,r,b-radius,r,b,r-radius,b,l+radius,b,l,b,l,t+radius,l,t]
-                if key not in self.label_backgrounds:self.label_backgrounds[key]=self.canvas.create_polygon(*shape,smooth=True,fill='#0b121c',outline='#294353')
+                if key not in self.label_backgrounds:self.label_backgrounds[key]=self.canvas.create_polygon(*shape,smooth=True,fill=BG,outline=LINE)
                 else:self.canvas.coords(self.label_backgrounds[key],*shape)
                 self.canvas.tag_lower(self.label_backgrounds[key],self.labels[key])
+            self.label_stamps[key]=stamp
         for key in list(self.labels):
             if key not in labels:
-                self.canvas.delete(self.labels.pop(key));self.canvas.delete(self.label_backgrounds.pop(key,None))
+                self.canvas.delete(self.labels.pop(key));self.canvas.delete(self.label_backgrounds.pop(key,None));self.label_stamps.pop(key,None)
         if not self.visible:self.win.deiconify();self.visible=True
     def close(self):self.win.destroy()
 

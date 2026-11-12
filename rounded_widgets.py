@@ -1,6 +1,7 @@
 """Rounded native canvases, redrawn only when their appearance changes."""
 import tkinter as tk,math
 from tkinter import font as tkfont
+from theme import BG,PANEL,FIELD,TEXT,MUTED,GREEN,GREEN_HOVER,LINE,DISABLED
 
 def rounded(canvas,x,y,w,h,r,**options):
     r=min(r,w/2,h/2)
@@ -39,8 +40,8 @@ class RoundedPanel(tk.Frame):
 
 class RoundedButton(tk.Canvas):
     def __init__(self,master,text='',command=None,**options):
-        self.options={'text':text,'command':command,'bg':'#233b4b','fg':'#edf4f1','activebackground':'#305368','activeforeground':'#72dfba','font':('Bahnschrift',10),'padx':14,'pady':10,'state':'normal','takefocus':True}
-        self.options.update({'disabledbackground':None,'disabledforeground':'#718a91','focuscolor':'#72dfba'})
+        self.options={'text':text,'command':command,'bg':FIELD,'fg':TEXT,'activebackground':LINE,'activeforeground':GREEN,'font':('Bahnschrift',10),'padx':14,'pady':10,'state':'normal','takefocus':True}
+        self.options.update({'disabledbackground':None,'disabledforeground':MUTED,'focuscolor':GREEN})
         self.options.update(options);self.hover=False;self.focused=False;self.pressed=False
         super().__init__(master,bg=master.cget('bg'),highlightthickness=0,cursor='hand2',takefocus=self.options['takefocus'])
         self.bind('<Configure>',lambda e:self.draw())
@@ -56,10 +57,13 @@ class RoundedButton(tk.Canvas):
         if self.options['state']=='disabled':self.pressed=False
         if native:super().configure(**native)
         super().configure(takefocus=self.options['takefocus'] if self.options['state']!='disabled' else False)
-        font=tkfont.Font(self,font=self.options['font'])
-        width=font.measure(self.options['text'])+self.options['padx']*2+4
-        height=font.metrics('linespace')+self.options['pady']*2+4
-        super().configure(width=width,height=height);self.draw()
+        measure=(self.options['text'],str(self.options['font']),self.options['padx'],self.options['pady'])
+        if getattr(self,'measure_stamp',None)!=measure:
+            self.measure_stamp=measure;font=tkfont.Font(self,font=self.options['font'])
+            width=font.measure(self.options['text'])+self.options['padx']*2+4
+            height=font.metrics('linespace')+self.options['pady']*2+4
+            super().configure(width=width,height=height)
+        self.draw()
     config=configure
     def cget(self,key):
         return self.options[key] if key in self.options else super().cget(key)
@@ -99,5 +103,5 @@ class RoundedProgress(tk.Canvas):
     def draw(self):
         w=max(2,self.winfo_width());h=max(2,self.winfo_height());stamp=(w,h,self.value)
         if getattr(self,'stamp',None)==stamp:return
-        self.stamp=stamp;self.delete('all');rounded(self,0,0,w,h,h/2,fill='#2b4147',outline='')
-        if self.value:rounded(self,0,0,max(2,w*self.value/100),h,h/2,fill='#72dfba',outline='')
+        self.stamp=stamp;self.delete('all');rounded(self,0,0,w,h,h/2,fill=LINE,outline='')
+        if self.value:rounded(self,0,0,max(2,w*self.value/100),h,h/2,fill=GREEN,outline='')

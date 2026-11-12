@@ -3,7 +3,7 @@ import tkinter as tk
 from rounded_controls import RoundedTable
 from ui_shell import BG,TEXT,MUTED,GREEN
 from autonomous_learning import special_continuation
-from training_progress import TRAINING_MOBILES
+from mobile_catalog import MANUAL_MOBILES,display_name
 
 def open_library(app):
     existing=getattr(app,'learning_library_window',None)
@@ -21,14 +21,14 @@ def open_library(app):
         if not win.winfo_exists():return
         library=getattr(app,'learned_launches',None)
         if library and app.clone_id=='dragonbound':
-            for mobile in TRAINING_MOBILES:
+            for mobile in MANUAL_MOBILES:
                 for shot,label in enumerate(('1','2','SS')):
                     key=f'dragonbound:{mobile}:{shot}';proofs=library.profiles.get(key,[]);data=library.coverage.get(key,{})
                     text='Proyectil variable · pendiente' if mobile=='RANDOMIZER' else 'Mecanismo especial pendiente' if special_continuation(key) or data.get('special') else 'Aprendida · rango comprobado' if proofs else 'Faltan comprobaciones' if data.get('samples') else 'Sin tiros útiles todavía'
-                    values=(mobile.title()+' · '+label,text,data.get('samples',0))
+                    values=(display_name(mobile)+' · '+label,text,data.get('samples',0))
                     if table.exists(key):table.item(key,values=values)
                     else:table.insert('','end',iid=key,values=values)
-            summary=library.summary();footer.config(text=summary['error'] or f"{summary['available_modes']}/51 modalidades con ajustes aprendidos. Las pendientes necesitan más datos o su mecanismo específico.")
+            summary=library.summary();footer.config(text=summary['error'] or f"{summary['available_modes']}/{len(MANUAL_MOBILES)*3} modalidades con ajustes aprendidos. Reconocer un carro no implica calibrar todas sus balas.")
         else:footer.config(text='Esta biblioteca corresponde a DragonBound. GunBound World conserva sus calibraciones por separado.')
         win.refresh_job=win.after(2000,refresh)
     def cancel_refresh():

@@ -9,6 +9,7 @@ import statistics
 from bisect import bisect_right
 from dataclasses import replace
 from wind_models import components,fit_acceleration
+from solve_control import check_cancel
 
 EPS=1e-7
 
@@ -38,10 +39,11 @@ def weather_records(environment):
         elif kind in (7,'Mirror','MIRROR','mirror'):mirror.append(float(w['x']))
     return sorted(set(tornado)),sorted(set(mirror))
 
-def segments(s,power):
+def segments(s,power,cancel=None):
+    check_cancel(cancel)
     if s.environment.get('weatherModel')=='gunbound-world':
         from gunbound_trajectory import segments as gunbound_segments
-        return gunbound_segments(s,power)
+        result=gunbound_segments(s,power);check_cancel(cancel);return result
     from core import acceleration,launch
     x,y,side=launch(s);origin=x
     angle=math.radians(s.angle+s.angle_offset)
@@ -55,6 +57,7 @@ def segments(s,power):
     tornado,mirrors=weather_records(s.environment)
     entered=set();active=None;clock=0;result=[];events=[]
     for _ in range(max(8,len(tornado)*5+4,64 if mirrors else 0)):
+        check_cancel(cancel)
         remaining=s.max_time-clock
         if remaining<=EPS:break
         dt=remaining;event='end';entry=None
@@ -162,30 +165,36 @@ def variants(s):
     if s.mobile=='BOOMER' and mode==1:return [{}]*4
     return [{}]
 
-def swept_impact(terrain,a,b):
+def swept_impact(terrain,a,b,cancel=None):
     """Check the intervening pixels so a fast bullet cannot skip a thin ledge."""
+    check_cancel(cancel)
     ox=terrain.get('originX',0);oy=terrain.get('originY',0)
     height=terrain.get('height');width=terrain.get('width')
     if height and (max(a[1],b[1])<oy-.5 or min(a[1],b[1])>=oy+height+.5):return None
     if width and (max(a[0],b[0])<ox-.5 or min(a[0],b[0])>=ox+width+.5):return None
     distance=max(abs(b[0]-a[0]),abs(b[1]-a[1]));count=max(1,math.ceil(distance))
+    dx=b[0]-a[0];dy=b[1]-a[1]
     for i in range(1,count+1):
-        weight=i/count;p=tuple(a[k]+(b[k]-a[k])*weight for k in range(3))
-        if solid(terrain,p[0],p[1]):return p
+        if i%64==1:check_cancel(cancel)
+        weight=i/count;x=a[0]+dx*weight;y=a[1]+dy*weight
+        if solid(terrain,x,y):return (x,y,a[2]+(b[2]-a[2])*weight)
     return None
 
-def trajectory(s,power,step=.025,include_deployment=False):
+def trajectory(s,power,step=.025,include_deployment=False,cancel=None):
+    check_cancel(cancel)
     paths=[];events=[];impacts=[];damage_paths=[];hit_ids=[];deployment=None
     terrain=s.environment.get('terrain')
     for variant in variants(s):
+        check_cancel(cancel)
         local=replace(s,angle_offset=s.angle_offset+variant.get('angleOffset',0),
                       speed_offset=s.speed_offset+variant.get('speedOffset',0))
-        parts,interactions=segments(local,power*variant.get('speedRatio',1)+variant.get('powerOffset',0))
+        parts,interactions=segments(local,power*variant.get('speedRatio',1)+variant.get('powerOffset',0),cancel=cancel)
         events.extend(interactions);path=[];impact=None;hit_id=None
         for seg in parts:
             duration=seg['end']-seg['start'];native_nak=s.mobile=='NAK' and s.selected_shot==1
             interval=.025 if native_nak else step;count=max(1,math.ceil(duration/interval))
             for index in range(count+1):
+                if index%32==0:check_cancel(cancel)
                 time=seg['start']+(min(duration,index*interval) if native_nak else duration*index/count);x,y=at(seg,time)
                 orbit=variant.get('orbit')
                 if orbit:
@@ -217,7 +226,7 @@ def trajectory(s,power,step=.025,include_deployment=False):
                     if first:
                         _,impact,hit_id=first;path.append(impact);break
                 if terrain and time>0 and not (s.mobile=='NAK' and s.selected_shot==2):
-                    impact=swept_impact(terrain,path[-1],point) if path else point if solid(terrain,x,y) else None
+                    impact=swept_impact(terrain,path[-1],point,cancel=cancel) if path else point if solid(terrain,x,y) else None
                     if impact:path.append(impact);break
                 path.append(point)
             if impact:break
@@ -234,9 +243,11 @@ def trajectory(s,power,step=.025,include_deployment=False):
             events.append({'kind':'underground','time':entry[2],'x':entry[0],'y':entry[1]})
             previous=entry;impact=None;seen_solid=True;outside=False
             for index in range(1,max(2,math.ceil((s.max_time-entry[2])/.025))+1):
+                if index%16==1:check_cancel(cancel)
                 dt=index*.025;point=(entry[0]+vx*dt,entry[1]+vy*dt-gravity*dt*dt/2,entry[2]+dt)
                 count=max(1,math.ceil(max(abs(point[0]-previous[0]),abs(point[1]-previous[1]))))
                 for i in range(1,count+1):
+                    if i%64==1:check_cancel(cancel)
                     q=tuple(previous[k]+(point[k]-previous[k])*i/count for k in range(3))
                     if terrain.get('width') and not terrain.get('originX',0)<=q[0]<terrain.get('originX',0)+terrain['width'] or terrain.get('height') and q[1]>=terrain.get('originY',0)+terrain['height']:
                         outside=True;break
@@ -274,20 +285,23 @@ def trajectory(s,power,step=.025,include_deployment=False):
                 x,y,t=branch[-1];events.append({'kind':'split','time':t,'x':x,'y':y,'missiles':2})
     return {'projectile_paths':paths,'display_paths':display_paths,'damage_paths':damage_paths,'interactions':events,'impacts':impacts,'hit_ids':hit_ids,'deployment':deployment}
 
-def closest(path,x,y):
+def closest(path,x,y,cancel=None):
+    check_cancel(cancel)
     best=(math.hypot(path[0][0]-x,path[0][1]-y),path[0]) if len(path)==1 else (math.inf,None)
-    for a,b in zip(path,path[1:]):
+    for index,(a,b) in enumerate(zip(path,path[1:])):
+        if index%64==0:check_cancel(cancel)
         dx=b[0]-a[0];dy=b[1]-a[1];length=dx*dx+dy*dy
         weight=0 if length==0 else max(0,min(1,((x-a[0])*dx+(y-a[1])*dy)/length))
-        p=tuple(a[i]+weight*(b[i]-a[i]) for i in range(3))
-        distance=math.hypot(p[0]-x,p[1]-y)
-        if distance<best[0]:best=(distance,p)
+        px=a[0]+weight*dx;py=a[1]+weight*dy
+        distance=math.hypot(px-x,py-y)
+        if distance<best[0]:best=(distance,(px,py,a[2]+weight*(b[2]-a[2])))
     return best
 
-def solve_extended(s):
+def solve_extended(s,cancel=None):
+    check_cancel(cancel)
     # Coarse-to-fine integer power search; weather interactions are discontinuous,
     # so refine all coarse local minima instead of assuming a single minimum.
-    cache={};cluster=s.mobile=='TRICO' and s.selected_shot==1
+    cache={};cluster=s.mobile=='TRICO' and s.selected_shot==1;fine_trace=None;fine_power=None
     minimum=max(1,math.ceil((s.environment.get('learnedLaunch') or {}).get('power_range',[1])[0]))
     tolerance=s.environment.get('hitTolerance',35)
     def score(candidates):
@@ -297,9 +311,10 @@ def solve_extended(s):
         if cluster:return (-sum(d<=tolerance for d in distances),sum(min(d,1000) for d in distances)/len(distances),max(distances))
         return (min(distances),)
     def evaluate(power):
+        check_cancel(cancel)
         if power not in cache:
-            traces=trajectory(s,power,step=.04)
-            candidates=[closest(p,s.target_x,s.target_y) for p in traces.get('damage_paths',traces['projectile_paths'])]
+            traces=trajectory(s,power,step=.04,cancel=cancel)
+            candidates=[closest(p,s.target_x,s.target_y,cancel=cancel) for p in traces.get('damage_paths',traces['projectile_paths'])]
             if s.mobile=='NAK' and s.selected_shot==2 and s.environment.get('players'):
                 candidates=[c if ident==s.environment.get('targetId') else (math.inf,None) for c,ident in zip(candidates,traces['hit_ids'])]
             best=min(candidates,key=lambda c:c[0]) if candidates else (math.inf,None)
@@ -321,9 +336,9 @@ def solve_extended(s):
                 candidates=list(range(max(minimum,seed-2),min(int(s.max_power),seed+2)+1))
                 for candidate in candidates:evaluate(candidate)
                 candidate=min(candidates,key=evaluate)
-                fine=trajectory(s,candidate,step=.02)
-                verified=min((closest(p,s.target_x,s.target_y)[0] for p in fine.get('damage_paths',fine['projectile_paths'])),default=math.inf)
-                if verified<=min(tolerance,max(1,tolerance*.15)):fast_power=candidate
+                fine=trajectory(s,candidate,step=.02,cancel=cancel)
+                verified=min((closest(p,s.target_x,s.target_y,cancel=cancel)[0] for p in fine.get('damage_paths',fine['projectile_paths'])),default=math.inf)
+                if verified<=min(tolerance,max(1,tolerance*.15)):fast_power=candidate;fine_trace=fine;fine_power=candidate
     # Weather creates narrow discontinuities; evaluate every available integer.
     grid=[] if fast_power is not None else list(range(minimum,int(s.max_power)+1,1 if tornado or mirror or cluster or s.mobile=='NAK' and s.selected_shot==2 and s.environment.get('players') else 8))
     if fast_power is None:grid.append(int(s.max_power))
@@ -333,14 +348,16 @@ def solve_extended(s):
         for fine in range(max(minimum,p-8),min(int(s.max_power),p+8)+1):evaluate(fine)
     power=fast_power if fast_power is not None else min(cache,key=evaluate);error,end=cache[power][1]
     if cluster:
-        refined=[]
+        refined=[];best_refined=None
         for candidate in sorted(cache,key=evaluate)[:12]:
-            fine=trajectory(s,candidate,step=.02)
-            contacts=[closest(p,s.target_x,s.target_y) for p in fine.get('damage_paths',fine['projectile_paths'])]
-            if contacts:refined.append((score(contacts),candidate))
+            fine=trajectory(s,candidate,step=.02,cancel=cancel)
+            contacts=[closest(p,s.target_x,s.target_y,cancel=cancel) for p in fine.get('damage_paths',fine['projectile_paths'])]
+            if contacts:
+                ranked=(score(contacts),candidate);refined.append(ranked)
+                if best_refined is None or ranked<best_refined:best_refined=ranked;fine_trace=fine;fine_power=candidate
         if refined:power=min(refined)[1]
-    traces=trajectory(s,power,step=.02,include_deployment=True)
-    candidates=[closest(p,s.target_x,s.target_y) for p in traces.get('damage_paths',traces['projectile_paths'])]
+    traces=fine_trace if fine_power==power and s.mobile!='KALSIDDON' else trajectory(s,power,step=.02,include_deployment=True,cancel=cancel)
+    candidates=[closest(p,s.target_x,s.target_y,cancel=cancel) for p in traces.get('damage_paths',traces['projectile_paths'])]
     if candidates:error,end=min(candidates,key=lambda c:c[0])
     hit_target=False
     if s.mobile=='NAK' and s.selected_shot==2 and s.environment.get('players'):
@@ -366,10 +383,11 @@ def solve_extended(s):
             'approximate':approximate,'end':end[:2],'solver':'analytic-verified' if fast_power is not None else 'search'}
     if not reachable and s.environment.get('terrain') and any(traces['impacts']) and not (s.mobile=='NAK' and s.selected_shot in (1,2)):
         free_environment={k:v for k,v in s.environment.items() if k!='terrain'}
-        reference=solve_extended(replace(s,environment=free_environment))
+        reference=solve_extended(replace(s,environment=free_environment),cancel=cancel)
         if reference.get('reachable'):
-            blocked_trace=trajectory(s,reference['power'],step=.02,include_deployment=True)
+            blocked_trace=trajectory(s,reference['power'],step=.02,include_deployment=True,cancel=cancel)
             result.update(blocked=True,guide_power=reference['power'],preview_power=reference['power'],preview_paths=[[(p[0],p[1]) for p in path] for path in blocked_trace['display_paths']],reason='El terreno bloquea la salida o el recorrido; ajusta el ángulo.')
+    check_cancel(cancel)
     return result
 
 def fit_calibration(samples,wind_mode=None):

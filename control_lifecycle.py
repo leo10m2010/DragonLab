@@ -28,6 +28,7 @@ def prepare_training(app):
 def invalidate_guide(app):
     # An in-flight calculation can finish, but its generation is now obsolete.
     app.compute_generation=getattr(app,'compute_generation',0)+1
+    if getattr(app,'calculations',None):app.calculations.invalidate()
     app.result_context=None
     app.result={}
     app.dirty=True

@@ -2,7 +2,7 @@
 import tkinter as tk
 import ctypes,os,math
 
-GREEN='#72dfba';ORANGE='#ffb86c';BG='#101c26';MUTED='#96acb9'
+from theme import GREEN,ORANGE,BG,MUTED,LINE,FIELD,TEXT
 
 def guide_power(result):
     value=result.get('power') if result.get('reachable') else result.get('guide_power') if result.get('blocked') else None
@@ -10,9 +10,9 @@ def guide_power(result):
 
 def draw_force(canvas,result,maximum=400,current=None,updating=False):
     canvas.delete('all');w=max(120,canvas.winfo_width());left,right=18,w-18;y=28
-    canvas.create_line(left,y,right,y,fill='#294353',width=11,capstyle='round')
+    canvas.create_line(left,y,right,y,fill=LINE,width=11,capstyle='round')
     for i in range(5):
-        x=left+(right-left)*i/4;canvas.create_line(x,y-8,x,y+8,fill='#708591')
+        x=left+(right-left)*i/4;canvas.create_line(x,y-8,x,y+8,fill=MUTED)
         canvas.create_text(x,y+21,text=f'{maximum*i/4:g}',fill=MUTED,font=('Consolas',9))
     power=guide_power(result)
     if power is not None:
