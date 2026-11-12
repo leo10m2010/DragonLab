@@ -11,6 +11,7 @@ from adapters import AdapterClient,built_in_profiles
 from PIL import Image,ImageTk,ImageGrab
 from strength_guide import draw_force,PowerGuide,select_game_bar
 from trajectories import TrajectoryOverlay,ObservedTrails
+from native_overlay import create_overlay,create_guide
 from projection import project,unproject
 from calibration_book import CalibrationBook,mobile_name
 from targeting import enemies,next_target,normalize_players,find_hero,PlayerTracker
@@ -354,7 +355,7 @@ class App:
         if not visible:
             if self.overlay:self.overlay.update(self.screen_box,self.viewport,self.projected,[],{},False)
             return
-        if not self.overlay:self.overlay=TrajectoryOverlay(getattr(self,'ui_parent',self.root))
+        if not self.overlay:self.overlay=create_overlay(getattr(self,'ui_parent',self.root))
         planned=self.planned_paths()
         self.overlay.update(self.screen_box,self.viewport,self.projected,planned,self.observed_paths,True,players=self.live_players,target_id=self.auto_target_id,hero_id=self.target_hero_id,weather=self.s.environment.get('activeWeathers',[]),style={'color':MUTED if self.dirty or self.computing else TEXT if self.path_color=='Blanco' else '#80cfff' if self.path_color=='Azul' else GREEN,'width':self.path_width,'font_size':13 if self.large_text else 11,'target_key':self.target_key,'events':self.display_result().get('interactions',[]),'weather_name':getattr(self,'weather_current','')})
     def hide_overlay(self):
@@ -384,7 +385,7 @@ class App:
             return
         if self.power_guide:self.hide_power_guide();return
         if not self.guide_points:select_game_bar(self);return
-        self.power_guide=PowerGuide(getattr(self,'ui_parent',self.root),*self.guide_points);self.draw_force()
+        self.power_guide=create_guide(getattr(self,'ui_parent',self.root),*self.guide_points);self.draw_force()
     def save_profile(self):
         try:
             self.read();solve(self.s);self.profiles[self.profile_key()]={k:getattr(self.s,k) for k in ('gravity','wind_scale','power_scale','speed_offset','angle_offset','quantize_power','launch_offset')};self.profile_path.write_text(json.dumps(self.profiles,indent=2),encoding='utf-8');self.footer.config(text='Perfil guardado para '+self.clone_id+' / '+self.s.mobile)
@@ -499,7 +500,7 @@ class App:
             if self.power_guide:self.power_guide.update_position(*points)
             self.auto_points=points
         self.guide_points=points
-        if not self.power_guide:self.power_guide=PowerGuide(getattr(self,'ui_parent',self.root),*points)
+        if not self.power_guide:self.power_guide=create_guide(getattr(self,'ui_parent',self.root),*points)
         self.draw_force()
     def consume_fire_gesture(self,gesture):
         if not isinstance(gesture,dict) or not isinstance(gesture.get('owner'),str) or not isinstance(gesture.get('count'),int) or not isinstance(gesture.get('at'),(int,float)):return False
@@ -669,7 +670,9 @@ class App:
             except OSError:pass
             self.result={};self.computing=False;self.dirty=True
         finally:
-            self.root.after(40 if self.game_visible else 150,self.tick)
+            updating=self.computing or not self.events.empty()
+            delay=16 if self.game_visible and updating and not self.autonomous_training() else 40 if self.game_visible else 150
+            self.root.after(delay,self.tick)
     def refresh_learned_launches(self):
         library=getattr(self,'learned_launches',None)
         if not library or self.learning_refresh_busy or self.learning_refresh_at and time.monotonic()-self.learning_refresh_at<30:return
@@ -767,6 +770,9 @@ class App:
             health={'version':PROGRAM_VERSION,'training':{'active':bool(self.training_session and self.training_session.running),'message':self.training_session.status if self.training_session else '', 'shots':self.training_session.shots if self.training_session else 0},'weather_validation':getattr(self,'weather_validation',[]),'learning_error':getattr(self,'learning_error',''),'learning_status':self.book.message,'learning_samples':len(self.book.records.get(self.book.key(self.clone_id,self.s.mobile,self.s.selected_shot),{}).get('samples',[])),'reader_status':getattr(self,'reader_status',None),'reader_reason':getattr(self,'reader_reason',''),'result_reason':self.result.get('reason'),'guide_visible':bool(self.power_guide and self.power_guide.win.winfo_viewable()),'game_visible':self.game_visible,'bar_detected':bool(self.guide_points),'updated':time.time(),'connected':bool(self.last_live and time.monotonic()-self.last_live<4),'map_detected':bool(self.s.environment.get('terrain')),'camera_detected':bool(self.live_camera and self.live_camera.get('renderWidth')),'weather':[w.get('resolvedTypeId') or w.get('typeId') for w in self.s.environment.get('activeWeathers',[])],'players_detected':len(self.live_players),'overlay_visible':bool(self.overlay and self.overlay.visible),'power':self.result.get('power'),'computing':self.computing,'last_error':getattr(self,'last_error',None),'target':self.auto_target_id,'enemies_detected':len(enemies(self.live_players,self.target_hero_id)),'preview_capture':self.preview_visible,'solve_seconds':getattr(self,'last_solve_seconds',None),'shortcut_events':self.shortcut_count,'fire_shortcut_events':self.fire_shortcut_count,'fire_busy':self.fire_busy,'fire_pending':bool(self.pending_fire),'last_fire_message':self.last_fire_message,'page_shortcuts_active':self.page_shortcuts_active,'shortcut_ready':bool(getattr(self,'shortcuts',None) and self.shortcuts.ready),'shortcut_error':getattr(getattr(self,'shortcuts',None),'error',None)}
             health['manual_learning']=self.learned_launches.summary();health['learned_launch']=getattr(self,'active_learned_profile',None)
             health['manual_calculations']=self.calculations.summary()
+            from native_solver import diagnostics as solver_diagnostics
+            from native_overlay import diagnostics as overlay_diagnostics
+            health['native']={'solver':solver_diagnostics(),'overlay':overlay_diagnostics()}
             try:(BASE/'estado-live.json').write_text(json.dumps(health,indent=2),encoding='utf-8')
             except OSError:pass
 

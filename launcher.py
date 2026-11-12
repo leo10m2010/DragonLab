@@ -389,6 +389,9 @@ def requested_training_mode(argv,executable,frozen):
     return name=='dragonlab-automatico' or any(flag in argv for flag in ('--trainer','--train','--train-two'))
 
 def main():
+    if '--native-check' in sys.argv:
+        from native_checks import run
+        run(sys.argv[sys.argv.index('--native-check')+1]);return
     if '--connection-check' in sys.argv:
         from training_diagnostics import connection_check
         connection_check(pathlib.Path(sys.argv[sys.argv.index('--connection-check')+1]));return

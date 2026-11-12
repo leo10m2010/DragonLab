@@ -15,3 +15,5 @@ dist/
 tests/node_modules/
 casos-regresion/
 ultimo-autotiro.json
+native/**/target/
+native/bin/

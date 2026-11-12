@@ -1,7 +1,7 @@
 """One manual calculation at a time, with only the newest pending snapshot."""
 import threading,time
-from core import solve
-from solve_control import SolveCancelled,check_cancel
+from native_solver import solve
+from solve_control import SolveCancelled,check_cancel,CancellationToken
 
 class LatestCalculation:
     def __init__(self,emit,solver=solve):
@@ -16,7 +16,7 @@ class LatestCalculation:
             if self.closed:return False
             if self.active:self.active.set()
             if self.pending:self.pending[1].set()
-            self.pending=(job,threading.Event());self.submitted+=1
+            self.pending=(job,CancellationToken());self.submitted+=1
             if self.thread is None:
                 self.thread=threading.Thread(target=self.run,daemon=True,name='DragonLab-Manual-Calculation');self.thread.start()
             self.condition.notify();return True

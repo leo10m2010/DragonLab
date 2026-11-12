@@ -1,9 +1,9 @@
 name: Companion input checks
 on:
   push:
-    paths: ['*.py','tests/**','.github/workflows/companion-checks.yml']
+    paths: ['*.py','tests/**','native/**','.github/workflows/companion-checks.yml']
   pull_request:
-    paths: ['*.py','tests/**','.github/workflows/companion-checks.yml']
+    paths: ['*.py','tests/**','native/**','.github/workflows/companion-checks.yml']
 permissions:
   contents: read
 jobs:
@@ -16,6 +16,13 @@ jobs:
           python-version: '3.12'
       - run: pip install pillow==12.3.0
       - run: sudo apt-get update && sudo apt-get install -y xvfb python3-tk
+      - name: Build and test native reference port
+        run: |
+          rustup toolchain install 1.94.1 --profile minimal
+          cargo +1.94.1 test --locked --manifest-path native/dragonlab_core/Cargo.toml
+          cargo +1.94.1 build --release --locked --manifest-path native/dragonlab_core/Cargo.toml
+          mkdir -p native/bin
+          cp native/dragonlab_core/target/release/libdragonlab_core.so native/bin/
       - run: xvfb-run -a python -B -m unittest discover -s tests -p 'test_*.py' -v
       - uses: actions/setup-node@v4
         with:
@@ -24,3 +31,28 @@ jobs:
       - run: npx playwright install --with-deps chromium
         working-directory: tests
       - run: xvfb-run -a npm run test:browser --prefix tests
+  windows-native:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install pillow==12.3.0 pyinstaller==6.22.3
+      - name: Test Rust and build Windows components
+        run: |
+          rustup toolchain install 1.94.1 --profile minimal
+          $env:RUSTUP_TOOLCHAIN='1.94.1'
+          cargo test --locked --manifest-path native/dragonlab_core/Cargo.toml
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo test --locked --manifest-path native/dragonlab_overlay/Cargo.toml -- --test-threads=1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          ./native/build_native.ps1
+      - run: python -B -m unittest discover -s tests -p 'test_native_runtime.py' -v
+      - name: Verify packaged native runtime and image codecs
+        run: |
+          python -m PyInstaller --noconfirm --distpath cloud-dist --workpath cloud-build native/DragonLab-Launcher.spec
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $process=Start-Process -FilePath (Resolve-Path cloud-dist/DragonLab-Launcher.exe).Path -ArgumentList '--native-check',"$pwd/native-check.json" -Wait -PassThru
+          if ($process.ExitCode -ne 0) { exit $process.ExitCode }
+          Get-Content native-check.json
