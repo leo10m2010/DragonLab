@@ -4,7 +4,7 @@
 
 | Comprobación | Resultado |
 |---|---|
-| `python -B -m unittest discover -s tests -p 'test_*.py'` | 837 pruebas, sin fallos |
+| `python -B -m unittest discover -s tests -p 'test_*.py'` | 838 pruebas, sin fallos |
 | Rust core `cargo test --offline` | 8 pruebas |
 | Rust overlay `cargo test --offline`, formato y Clippy | 10 pruebas, sin advertencias de Clippy |
 | `npm run test:browser --prefix tests` | 8 suites, correctas |
