@@ -46,6 +46,9 @@ def style_window(root):
     if os.name!='nt':return False
     try:
         from ctypes import wintypes as w
+        # Tk creates/reparents its native frame in the idle mapping pass. DWM
+        # attributes applied to the earlier child HWND do not reach that frame.
+        root.update_idletasks()
         hwnd=native_window_handle(root)
         dwm=ctypes.WinDLL('dwmapi');dwm.DwmSetWindowAttribute.argtypes=[w.HWND,w.DWORD,ctypes.c_void_p,w.DWORD]
         dark=ctypes.c_int(1)

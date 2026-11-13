@@ -57,6 +57,20 @@ class DesktopGeometryTests(unittest.TestCase):
         self.root.geometry('900x1000');self.root.update()
         self.assertFalse(self.app.scrollbar.winfo_manager())
     @unittest.skipUnless(os.name=='nt','Windows window styles')
+    def test_new_dialog_keeps_dark_caption_after_initial_native_mapping(self):
+        dialog=tk.Toplevel(self.root)
+        try:
+            style_window(dialog);dialog.update_idletasks()
+            from desktop_shell import native_window_handle
+            from ctypes import wintypes as w
+            dwm=ctypes.WinDLL('dwmapi');dwm.DwmGetWindowAttribute.argtypes=[w.HWND,w.DWORD,ctypes.c_void_p,w.DWORD]
+            value=ctypes.c_int()
+            result=dwm.DwmGetWindowAttribute(native_window_handle(dialog),20,ctypes.byref(value),4)
+            if result:result=dwm.DwmGetWindowAttribute(native_window_handle(dialog),19,ctypes.byref(value),4)
+            if result:self.skipTest('Dark mode querying is unsupported by this Windows compositor')
+            self.assertEqual(value.value,1)
+        finally:dialog.destroy()
+    @unittest.skipUnless(os.name=='nt','Windows window styles')
     def test_native_frame_sizing_minimize_maximize_restore(self):
         self.show(700,660);before=(self.root.winfo_width(),self.root.winfo_height())
         expected=0x00C00000|0x00040000|0x00020000|0x00010000|0x00080000
