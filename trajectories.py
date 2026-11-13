@@ -1,12 +1,13 @@
 """Persistent, non-activating trajectory drawing above the game."""
 import tkinter as tk,os,time,math,heapq
+from tkinter import font as tkfont
 from strength_guide import clickthrough
 from native_paths import trail
 from targeting import enemies,find_hero,player_role
 from theme import GREEN,OBSERVED,BG,LINE,ORANGE,TEXT,MUTED
 
 
-def actor_label_layout(actors,width,height,font_pixels):
+def actor_label_layout(actors,width,height,font_pixels,line_height=None):
     """Pack labels without changing actor IDs or dropping crowded targets.
 
     Each actor belongs to one label; a full field groups the overflow and keeps
@@ -16,7 +17,10 @@ def actor_label_layout(actors,width,height,font_pixels):
     padding=min(6,width/4,height/4)
     header=min(58,height*.15)
     cell_width=220 if len(actors)<=6 else max(64,min(144,font_pixels*8+16))
-    columns=max(1,int((width-2*padding)//cell_width));rows=max(1,int((height-header-2*padding)//max(20,font_pixels+10)))
+    # Fallback fonts can be taller than the requested pixels. Include actual
+    # line spacing and the label background/outline in each occupied row.
+    row_height=max(24,(line_height if line_height is not None else font_pixels*2)+12)
+    columns=max(1,int((width-2*padding)//cell_width));rows=max(1,int((height-header-2*padding)//row_height))
     cell_width=(width-2*padding)/columns;cell_height=(height-header-2*padding)/rows
     free=set(range(columns*rows));queue=list(range(columns*rows));groups={}
     for actor in actors:
@@ -107,6 +111,10 @@ class TrajectoryOverlay:
             labels['target-status']=(min(width/2,190),16,f'Objetivo {current}/{len(numbers)} · {style.get("target_key","Ctrl")}' if len(numbers)>1 else '1 enemigo vivo',GREEN)
         hero=find_hero(players,hero_id);actors=[]
         physical_font=max(10,min(15,round(font_size*max(.75,min(1.25,width/vw)))))
+        if getattr(self,'actor_font_size',None)!=physical_font:
+            self.actor_font_size=physical_font
+            self.actor_font=tkfont.Font(self.canvas,family='Bahnschrift',size=-physical_font,weight='bold')
+            self.actor_line_height=self.actor_font.metrics('linespace')
         for player_index,p in enumerate(players):
             if p.get('dead') or not all(isinstance(p.get(k),(int,float)) and not isinstance(p[k],bool) and math.isfinite(p[k]) for k in ('x','y')):continue
             px,py=project(p['x'],p['y']);px*=width/vw;py*=(bottom-y)/vh
@@ -124,7 +132,7 @@ class TrajectoryOverlay:
                 annotations['player:'+str(p.get('id'))]=([px-10*dx,py-10*dy,px,py,px-7*dx-4*dy,py-7*dy+4*dx,px,py,px-7*dx+4*dy,py-7*dy-4*dx],color)
             else:annotations['player:'+str(p.get('id'))]=([px-8,py,px+8,py,px,py,px,py-12],color)
             actors.append({'id':p.get('id'),'key':'player:'+str(p.get('id')),'x':px,'y':py,'label':prefix+text+(' · fuera de vista' if outside else ''),'short':short,'color':color,'selected':selected})
-        actor_layout=actor_label_layout(actors,width,height,physical_font)
+        actor_layout=actor_label_layout(actors,width,height,physical_font,self.actor_line_height)
         self.actor_label_groups={item['key']:item['members'] for item in actor_layout}
         positions={actor['id']:actor for actor in actors}
         for item in actor_layout:
