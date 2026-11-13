@@ -32,7 +32,7 @@ Se repitió el mismo benchmark de seis casos, con 3 calentamientos y 15 repetici
 | Mirror | 41.229 | 1.013 |
 | Tornado | 52.551 | 1.497 |
 
-Este es un contraste entre motores en la versión actual. No demuestra una mejora nueva de 0.20 frente a 0.19, ni mide FPS, latencia completa de pantalla, puntería real o el consumo de Chrome. El ejecutable actual ocupa 17,116,255 bytes; añade catálogo, diagnósticos y controles sobre la versión anterior.
+Este es un contraste entre motores en la versión actual. No demuestra una mejora nueva de 0.20 frente a 0.19, ni mide FPS, latencia completa de pantalla, puntería real o el consumo de Chrome. El ejecutable actual ocupa 17,116,770 bytes; añade catálogo, diagnósticos y controles sobre la versión anterior.
 
 ## Pendiente de contraste físico
 
