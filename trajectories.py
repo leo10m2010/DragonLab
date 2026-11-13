@@ -111,7 +111,7 @@ class TrajectoryOverlay:
             labels['target-status']=(min(width/2,190),16,f'Objetivo {current}/{len(numbers)} · {style.get("target_key","Ctrl")}' if len(numbers)>1 else '1 enemigo vivo',GREEN)
         hero=find_hero(players,hero_id);actors=[]
         physical_font=max(10,min(15,round(font_size*max(.75,min(1.25,width/vw)))))
-        if getattr(self,'actor_font_size',None)!=physical_font:
+        if players and getattr(self,'actor_font_size',None)!=physical_font:
             self.actor_font_size=physical_font
             self.actor_font=tkfont.Font(self.canvas,family='Bahnschrift',size=-physical_font,weight='bold')
             self.actor_line_height=self.actor_font.metrics('linespace')
@@ -132,7 +132,7 @@ class TrajectoryOverlay:
                 annotations['player:'+str(p.get('id'))]=([px-10*dx,py-10*dy,px,py,px-7*dx-4*dy,py-7*dy+4*dx,px,py,px-7*dx+4*dy,py-7*dy-4*dx],color)
             else:annotations['player:'+str(p.get('id'))]=([px-8,py,px+8,py,px,py,px,py-12],color)
             actors.append({'id':p.get('id'),'key':'player:'+str(p.get('id')),'x':px,'y':py,'label':prefix+text+(' · fuera de vista' if outside else ''),'short':short,'color':color,'selected':selected})
-        actor_layout=actor_label_layout(actors,width,height,physical_font,self.actor_line_height)
+        actor_layout=actor_label_layout(actors,width,height,physical_font,getattr(self,'actor_line_height',physical_font*2))
         self.actor_label_groups={item['key']:item['members'] for item in actor_layout}
         positions={actor['id']:actor for actor in actors}
         for item in actor_layout:
