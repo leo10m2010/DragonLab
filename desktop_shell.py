@@ -7,6 +7,14 @@ import os,ctypes,logging
 
 log=logging.getLogger(__name__)
 
+def install_custom_frame(root):
+    from window_chrome import install_custom_frame as install
+    return install(root)
+
+def begin_move(root,event=None):
+    from window_chrome import begin_move as move
+    return move(root,event)
+
 def enable_high_dpi():
     """Source-run fallback, called before the first Tk/Win32 window exists."""
     if os.name!='nt':return 'platform'

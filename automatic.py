@@ -82,16 +82,21 @@ def screen_geometry(meta,origin):
     if not meta.get('active') or origin is None:return None,None
     dpr=meta.get('dpr',1)
     def finite(v):return isinstance(v,(int,float)) and not isinstance(v,bool) and math.isfinite(v)
-    def valid(b):
+    def valid(b,complete=False):
         if not isinstance(b,(list,tuple)) or len(b)!=4 or not all(finite(v) for v in b) or b[2]<=1 or b[3]<=1:return False
         viewport=meta.get('inner')
-        return not viewport or (b[0]>=0 and b[1]>=0 and b[0]+b[2]<=viewport[0]+1 and b[1]+b[3]<=viewport[1]+1)
+        if not viewport:return True
+        if complete:return b[0]>=0 and b[1]>=0 and b[0]+b[2]<=viewport[0]+1 and b[1]+b[3]<=viewport[1]+1
+        # A fixed-width game can extend beyond a narrow browser viewport while
+        # its power bar remains visible. Keep its original coordinate origin;
+        # shrinking that rectangle would move every trajectory and marker.
+        return b[0]<viewport[0] and b[1]<viewport[1] and b[0]+b[2]>0 and b[1]+b[3]>0
     if not finite(dpr) or not 0<dpr<=8 or not all(finite(v) for v in origin) or not valid(meta.get('game')):return None,None
     def rect(b):return tuple(round(v) for v in (origin[0]+b[0]*dpr,origin[1]+b[1]*dpr,origin[0]+(b[0]+b[2])*dpr,origin[1]+(b[1]+b[3])*dpr))
     area=rect(meta['game']);bar=meta.get('bar')
     # The DOM's mark area covers the full 0..400 range, unlike the shrinking fill.
     points=None
-    if valid(bar):
+    if valid(bar,complete=True):
         x,y,right,bottom=rect(bar);points=((x,round((y+bottom)/2)),(right,round((y+bottom)/2)))
     return area,points
 

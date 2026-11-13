@@ -9,6 +9,7 @@ from desktop_shell import monitor_work_area,place_in_work_area
 class RoundedChoice(tk.Canvas):
     def __init__(self,master,textvariable=None,values=(),width=18,font=('Bahnschrift',11),state='readonly',**kwargs):
         self.variable=textvariable or tk.StringVar(master);self.values=list(values);self.typeface=font;self.units=width;self.state=state;self.popup=None;self.focused=False
+        self.owner_bindings=[];self.previous_grab=None;self.focus_check_job=None;self.focus_restore_job=None
         super().__init__(master,bg=master.cget('bg'),highlightthickness=0,takefocus=True,cursor='hand2',height=38)
         self.configure(width=width,font=font)
         self.trace=self.variable.trace_add('write',lambda *args:self.draw())
@@ -49,13 +50,21 @@ class RoundedChoice(tk.Canvas):
     def draw(self):
         if not self.winfo_exists():return
         self.delete('all');w=max(2,self.winfo_width());h=max(2,self.winfo_height())
-        rounded(self,1,1,w-2,h-2,18,fill=FIELD,outline=GREEN if self.focused else '')
+        rounded(self,1,1,w-2,h-2,10,fill=FIELD,outline=GREEN if self.focused else '')
         text=self.variable.get();font=tkfont.Font(self,font=self.typeface)
         while text and font.measure(text)>w-47:text=text[:-1]
         if text!=self.variable.get():text=text[:-1]+'…'
         self.create_text(14,h/2,text=text,anchor='w',fill=TEXT if self.state!='disabled' else MUTED,font=self.typeface)
         self.create_line(w-24,h/2-2,w-19,h/2+3,w-14,h/2-2,fill=MUTED,width=2)
     def close(self,restore=True):
+        if self.focus_restore_job is not None:
+            try:self.after_cancel(self.focus_restore_job)
+            except tk.TclError:pass
+            self.focus_restore_job=None
+        if self.focus_check_job is not None:
+            try:self.after_cancel(self.focus_check_job)
+            except tk.TclError:pass
+            self.focus_check_job=None
         for sequence,identifier in getattr(self,'owner_bindings',[]):
             try:self.winfo_toplevel().unbind(sequence,identifier)
             except tk.TclError:pass
@@ -64,8 +73,22 @@ class RoundedChoice(tk.Canvas):
             popup=self.popup;self.popup=None
             try:popup.grab_release();popup.destroy()
             except tk.TclError:pass
-            if restore and self.winfo_exists():self.focus_set()
+            previous=self.previous_grab;self.previous_grab=None
+            if previous:
+                widget,status=previous
+                try:
+                    if widget.winfo_exists() and widget.winfo_viewable() and widget.grab_current() is None:
+                        widget.grab_set_global() if status=='global' else widget.grab_set()
+                except tk.TclError:pass
+            if restore and self.winfo_exists():self.restore_focus(self)
         return 'break'
+    def restore_focus(self,widget):
+        def apply():
+            self.focus_restore_job=None
+            if widget.winfo_exists() and widget.winfo_viewable():widget.focus_force()
+        # Releasing the popdown grab queues native focus changes. Complete
+        # explicit selection/cancellation/traversal after those changes.
+        self.focus_restore_job=self.after_idle(apply)
     def open(self):
         if self.state=='disabled' or not self.values:return 'break'
         if self.popup:self.close();return 'break'
@@ -74,15 +97,24 @@ class RoundedChoice(tk.Canvas):
         try:win.wm_attributes('-transparentcolor','#010203')
         except tk.TclError:pass
         owner=self.winfo_toplevel();win.transient(owner);width=max(self.winfo_width(),150)
+        previous=self.grab_current();self.previous_grab=(previous,previous.grab_status()) if previous else None
         self.row_height=max(36,tkfont.Font(self,font=self.typeface).metrics('linespace')+16);self.visible_count=min(7,len(self.values))
         height=self.visible_count*self.row_height+16
         bounds=monitor_work_area(owner);x=self.winfo_rootx();y=self.winfo_rooty()+self.winfo_height()+5
         if y+height>bounds[3]-8:y=self.winfo_rooty()-height-5
         x,y,width,height=place_in_work_area(x,y,width,height,bounds)
         win.geometry(f'{width}x{height}{x:+d}{y:+d}')
+        owner_geometry=(owner.winfo_rootx(),owner.winfo_rooty(),owner.winfo_width(),owner.winfo_height())
         def owner_changed(event):
-            if event.widget is owner:self.close(restore=False)
-        self.owner_bindings=[(event,owner.bind(event,owner_changed,add='+')) for event in ('<Configure>','<Unmap>','<Destroy>')]
+            if event.widget is not owner:return
+            # Windows also sends Configure for stacking or a repeated geometry
+            # request. Those events must not dismiss an otherwise usable menu.
+            if event.type==tk.EventType.Configure and owner_geometry==(owner.winfo_rootx(),owner.winfo_rooty(),owner.winfo_width(),owner.winfo_height()):return
+            self.close(restore=False)
+        # Destroy is handled by the control's own binding. A top-level Destroy
+        # binding also runs for child destruction and can outlive its callback
+        # while a closing menu removes that binding.
+        self.owner_bindings=[(event,owner.bind(event,owner_changed,add='+')) for event in ('<Configure>','<Unmap>')]
         canvas=tk.Canvas(win,bg='#010203',highlightthickness=0);canvas.pack(fill='both',expand=True);self.menu_canvas=canvas;self.menu_width=width
         win.bind('<Escape>',lambda e:self.close());win.bind('<Down>',lambda e:self.move(1));win.bind('<Up>',lambda e:self.move(-1));win.bind('<Return>',lambda e:self.choose())
         win.bind('<Tab>',lambda e:self.traverse(False));win.bind('<Shift-Tab>',lambda e:self.traverse(True))
@@ -94,23 +126,29 @@ class RoundedChoice(tk.Canvas):
         win.bind('<Button-1>',outside,add='+')
         def lost(event):
             def check():
+                self.focus_check_job=None
                 if self.popup is win:
                     focus=win.focus_get()
                     if focus is None or focus.winfo_toplevel()!=win:self.close(restore=False)
-            win.after_idle(check)
-        win.bind('<FocusOut>',lost);self.render_menu();win.deiconify();win.grab_set();win.focus_set();return 'break'
+            if self.focus_check_job is None:self.focus_check_job=self.after_idle(check)
+        def mapped(event):
+            if event.widget is win and self.popup is win:
+                # Tk's native combobox also acquires focus on Map; doing it
+                # before Windows maps the popdown loses keyboard focus on reopen.
+                win.grab_set();win.focus_force()
+        win.bind('<Map>',mapped);win.bind('<FocusOut>',lost);self.render_menu();win.deiconify();return 'break'
     def traverse(self,backwards=False):
-        self.close()
+        self.close(restore=False)
         next_widget=self.tk_focusPrev() if backwards else self.tk_focusNext()
-        if next_widget:next_widget.focus_set()
+        if next_widget:self.restore_focus(next_widget)
         return 'break'
     def render_menu(self):
         c=self.menu_canvas;c.delete('all');height=self.visible_count*self.row_height+16;w=self.menu_width
         self.start=max(0,min(self.start,len(self.values)-self.visible_count))
-        rounded(c,0,0,w,height,18,fill=PANEL,outline=LINE)
+        rounded(c,0,0,w,height,12,fill=PANEL,outline=LINE)
         for row,index in enumerate(range(self.start,self.start+self.visible_count)):
             y=8+row*self.row_height
-            if index==self.active:rounded(c,6,y,w-12,self.row_height,14,fill=FIELD,outline='')
+            if index==self.active:rounded(c,6,y,w-12,self.row_height,8,fill=FIELD,outline='')
             value=str(self.values[index]);font=tkfont.Font(self,font=self.typeface)
             while value and font.measure(value)>w-44:value=value[:-1]
             if value!=str(self.values[index]):value=value[:-1]+'…'
@@ -138,10 +176,27 @@ class RoundedChoice(tk.Canvas):
 class RoundedSwitch(tk.Canvas):
     def __init__(self,master,text='',variable=None,font=('Bahnschrift',12),**kwargs):
         self.variable=variable or tk.BooleanVar(master);self.text=text;self.typeface=font;self.focused=False;self.pressed=False
-        super().__init__(master,bg=master.cget('bg'),height=34,width=tkfont.Font(master,font=font).measure(text)+64,highlightthickness=0,takefocus=True,cursor='hand2')
+        # ConsentSwitch supplies its own toggle callback; preserve it when the
+        # base constructor is invoked without an explicit command.
+        if 'command' in kwargs:self.command=kwargs.pop('command')
+        elif not hasattr(self,'command'):self.command=None
+        self.foreground=kwargs.pop('fg',TEXT);state=kwargs.pop('state','normal')
+        super().__init__(master,bg=kwargs.pop('bg',master.cget('bg')),height=34,width=tkfont.Font(master,font=font).measure(text)+64,highlightthickness=0,takefocus=state!='disabled',cursor='hand2',state=state)
         self.trace=self.variable.trace_add('write',lambda *a:self.draw())
         self.bind('<Configure>',lambda e:self.draw());self.bind('<ButtonPress-1>',self.press);self.bind('<ButtonRelease-1>',self.release);self.bind('<space>',lambda e:self.toggle());self.bind('<Return>',lambda e:self.toggle())
         self.bind('<FocusIn>',lambda e:self.focus(True));self.bind('<FocusOut>',lambda e:self.focus(False));self.bind('<Destroy>',self.destroyed)
+    def configure(self,cnf=None,**kwargs):
+        if cnf:kwargs.update(cnf)
+        if 'command' in kwargs:self.command=kwargs.pop('command')
+        if 'fg' in kwargs:self.foreground=kwargs.pop('fg')
+        if 'text' in kwargs:self.text=kwargs.pop('text')
+        if 'font' in kwargs:self.typeface=kwargs.pop('font')
+        if kwargs.get('state')=='disabled':self.pressed=False
+        if 'state' in kwargs:kwargs['takefocus']=kwargs['state']!='disabled'
+        super().configure(**kwargs)
+        super().configure(width=tkfont.Font(self,font=self.typeface).measure(self.text)+64)
+        self.draw()
+    config=configure
     def destroyed(self,e):
         if e.widget is self:
             try:self.variable.trace_remove('write',self.trace)
@@ -156,17 +211,19 @@ class RoundedSwitch(tk.Canvas):
         if pressed and 0<=event.x<self.winfo_width() and 0<=event.y<self.winfo_height():self.toggle()
         return 'break'
     def toggle(self):
-        if str(self.cget('state'))!='disabled':self.variable.set(not self.variable.get())
+        if str(self.cget('state'))!='disabled':
+            self.variable.set(not self.variable.get())
+            if self.command:self.command()
         return 'break'
     def draw(self):
-        self.delete('all');on=self.variable.get()
-        rounded(self,2,5,42,24,12,fill=GREEN if on else LINE,outline=TEXT if self.focused else '')
+        self.delete('all');on=self.variable.get();disabled=str(self.cget('state'))=='disabled'
+        rounded(self,2,5,42,24,12,fill=LINE if disabled else GREEN if on else LINE,outline=TEXT if self.focused and not disabled else '')
         x=31 if on else 15;self.create_oval(x-8,9,x+8,25,fill=BG if on else TEXT,outline='')
-        self.create_text(56,17,text=self.text,anchor='w',fill=TEXT,font=self.typeface)
+        self.create_text(56,17,text=self.text,anchor='w',fill=MUTED if disabled else self.foreground,font=self.typeface)
 
 class RoundedEntry(RoundedPanel):
     def __init__(self,master,textvariable=None,width=15,**kwargs):
-        color=kwargs.pop('bg',FIELD);super().__init__(master,color,radius=16,padding=8)
+        color=kwargs.pop('bg',FIELD);super().__init__(master,color,radius=10,padding=8)
         kwargs.pop('relief',None);kwargs.pop('highlightthickness',None)
         self.entry=tk.Entry(self.body,textvariable=textvariable,width=width,bg=color,fg=kwargs.pop('fg',TEXT),insertbackground=kwargs.pop('insertbackground',TEXT),relief='flat',highlightthickness=0,**kwargs)
         self.entry.pack(fill='x',padx=4,pady=2)
@@ -176,7 +233,7 @@ class RoundedEntry(RoundedPanel):
 
 class RoundedText(RoundedPanel):
     def __init__(self,master,**kwargs):
-        color=kwargs.pop('bg',FIELD);super().__init__(master,color,radius=20,padding=12)
+        color=kwargs.pop('bg',FIELD);super().__init__(master,color,radius=12,padding=12)
         kwargs.pop('relief',None);kwargs.pop('highlightthickness',None);kwargs.pop('borderwidth',None);kwargs.pop('bd',None)
         self.text=tk.Text(self.body,bg=color,relief='flat',highlightthickness=0,borderwidth=0,**kwargs);self.text.pack(fill='both',expand=True,padx=3,pady=3)
     def insert(self,*a):return self.text.insert(*a)
@@ -207,7 +264,7 @@ class RoundedTabs(tk.Frame):
         self.content.configure(bg=color);self.surface.itemconfigure(self.content_id,width=w-24,height=h-24)
         stamp=(w,h,color)
         if getattr(self,'shape_stamp',None)!=stamp:
-            self.shape_stamp=stamp;self.surface.delete('shape');rounded(self.surface,0,0,w,h,22,fill=color,outline='',tags='shape');self.surface.tag_lower('shape')
+            self.shape_stamp=stamp;self.surface.delete('shape');rounded(self.surface,0,0,w,h,12,fill=color,outline='',tags='shape');self.surface.tag_lower('shape')
     def add(self,page,text=''):
         index=len(self.pages);self.pages.append(page)
         button=RoundedButton(self.header,text=text,command=lambda:self.select(index),font=('Bahnschrift',10),padx=12,pady=7)

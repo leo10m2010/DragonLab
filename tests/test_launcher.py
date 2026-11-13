@@ -102,8 +102,7 @@ class LauncherUITests(unittest.TestCase):
                 app.play();self.assertIsNotNone(app.engine)
                 app.game.set('GunBound World');host.return_value.stop.assert_called_once();self.assertIsNone(app.engine)
                 app.play();host.return_value.start.assert_called_with('gunbound-world')
-                self.assertIn('SS (2–24 de viento)',app.game_note.cget('text'))
-            self.assertIn('aprendizaje con tus tiros manuales',app.game_note.cget('text'))
+                self.assertIn('Armor',app.game_note.cget('text'));self.assertIn('catálogo',app.game_note.cget('text'))
         finally:destroy_root(root)
     def test_help_opens_only_one_dialog_and_keeps_instructions_in_same_design(self):
         import tkinter as tk

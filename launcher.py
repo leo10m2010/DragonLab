@@ -3,6 +3,7 @@ import json,pathlib,subprocess,sys,threading,queue,urllib.request,webbrowser,tki
 from tkinter import messagebox
 from datetime import datetime
 from rounded_widgets import RoundedButton,RoundedPanel
+from icons import Icon,IconButton
 from rounded_controls import RoundedEntry,RoundedSwitch,RoundedChoice,RoundedScroll
 from mascot import DragonMascot
 from cloud_client import CloudClient,CloudError,download_verified
@@ -15,7 +16,7 @@ from theme import BG,PANEL,FIELD,TEXT,MUTED,GREEN,GREEN_HOVER,DISABLED,LINE,FONT
 BASE=pathlib.Path(sys.executable).parent if getattr(sys,'frozen',False) else pathlib.Path(__file__).parent
 INK=TEXT;ACCENT=GREEN;REPO='leo10m2010/DragonLab'
 
-class LauncherButton(RoundedButton):
+class LauncherButton(IconButton):
     def __init__(self,master,**options):
         defaults={'disabledbackground':DISABLED,'disabledforeground':MUTED,'focuscolor':ACCENT}
         defaults.update(options);super().__init__(master,**defaults)
@@ -69,26 +70,35 @@ class Launcher:
         self.root=root;root.title('DragonLab · '+('Automático' if self.training_mode else 'Manual')+' · Launcher '+LAUNCHER_VERSION)
         root.configure(bg=BG);root.resizable(True,True);root.minsize(600,480)
         # Choose the initial client size once. State/messages never resize it.
-        root.geometry('720x750')
+        root.geometry('680x600')
         self.busy=False;self.client=None;self.closed=False;self.events=queue.Queue();self.manifest=None;self.demo=demo;self.engine=None;self.dialog=None;self.opening_until=0
         self.authenticated=False;self.access_active=False;self.details_open=False;self.scroll_job=None
         self.email=tk.StringVar();self.password=tk.StringVar();self.share=tk.BooleanVar();self.game=tk.StringVar(value='DragonBound')
         requested=next((a.split('=',1)[1] for a in sys.argv if a.startswith('--clone=')),None)
         if requested:self.game.set(next((name for name,g in GAMES.items() if g['id']==requested),'DragonBound'))
-        header=tk.Frame(root,bg=BG);header.pack(fill='x',padx=26,pady=(20,16));header.columnconfigure(0,weight=1)
-        brand_column=tk.Frame(header,bg=BG);brand_column.grid(row=0,column=0,sticky='w')
-        brand_row=tk.Frame(brand_column,bg=BG);brand_row.pack(anchor='w')
-        tk.Label(brand_row,text='DragonLab',font=(FONT,-25,'bold'),bg=BG,fg=INK).pack(side='left')
-        tk.Label(brand_row,text='  /  '+LAUNCHER_VERSION,font=(MONO,-11),bg=BG,fg=MUTED).pack(side='left',pady=(6,0))
-        self.mode_label=tk.Label(brand_column,text='AUTOMÁTICO · EXPERIMENTAL' if self.training_mode else 'COMPAÑERO DE JUEGO · MANUAL',font=(MONO,-10),bg=BG,fg=MUTED);self.mode_label.pack(anchor='w',pady=(4,0))
-        selection=tk.Frame(header,bg=BG);selection.grid(row=0,column=1,sticky='e',padx=(16,0))
-        tk.Label(selection,text='JUEGO',font=(MONO,-10),bg=BG,fg=MUTED).pack(anchor='w',padx=10,pady=(0,4))
-        self.game_choice=RoundedChoice(selection,textvariable=self.game,values=list(GAMES),width=21,font=(FONT,-13));self.game_choice.pack(fill='x')
+        self.titlebar=tk.Frame(root,bg=BG,height=46);self.titlebar.pack(fill='x',padx=12,pady=(6,0));self.titlebar.columnconfigure(0,weight=1)
+        brand_row=tk.Frame(self.titlebar,bg=BG);brand_row.grid(row=0,column=0,sticky='nsew',padx=(8,0))
+        brand=tk.Label(brand_row,text='DragonLab',font=(FONT,-18,'bold'),bg=BG,fg=INK);brand.pack(side='left',pady=9)
+        version=tk.Label(brand_row,text=LAUNCHER_VERSION,font=(MONO,-11),bg=BG,fg=MUTED);version.pack(side='left',padx=(10,0),pady=9)
+        self.drag_widgets=(self.titlebar,brand_row,brand,version)
+        controls=tk.Frame(self.titlebar,bg=BG);controls.grid(row=0,column=1,sticky='e')
+        self.minimize_button=LauncherButton(controls,icon='minimize',icon_size=14,command=self.minimize_window,bg=BG,fg=MUTED,font=(FONT,-12),padx=8,pady=6);self.minimize_button.pack(side='left',padx=(0,2))
+        self.maximize_button=LauncherButton(controls,icon='maximize',icon_size=14,command=self.toggle_maximize,bg=BG,fg=MUTED,font=(FONT,-12),padx=8,pady=6);self.maximize_button.pack(side='left',padx=(0,2))
+        self.close_button=LauncherButton(controls,icon='close',icon_size=14,command=self.close,bg=BG,fg=MUTED,activebackground='#59362F',activeforeground=TEXT,font=(FONT,-12),padx=8,pady=6);self.close_button.pack(side='left')
+        self.window_state=None;root.bind('<Configure>',self.sync_window_controls,add='+')
+        separator=tk.Frame(root,bg=LINE,height=1);separator.pack(fill='x',padx=20,pady=(4,0))
+        header=tk.Frame(root,bg=BG);header.pack(fill='x',padx=20,pady=(10,12))
+        selection=tk.Frame(header,bg=BG);selection.pack(side='left')
+        Icon(selection,'game',size=16).pack(side='left',padx=(0,8))
+        self.game_choice=RoundedChoice(selection,textvariable=self.game,values=list(GAMES),width=20,font=(FONT,-13));self.game_choice.pack(side='left')
+        self.mode_label=tk.Label(header,text='AUTOMÁTICO · EXPERIMENTAL' if self.training_mode else 'MANUAL',font=(MONO,-10),bg=BG,fg=MUTED);self.mode_label.pack(side='right',padx=(12,0))
         self.footer=tk.Frame(root,bg=BG)
-        self.settings_button=LauncherButton(self.footer,text='Atajos',command=self.open_settings,bg=BG,fg=MUTED,font=(FONT,-12),pady=7,padx=10);self.settings_button.pack(side='left')
-        self.help_button=LauncherButton(self.footer,text='Cómo usarlo',command=self.help,bg=BG,fg=MUTED,font=(FONT,-12),pady=7,padx=10);self.help_button.pack(side='left')
-        self.performance_button=LauncherButton(self.footer,text='Rendimiento',command=self.open_performance,bg=BG,fg=MUTED,font=(FONT,-12),pady=7,padx=10);self.performance_button.pack(side='left')
-        self.support_button=LauncherButton(self.footer,text='Soporte',command=self.open_support,bg=BG,fg=MUTED,font=(FONT,-12),pady=7,padx=10);self.support_button.pack(side='right')
+        tk.Frame(self.footer,bg=LINE,height=1).pack(fill='x',pady=(0,6))
+        footer_row=tk.Frame(self.footer,bg=BG);footer_row.pack(fill='x')
+        self.settings_button=LauncherButton(footer_row,text='Atajos',icon='shortcuts',command=self.open_settings,bg=BG,fg=MUTED,font=(FONT,-12),pady=7,padx=8);self.settings_button.pack(side='left')
+        self.help_button=LauncherButton(footer_row,text='Cómo usarlo',icon='help',command=self.help,bg=BG,fg=MUTED,font=(FONT,-12),pady=7,padx=8);self.help_button.pack(side='left')
+        self.performance_button=LauncherButton(footer_row,text='Rendimiento',icon='performance',command=self.open_performance,bg=BG,fg=MUTED,font=(FONT,-12),pady=7,padx=8);self.performance_button.pack(side='left')
+        self.support_button=LauncherButton(footer_row,text='Soporte',icon='support',command=self.open_support,bg=BG,fg=MUTED,font=(FONT,-12),pady=7,padx=8);self.support_button.pack(side='right')
         self.viewport_shell=tk.Frame(root,bg=BG);self.viewport_shell.pack(fill='both',expand=True)
         self.viewport=tk.Canvas(self.viewport_shell,bg=BG,highlightthickness=0,takefocus=False)
         self.viewport.pack(side='left',fill='both',expand=True)
@@ -98,53 +108,58 @@ class Launcher:
         self.viewport.bind('<Configure>',self.resize_content);self.content.bind('<Configure>',self.schedule_scroll)
         root.bind('<MouseWheel>',self.scroll_wheel,add='+')
         self.login_page=tk.Frame(self.content,bg=BG);self.dashboard_page=tk.Frame(self.content,bg=BG)
-        login_panel=RoundedPanel(self.login_page,PANEL,radius=24,padding=26);login_panel.pack(fill='x',padx=26,pady=(4,0))
+        login_panel=RoundedPanel(self.login_page,PANEL,radius=12,padding=18);login_panel.pack(fill='x',padx=20,pady=(0,0))
         form=login_panel.body
-        tk.Label(form,text='Bienvenido a tu guía.',font=(FONT,-28,'bold'),bg=PANEL,fg=INK,justify='left').pack(anchor='w',pady=(4,10))
-        tk.Label(form,text='Inicia sesión para abrir tu juego.',font=(FONT,-14),bg=PANEL,fg=MUTED).pack(anchor='w',pady=(0,22))
+        tk.Label(form,text='Iniciar sesión',font=(FONT,-21,'bold'),bg=PANEL,fg=INK,justify='left').pack(anchor='w',pady=(0,6))
+        tk.Label(form,text='Accede con tu cuenta de DragonLab.',font=(FONT,-13),bg=PANEL,fg=MUTED).pack(anchor='w',pady=(0,16))
         self.login_area=tk.Frame(form,bg=PANEL);self.login_area.pack(fill='x')
         for title,var,secret in [('Correo',self.email,False),('Contraseña',self.password,True)]:
             tk.Label(self.login_area,text=title,font=(FONT,-13),bg=PANEL,fg=MUTED).pack(anchor='w',pady=(0,6))
             entry=RoundedEntry(self.login_area,textvariable=var,show='●' if secret else '',font=(FONT,-15),bg=FIELD,fg=INK,insertbackground=INK,selectbackground=ACCENT,selectforeground=BG);entry.pack(fill='x',pady=(0,16));entry.entry.bind('<Return>',lambda e:self.login())
-        self.login_button=LauncherButton(form,text='Iniciar sesión  →',command=self.login,bg=ACCENT,fg=BG,activebackground=GREEN_HOVER,activeforeground=BG,font=(FONT,-15,'bold'),pady=13);self.login_button.pack(fill='x',pady=(4,6))
+        self.login_button=LauncherButton(form,text='Iniciar sesión',icon='account',command=self.login,bg=ACCENT,fg=BG,activebackground=GREEN_HOVER,activeforeground=BG,font=(FONT,-14,'bold'),pady=10);self.login_button.pack(fill='x',pady=(2,2))
         self.login_status=tk.Label(self.login_page,text='Tu cuenta es personal. Entra con tu correo y contraseña.',wraplength=510,justify='center',bg=BG,fg=MUTED,font=(FONT,-13));self.login_status.pack(fill='x',padx=34,pady=20)
-        panel=RoundedPanel(self.dashboard_page,PANEL,radius=24,padding=20);self.hero_panel=panel;panel.pack(fill='x',padx=26,pady=(4,0))
+        panel=RoundedPanel(self.dashboard_page,PANEL,radius=12,padding=18);self.hero_panel=panel;panel.pack(fill='x',padx=20,pady=(0,0))
         body=panel.body
         top=tk.Frame(body,bg=PANEL);top.pack(fill='x')
-        tk.Label(top,text='SESIÓN INDEPENDIENTE' if self.training_mode else 'TU GUÍA',font=(MONO,-10),bg=PANEL,fg=MUTED).pack(side='left')
-        self.account_button=LauncherButton(top,text='Cuenta y versión',command=self.open_details,bg=PANEL,fg=MUTED,font=(FONT,-12),padx=8,pady=4);self.account_button.pack(side='right')
-        self.headline=tk.Label(body,text='Practica por separado.' if self.training_mode else 'Todo listo para jugar.',font=(FONT,-29,'bold'),bg=PANEL,fg=INK);self.headline.pack(anchor='w',pady=(12,8))
+        self.headline=tk.Label(top,text='Entrenamiento' if self.training_mode else 'Guía de tiro',font=(FONT,-19,'bold'),bg=PANEL,fg=INK);self.headline.pack(side='left')
+        self.account_button=LauncherButton(top,text='Cuenta',icon='account',command=self.open_details,bg=PANEL,fg=MUTED,font=(FONT,-12),padx=8,pady=4);self.account_button.pack(side='right')
         self.license_title=tk.Label(body,font=(FONT,-12,'bold'),bg=PANEL,fg=TEXT,wraplength=590,justify='left');self.license_title.pack(anchor='w')
         self.license_detail=tk.Label(body,font=(FONT,-12),bg=PANEL,fg=MUTED,wraplength=590,justify='left');self.license_detail.pack(anchor='w',pady=(4,0))
-        status_row=tk.Frame(body,bg=PANEL);status_row.pack(fill='x',pady=(14,10))
-        self.mascot=DragonMascot(status_row);self.mascot.pack(side='left',padx=(0,14))
+        status_row=tk.Frame(body,bg=PANEL);status_row.pack(fill='x',pady=(12,10))
+        self.mascot=DragonMascot(status_row);self.mascot.configure(width=64,height=64);self.mascot.pack(side='left',padx=(0,12))
         state_text=tk.Frame(status_row,bg=PANEL);state_text.pack(side='left',fill='both',expand=True)
         self.dashboard_status=tk.Label(state_text,wraplength=460,justify='left',anchor='w',bg=PANEL,fg=TEXT,font=(FONT,-14,'bold'));self.dashboard_status.pack(fill='x',pady=(8,6))
         self.shortcut_hint=tk.Label(state_text,text='Dos sesiones de prueba independientes' if self.training_mode else 'Ctrl · cambiar objetivo',font=(MONO,-11),bg=PANEL,fg=MUTED,anchor='w',justify='left',wraplength=460);self.shortcut_hint.pack(fill='x')
-        self.play_button=LauncherButton(body,text=self.start_caption(),command=self.toggle_game,bg=ACCENT,fg=BG,activebackground=GREEN_HOVER,activeforeground=BG,font=(FONT,-17,'bold'),pady=13,state='disabled');self.play_button.pack(fill='x',pady=(4,4))
+        self.play_button=LauncherButton(body,text=self.start_caption(),icon='play',command=self.toggle_game,bg=ACCENT,fg=BG,activebackground=GREEN_HOVER,activeforeground=BG,font=(FONT,-15,'bold'),pady=10,state='disabled');self.play_button.pack(fill='x',pady=(0,2))
         self.game_note=tk.Label(body,bg=PANEL,fg=MUTED,font=(FONT,-12),wraplength=590,justify='left');self.game_note.pack(anchor='w',pady=(9,2))
-        recommended=RoundedPanel(self.dashboard_page,PANEL,radius=24,padding=18);recommended.pack(fill='x',padx=26,pady=(12,0))
+        recommended=RoundedPanel(self.dashboard_page,PANEL,radius=12,padding=14);recommended.pack(fill='x',padx=20,pady=(10,0))
         recommendation_row=tk.Frame(recommended.body,bg=PANEL);recommendation_row.pack(fill='x');recommendation_row.columnconfigure(0,weight=1)
-        tk.Label(recommendation_row,text='Carros para tu próxima partida',bg=PANEL,fg=TEXT,font=(FONT,-15,'bold')).grid(row=0,column=0,sticky='w')
-        self.catalog_button=LauncherButton(recommendation_row,text='Ver carros  →',command=self.open_catalog,bg=FIELD,fg=TEXT,font=(FONT,-12),pady=8,padx=12);self.catalog_button.grid(row=0,column=1,rowspan=2,padx=(12,0),sticky='e')
-        self.recommended_text=tk.Label(recommendation_row,text='Consulta cada carro, sus balas y lo que queda por aprender.',bg=PANEL,fg=MUTED,font=(FONT,-12),wraplength=410,justify='left');self.recommended_text.grid(row=1,column=0,sticky='w',pady=(6,0))
-        versions=RoundedPanel(self.dashboard_page,PANEL,radius=22,padding=18);self.versions_panel=versions
+        tk.Label(recommendation_row,text='Carros y tiros',bg=PANEL,fg=TEXT,font=(FONT,-14,'bold')).grid(row=0,column=0,sticky='w')
+        self.catalog_button=LauncherButton(recommendation_row,text='Ver carros',icon='catalog',command=self.open_catalog,bg=FIELD,fg=TEXT,font=(FONT,-12),pady=7,padx=10);self.catalog_button.grid(row=0,column=1,rowspan=2,padx=(12,0),sticky='e')
+        self.recommended_text=tk.Label(recommendation_row,text='Modelos, tiros y estado de calibración.',bg=PANEL,fg=MUTED,font=(FONT,-12),wraplength=410,justify='left');self.recommended_text.grid(row=1,column=0,sticky='w',pady=(5,0))
+        versions=RoundedPanel(self.dashboard_page,PANEL,radius=12,padding=14);self.versions_panel=versions
         row=tk.Frame(versions.body,bg=PANEL);row.pack(fill='x')
         self.program_label=tk.Label(row,text='Motor integrado · v'+PROGRAM_VERSION,font=(FONT,-13,'bold'),bg=PANEL,fg=INK);self.program_label.pack(side='left')
-        self.update_button=LauncherButton(row,text='Buscar actualización',command=self.check_update,bg=FIELD,fg=INK,font=(FONT,-12),pady=7,state='disabled');self.update_button.pack(side='right')
+        self.update_button=LauncherButton(row,text='Actualizar',icon='update',command=self.check_update,bg=FIELD,fg=INK,font=(FONT,-12),pady=7,state='disabled');self.update_button.pack(side='right')
         self.calibration_label=tk.Label(versions.body,text='Calibraciones · sin sincronizar',font=(FONT,-12),bg=PANEL,fg=MUTED,wraplength=580,justify='left');self.calibration_label.pack(anchor='w',pady=(8,0))
         self.update_label=tk.Label(versions.body,text='Actualizaciones · sin comprobar',font=(FONT,-12),bg=PANEL,fg=MUTED,wraplength=580,justify='left');self.update_label.pack(anchor='w',pady=(5,0))
         self.account_row=tk.Frame(versions.body,bg=PANEL);self.account_row.pack(fill='x',pady=(12,0))
-        self.panel_button=LauncherButton(self.account_row,text='Abrir panel de cuenta',command=self.open_account,bg=FIELD,fg=TEXT,font=(FONT,-12),pady=7);self.panel_button.pack(side='left')
-        self.logout_button=LauncherButton(self.account_row,text='Cerrar sesión',command=self.logout,bg=PANEL,fg=MUTED,font=(FONT,-12),pady=7);self.logout_button.pack(side='right')
+        self.panel_button=LauncherButton(self.account_row,text='Panel de cuenta',icon='external',command=self.open_account,bg=FIELD,fg=TEXT,font=(FONT,-12),pady=7);self.panel_button.pack(side='left')
+        self.logout_button=LauncherButton(self.account_row,text='Cerrar sesión',icon='logout',command=self.logout,bg=PANEL,fg=MUTED,font=(FONT,-12),pady=7);self.logout_button.pack(side='right')
         privacy=tk.Frame(self.dashboard_page,bg=BG);self.privacy=privacy;privacy.pack(fill='x',padx=32,pady=(14,16))
         self.consent=ConsentSwitch(privacy,text='Ayudar a mejorar las calibraciones',variable=self.share,command=self.change_consent,state='disabled',font=(FONT,-12));self.consent.pack(anchor='w')
         tk.Label(privacy,text='Opcional · solo mediciones. Sin capturas, chats ni nombres.',font=(FONT,-11),bg=BG,fg=MUTED,wraplength=540,justify='left').pack(anchor='w',pady=(3,0))
         self.game.trace_add('write',lambda *args:self.game_changed())
         self.game_changed();self.show_login();root.protocol('WM_DELETE_WINDOW',self.close);root.after(100,self.poll)
+        from desktop_shell import install_custom_frame,begin_move
+        self.frame_controller=install_custom_frame(root)
+        for widget in self.drag_widgets:
+            widget.bind('<ButtonPress-1>',lambda event:begin_move(root,event))
+            widget.bind('<Double-Button-1>',lambda event:self.toggle_maximize())
+        self.sync_window_controls()
         if self.demo:
             root.title('DragonLab · '+('Automático' if self.training_mode else 'Manual')+' · PRUEBA · Launcher '+LAUNCHER_VERSION)
-            self.login_area.pack_forget();self.login_button.config(text='Entrar a la prueba  →');self.status.config(text='Prueba local. No necesitas correo ni contraseña.')
+            self.login_area.pack_forget();self.login_button.config(text='Entrar a la prueba');self.status.config(text='Prueba local · sin correo ni contraseña.')
             self.sync_controls()
             if '--check' not in sys.argv:root.after(150,self.enter_demo)
             return
@@ -152,9 +167,25 @@ class Launcher:
         except CloudError:self.status.config(text='Servidor pendiente de configuración. Consulta la guía de activación.')
         self.sync_controls();self.refresh_versions()
         if self.client and self.client.session and '--check' not in sys.argv:self.run(self.client.require_access,self.show_account)
+    def minimize_window(self):
+        if not self.closed:self.root.iconify()
+    def toggle_maximize(self):
+        if self.closed:return
+        zoomed=self.root.state()=='zoomed'
+        try:self.root.state('normal' if zoomed else 'zoomed')
+        except tk.TclError:
+            try:self.root.attributes('-zoomed',not bool(self.root.attributes('-zoomed')))
+            except tk.TclError:return
+        self.sync_window_controls()
+    def sync_window_controls(self,event=None):
+        if self.closed or event is not None and event.widget is not self.root:return
+        state=self.root.state()
+        if state==self.window_state:return
+        self.window_state=state
+        self.maximize_button.configure(icon='restore' if state=='zoomed' else 'maximize')
     def resize_content(self,event):
         if event.widget is not self.viewport:return
-        width=max(1,min(920,event.width))
+        width=max(1,min(760,event.width))
         if getattr(self,'content_width',None)!=width:
             self.content_width=width;self.viewport.itemconfigure(self.content_item,width=width)
             for label,padding in ((self.login_status,70),(self.license_title,100),(self.license_detail,100),(self.game_note,100),(self.dashboard_status,220),(self.shortcut_hint,220),(self.recommended_text,260)):
@@ -193,17 +224,17 @@ class Launcher:
         self.status=self.login_status;self.viewport.yview_moveto(0);self.sync_controls();self.schedule_scroll()
     def show_dashboard(self,account):
         self.authenticated=True;self.access_active=bool(account.get('active'));self.login_page.pack_forget();self.dashboard_page.pack(fill='both',expand=True)
-        self.footer.pack(side='bottom',fill='x',padx=22,pady=(8,10),before=self.viewport_shell)
+        self.footer.pack(side='bottom',fill='x',padx=20,pady=(10,8),before=self.viewport_shell)
         self.status=self.dashboard_status;self.viewport.yview_moveto(0);self.sync_controls();self.schedule_scroll()
     def open_details(self):
         if not self.authenticated:return
         self.details_open=not self.details_open
         if self.details_open:
-            options={'fill':'x','padx':26,'pady':(12,0)}
+            options={'fill':'x','padx':20,'pady':(10,0)}
             if self.privacy.winfo_manager():options['before']=self.privacy
             self.versions_panel.pack(**options)
         else:self.versions_panel.pack_forget()
-        self.account_button.config(text='Ocultar detalles' if self.details_open else 'Cuenta y versión');self.schedule_scroll()
+        self.account_button.config(text='Cerrar detalles' if self.details_open else 'Cuenta');self.schedule_scroll()
     def open_catalog(self):
         if not self.authenticated or not self.access_active or self.busy:return
         try:
@@ -222,22 +253,23 @@ class Launcher:
                 from mobile_catalog import recommendations
                 names=[str(item['name']) for item in recommendations(self.engine.app,GAMES[self.game.get()]['id'])[:3]]
             except (ImportError,AttributeError,KeyError,TypeError):pass
-        self.recommended_text.config(text=' · '.join(names) if names else 'Consulta cada carro, sus balas y lo que queda por aprender.')
+        self.recommended_text.config(text=' · '.join(names) if names else 'Modelos, tiros y estado de calibración.')
     def open_support(self):
         self.guide('Soporte de DragonLab',[
             ('Antes de informar un problema','Consulta Cómo usarlo y Rendimiento. Si la guía está pendiente, revisa el juego, la partida y la modalidad seleccionada.'),
             ('Comparte solo lo necesario','Describe qué ocurrió y qué esperabas. Evita incluir contraseñas, chats, nombres o datos de tu cuenta.')],link=('Abrir incidencias en GitHub','https://github.com/'+REPO+'/issues'))
     def enter_demo(self):
         if not self.demo or self.closed:return
-        self.show_dashboard({'active':True});self.license_title.config(text='ACCESO LOCAL · LISTO')
-        self.headline.config(text='Tu sesión de práctica.' if self.training_mode else 'Todo listo para jugar.')
-        self.license_detail.config(text='Dos cuentas, una sesión de entrenamiento.' if self.training_mode else 'Fuerza y trayectoria, justo donde las necesitas.')
+        self.show_dashboard({'active':True});self.license_title.config(text='Prueba local')
+        self.headline.config(text='Entrenamiento' if self.training_mode else 'Guía de tiro')
+        self.license_detail.config(text='Dos cuentas independientes.' if self.training_mode else 'Prueba local')
+        self.license_title.pack_forget();self.license_detail.pack_forget()
         self.account_row.pack_forget()
         self.privacy.pack_forget();self.consent.config(state='disabled');self.share.set(False)
         self.update_button.config(state='disabled');self.update_label.config(text='Prueba local · actualizaciones Cloud desactivadas')
         self.program_label.config(text='Motor integrado · v'+PROGRAM_VERSION)
         self.calibration_label.config(text='Calibraciones · se utilizan las del programa local')
-        self.status.config(text='Preparado para entrenar' if self.training_mode else 'Preparado para jugar')
+        self.status.config(text='Preparado para entrenar' if self.training_mode else 'Guía preparada')
         self.sync_controls();self.schedule_scroll()
         if '--auto-game' in sys.argv and '--check' not in sys.argv:
             sys.argv.remove('--auto-game');self.root.after(100,self.play)
@@ -265,7 +297,7 @@ class Launcher:
             if worker and worker.is_alive() or getattr(app,'training_session',None):
                 label,message=capture_status(app)
                 button='Detener automático' if self.training_mode else 'Pausar guía'
-                if self.play_button.cget('text')!=button:self.play_button.config(text=button)
+                if self.play_button.cget('text')!=button:self.play_button.config(text=button,icon='stop' if self.training_mode else 'pause')
                 status=label+' · '+message
                 if self.status.cget('text')!=status:self.status.config(text=status)
                 self.mascot.set_state('error' if label.startswith(('Revisar','Sin potencia')) else 'loading' if label in ('Calculando','Identificando jugadores','Deteniendo') else 'active' if label in ('Guía activa','Entrenando','Aplicando tiro') else 'ready')
@@ -337,11 +369,11 @@ class Launcher:
             try:win.grab_release();win.destroy()
             except tk.TclError:pass
             self.dialog=None
-        card=RoundedPanel(win,PANEL,radius=26,padding=20);card.pack(fill='both',expand=True,padx=22,pady=(0,16))
+        card=RoundedPanel(win,PANEL,radius=12,padding=16);card.pack(fill='both',expand=True,padx=20,pady=(0,12))
         for step_title,detail in steps:
             tk.Label(card.body,text=step_title,font=(FONT,-15,'bold'),fg=ACCENT,bg=PANEL).pack(anchor='w',pady=(8,4))
             tk.Label(card.body,text=detail,font=(FONT,-14),fg=MUTED,bg=PANEL,wraplength=470,justify='left').pack(anchor='w',pady=(0,12))
-        if link:LauncherButton(card.body,text=link[0],command=lambda:webbrowser.open(link[1]),bg=FIELD,fg=TEXT,font=(FONT,-13),pady=10).pack(anchor='w',pady=(0,10))
+        if link:LauncherButton(card.body,text=link[0],icon='external',command=lambda:webbrowser.open(link[1]),bg=FIELD,fg=TEXT,font=(FONT,-13),pady=8).pack(anchor='w',pady=(0,8))
         confirm=LauncherButton(win,text='Entendido',command=close,bg=FIELD,fg=TEXT,activebackground=LINE,activeforeground=ACCENT,pady=10);confirm.pack(fill='x',padx=44,pady=(0,22))
         win.protocol('WM_DELETE_WINDOW',close);win.bind('<Escape>',lambda e:close());win.update_idletasks()
         width=560;height=heading.winfo_reqheight()+34+card.body.winfo_reqheight()+40+16+confirm.winfo_reqheight()+22;x=self.root.winfo_x()+(self.root.winfo_width()-width)//2;y=self.root.winfo_y()+40
@@ -375,8 +407,8 @@ class Launcher:
     def game_changed(self):
         if self.game.get() not in GAMES:self.game.set('DragonBound');return
         if self.engine and self.engine.app.clone_id!=GAMES[self.game.get()]['id']:self.stop_engine()
-        self.game_note.config(text='Armor medido: 1 (0–18), 2 (0–22), SS (2–24 de viento).\nOtros carros: aprendizaje con tus tiros manuales.' if self.game.get()=='GunBound World' else 'DragonBound · entrenamiento experimental de dos cuentas.' if self.training_mode else 'DragonBound · fuerza, trayectorias y objetivo en la partida.')
-        if not self.engine:self.play_button.config(text=self.start_caption())
+        self.game_note.config(text='Armor tiene perfiles medidos; consulta el rango de cada bala en el catálogo.' if self.game.get()=='GunBound World' else 'Dos cuentas de prueba · entrenamiento experimental.' if self.training_mode else 'La guía se activa al detectar una partida.')
+        if not self.engine:self.play_button.config(text=self.start_caption(),icon='play')
         self.refresh_recommendations();self.schedule_scroll()
     def start_caption(self):return 'Iniciar entrenamiento' if self.training_mode else 'Abrir juego'
     def engine_directory(self):
@@ -386,6 +418,7 @@ class Launcher:
         if self.engine:self.engine.stop();self.engine=None
         self.opening_until=0
         self.mascot.set_state('ready')
+        self.play_button.config(icon='play')
     def get_engine(self):
         if not self.engine:self.engine=EngineHost(self.root,self.engine_directory(),None if self.demo else self.client)
         self.engine.app.training_enabled=self.training_mode

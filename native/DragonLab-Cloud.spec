@@ -3,7 +3,8 @@ project = Path(SPECPATH).parent
 native = project / 'native' / 'bin'
 a = Analysis([str(project / 'cloud_runtime.py')], pathex=[str(project)],
     binaries=[(str(native / name), 'native/bin') for name in ('dragonlab_core.dll','dragonlab_overlay.dll')],
-    datas=[(str(project / 'viewer.html'),'.'),(str(native / 'native-manifest.json'),'native/bin')],
+    datas=[(str(project / 'assets' / 'icons' / 'tabler'),'assets/icons/tabler'),(str(project / 'viewer.html'),'.'),(str(native / 'native-manifest.json'),'native/bin'),
+           (str(project / 'assets' / 'head-dragon.webp'),'assets')],
     hiddenimports=[], hookspath=[], hooksconfig={}, runtime_hooks=[],
     excludes=['numpy','PIL.AvifImagePlugin','PIL._avif'], noarchive=False, optimize=0)
 pyz = PYZ(a.pure)

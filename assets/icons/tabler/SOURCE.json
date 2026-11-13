@@ -1,0 +1,28 @@
+{
+  "library": "@tabler/icons-png",
+  "version": "3.51.0",
+  "license": "MIT",
+  "upstream": "https://github.com/tabler/tabler-icons",
+  "icons": {
+    "play": "player-play",
+    "pause": "player-pause",
+    "stop": "player-stop",
+    "game": "device-gamepad-2",
+    "catalog": "layout-grid",
+    "settings": "adjustments-horizontal",
+    "shortcuts": "keyboard",
+    "help": "help-circle",
+    "performance": "activity",
+    "support": "lifebuoy",
+    "account": "user-circle",
+    "update": "refresh",
+    "external": "external-link",
+    "logout": "logout",
+    "minimize": "minus",
+    "maximize": "square",
+    "restore": "squares",
+    "close": "x",
+    "chevron_down": "chevron-down",
+    "check": "check"
+  }
+}

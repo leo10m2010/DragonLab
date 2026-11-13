@@ -71,7 +71,9 @@ ROSTER_HELPERS_JS = r'''
    const items=own(o,"$items");if(items){try{return Array.from(Map.prototype.entries.call(items))}catch{}}
    return Object.getOwnPropertyNames(o).filter(k=>k!=="length").map(k=>[Array.isArray(o)?null:k,own(o,k)]);
  };
- const playerId=(p,key)=>primitive(p,["actorId","userId","n","number","id"])??id(key);
+ // DragonBound's n/number are roster slots, whereas userId can identify an
+ // account. Never let an unrelated account ID replace an explicit native slot.
+ const playerId=(p,key)=>primitive(p,["n","number","actorId","userId","id"])??id(key);
  const playerLike=p=>p&&typeof p==="object"&&["x","posX","y","posY"].some(k=>own(p,k)!==undefined);
  const roster=(o,aliases)=>{
    let best=[],score=-1;

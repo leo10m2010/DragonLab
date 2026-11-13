@@ -18,5 +18,11 @@ def run(destination):
             image.load()
             if image.size!=(8,8):raise RuntimeError('Codec de imagen inválido')
         report['image_formats'].append(format_name)
+    from mascot import mascot_source
+    from icons import ICON_NAMES,icon_pixels
+    artwork=mascot_source()
+    for name in ICON_NAMES:
+        if icon_pixels(name,16,'#BAFF00').getchannel('A').getbbox() is None:raise RuntimeError('Icono vacío')
+    report['assets']={'dragon_size':list(artwork.size),'tabler_icons':len(ICON_NAMES)}
     pathlib.Path(destination).write_text(json.dumps(report,indent=2),encoding='utf-8')
     return report
