@@ -1,9 +1,41 @@
 """Persistent, non-activating trajectory drawing above the game."""
-import tkinter as tk,os,time,math
+import tkinter as tk,os,time,math,heapq
 from strength_guide import clickthrough
 from native_paths import trail
-from targeting import enemies
-from theme import GREEN,OBSERVED,BG,LINE,ORANGE,TEXT
+from targeting import enemies,find_hero,player_role
+from theme import GREEN,OBSERVED,BG,LINE,ORANGE,TEXT,MUTED
+
+
+def actor_label_layout(actors,width,height,font_pixels):
+    """Pack labels without changing actor IDs or dropping crowded targets.
+
+    Each actor belongs to one label; a full field groups the overflow and keeps
+    the selected actor's ID visible. Markers remain at their actual edge/point.
+    """
+    if not actors or width<=0 or height<=0:return []
+    padding=min(6,width/4,height/4)
+    header=min(58,height*.15)
+    cell_width=220 if len(actors)<=6 else max(64,min(144,font_pixels*8+16))
+    columns=max(1,int((width-2*padding)//cell_width));rows=max(1,int((height-header-2*padding)//max(20,font_pixels+10)))
+    cell_width=(width-2*padding)/columns;cell_height=(height-header-2*padding)/rows
+    free=set(range(columns*rows));queue=list(range(columns*rows));groups={}
+    for actor in actors:
+        column=min(columns-1,max(0,int((actor['x']-padding)//cell_width)))
+        row=min(rows-1,max(0,int((actor['y']-23-header-padding)//cell_height)))
+        preferred=row*columns+column
+        if preferred in free:cell=preferred
+        else:
+            while queue and queue[0] not in free:heapq.heappop(queue)
+            cell=queue[0] if queue else preferred
+        free.discard(cell);groups.setdefault(cell,[]).append(actor)
+    labels=[]
+    for cell,members in groups.items():
+        members.sort(key=lambda actor:not actor['selected']);actor=members[0]
+        text=actor['short']+' · +'+str(len(members)-1) if len(members)>1 else actor['short'] if len(actors)>6 else actor['label']
+        labels.append({'key':actor['key'],'members':tuple(member['id'] for member in members),
+            'x':padding+(cell%columns+.5)*cell_width,'y':header+padding+(cell//columns+.5)*cell_height,
+            'width':cell_width,'text':text,'color':actor['color']})
+    return labels
 
 def projected_runs(path,project,x_scale,y_scale):
     """Project the supplied geometry without smoothing, skipping or bridging gaps."""
@@ -73,24 +105,34 @@ class TrajectoryOverlay:
         if numbers:
             current=numbers.get(target_id,'—')
             labels['target-status']=(min(width/2,190),16,f'Objetivo {current}/{len(numbers)} · {style.get("target_key","Ctrl")}' if len(numbers)>1 else '1 enemigo vivo',GREEN)
-        for p in players:
-            if p.get('dead') or not all(isinstance(p.get(k),(int,float)) for k in ('x','y')):continue
+        hero=find_hero(players,hero_id);actors=[]
+        physical_font=max(10,min(15,round(font_size*max(.75,min(1.25,width/vw)))))
+        for player_index,p in enumerate(players):
+            if p.get('dead') or not all(isinstance(p.get(k),(int,float)) and not isinstance(p[k],bool) and math.isfinite(p[k]) for k in ('x','y')):continue
             px,py=project(p['x'],p['y']);px*=width/vw;py*=(bottom-y)/vh
+            if not all(isinstance(v,(int,float)) and math.isfinite(v) for v in (px,py)):continue
+            role=player_role(p,hero);selected=p.get('id')==target_id
+            color=ORANGE if selected else GREEN if role=='hero' else '#7BCBDB' if role=='ally' else OBSERVED if role=='enemy' else MUTED
+            number=numbers.get(p.get('id'));prefix='▶ ' if selected else ''
+            text='TÚ' if role=='hero' else 'ALIADO' if role=='ally' else ('ENEMIGO ' if role=='enemy' else 'OBJETIVO ')+str(number or '')
+            short=prefix+('TÚ' if role=='hero' else 'A' if role=='ally' else 'E' if role=='enemy' else '?')+(str(number) if number else str(player_index+1) if role!='hero' else '')
             outside=not (12<=px<=width-12 and 26<=py<=height-12)
             if outside:
-                if p.get('id') not in numbers and p.get('id')!=hero_id:continue
                 rawx,rawy=px,py;px=max(20,min(width-20,px));py=max(35,min(height-25,py))
                 direction=math.atan2(rawy-py,rawx-px)
                 dx,dy=math.cos(direction),math.sin(direction)
-                color=ORANGE if p.get('id')==target_id else TEXT
                 annotations['player:'+str(p.get('id'))]=([px-10*dx,py-10*dy,px,py,px-7*dx-4*dy,py-7*dy+4*dx,px,py,px-7*dx+4*dy,py-7*dy-4*dx],color)
-                labels['player:'+str(p['id'])]=(px,py+13,(str(numbers[p['id']]) if p['id'] in numbers else 'Tú')+' · fuera de vista',color)
-                continue
-            color=GREEN if p.get('id')==hero_id else ORANGE if p.get('id')==target_id else OBSERVED
-            annotations['player:'+str(p.get('id'))]=([px-8,py,px+8,py,px,py,px,py-12],color)
-            if p.get('id') in numbers:
-                selected=p.get('id')==target_id
-                labels['player:'+str(p['id'])]=(px,py-23,('▶ ' if selected else '')+'ENEMIGO '+str(numbers[p['id']]),ORANGE if selected else TEXT)
+            else:annotations['player:'+str(p.get('id'))]=([px-8,py,px+8,py,px,py,px,py-12],color)
+            actors.append({'id':p.get('id'),'key':'player:'+str(p.get('id')),'x':px,'y':py,'label':prefix+text+(' · fuera de vista' if outside else ''),'short':short,'color':color,'selected':selected})
+        actor_layout=actor_label_layout(actors,width,height,physical_font)
+        self.actor_label_groups={item['key']:item['members'] for item in actor_layout}
+        positions={actor['id']:actor for actor in actors}
+        for item in actor_layout:
+            key=item['key'];labels[key]=(item['x'],item['y'],item['text'],item['color'])
+            for ident in item['members']:
+                actor=positions[ident]
+                if math.hypot(actor['x']-item['x'],actor['y']-item['y'])>35:
+                    annotations['leader:'+str(ident)]=([actor['x'],actor['y'],item['x'],item['y']],actor['color'])
         if style.get('weather_name'):
             from gunbound_weather import weather_name
             labels['current-weather']=(width-150,16,'Clima: '+weather_name(style['weather_name']),OBSERVED)
@@ -112,10 +154,11 @@ class TrajectoryOverlay:
         for key in list(self.marks):
             if key not in annotations:self.canvas.delete(self.marks.pop(key));self.mark_stamps.pop(key,None)
         for key,(px,py,text,color) in labels.items():
-            stamp=(px,py,text,color,font_size,width)
+            label_font=-physical_font if key.startswith('player:') else font_size
+            stamp=(px,py,text,color,label_font,width)
             if key in self.labels and self.label_stamps.get(key)==stamp:continue
-            if key not in self.labels:self.labels[key]=self.canvas.create_text(px,py,text=text,fill=color,font=('Bahnschrift',font_size,'bold'))
-            else:self.canvas.coords(self.labels[key],px,py);self.canvas.itemconfigure(self.labels[key],text=text,fill=color,font=('Bahnschrift',font_size,'bold'))
+            if key not in self.labels:self.labels[key]=self.canvas.create_text(px,py,text=text,fill=color,font=('Bahnschrift',label_font,'bold'))
+            else:self.canvas.coords(self.labels[key],px,py);self.canvas.itemconfigure(self.labels[key],text=text,fill=color,font=('Bahnschrift',label_font,'bold'))
             bounds=self.canvas.bbox(self.labels[key])
             if bounds:
                 shift=max(0,4-bounds[0])-max(0,bounds[2]-(width-4))

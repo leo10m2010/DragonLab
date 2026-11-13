@@ -1,7 +1,7 @@
 //! A passive Windows overlay. It never reads or sends game input.
 use serde::Deserialize;
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     ffi::{c_char, CString},
     sync::{
         atomic::{AtomicU64, Ordering},
@@ -10,12 +10,17 @@ use std::{
 };
 
 const MAX_INPUT: usize = 8 * 1024 * 1024;
-const GREEN: u32 = 0x009cf577;
-const OBSERVED: u32 = 0x00cbe6c1;
+// One aggregate work budget instead of silently truncating an actor collection.
+// Vertices cost one unit; an actor reserves its marker/leader/label operations.
+const MAX_GEOMETRY_UNITS: usize = 200_000;
+const ACTOR_UNITS: usize = 32;
+const GREEN: u32 = 0x0000ffbb;
+const OBSERVED: u32 = 0x00bbefe0;
 const ORANGE: u32 = 0x0077c4ff;
-const MUTED: u32 = 0x00a0b39a;
-const TEXT: u32 = 0x00eef7ec;
-const BG: u32 = 0x00090d06;
+const MUTED: u32 = 0x009c9c9c;
+const CYAN: u32 = 0x00dbcb7b;
+const TEXT: u32 = 0x00f3f5f5;
+const BG: u32 = 0x00191919;
 const COLOR_KEY: u32 = 0x00030201;
 
 #[derive(Clone, Deserialize, PartialEq, Default)]
@@ -35,6 +40,118 @@ struct Player {
     selected: bool,
     label: String,
     dead: bool,
+    role: Option<Role>,
+    number: Option<i64>,
+}
+#[derive(Clone, Copy, Deserialize, PartialEq, Eq, Default, Debug)]
+#[serde(rename_all = "lowercase")]
+enum Role {
+    Hero,
+    Ally,
+    Enemy,
+    #[default]
+    Unknown,
+}
+impl Player {
+    fn role(&self) -> Role {
+        self.role
+            .unwrap_or(if self.hero { Role::Hero } else { Role::Unknown })
+    }
+    fn colour(&self) -> u32 {
+        if self.selected {
+            return ORANGE;
+        }
+        match self.role() {
+            Role::Hero => GREEN,
+            Role::Ally => CYAN,
+            Role::Enemy => OBSERVED,
+            Role::Unknown => MUTED,
+        }
+    }
+    fn compact_label(&self, index: usize) -> String {
+        let id = self
+            .number
+            .map_or_else(|| (index + 1).to_string(), |n| n.to_string());
+        let role = match self.role() {
+            Role::Hero => "TÚ",
+            Role::Ally => "A",
+            Role::Enemy => "E",
+            Role::Unknown => "?",
+        };
+        format!("{}{role}{id}", if self.selected { "▶ " } else { "" })
+    }
+}
+
+#[derive(Debug)]
+struct ActorLabel {
+    members: Vec<usize>,
+    x: f64,
+    y: f64,
+    width: f64,
+    colour: u32,
+    value: String,
+}
+
+/// Pack labels into disjoint cells. A full field groups additional actors in
+/// their preferred cell instead of dropping them or changing target order.
+/// The free-cell set makes dense edge clusters O(actors * log(cells)).
+fn actor_labels(scene: &Scene, width: f64, height: f64, font_size: i32) -> Vec<ActorLabel> {
+    if width <= 0. || height <= 0. {
+        return Vec::new();
+    }
+    let padding = 6_f64.min(width / 4.).min(height / 4.);
+    let header = (height * 0.15).min(58.);
+    let cell_height = (font_size as f64 + 10.).max(20.);
+    let cell_width = (font_size as f64 * 8. + 16.).clamp(64., 144.);
+    let columns = (((width - 2. * padding) / cell_width).floor() as usize).max(1);
+    let rows = (((height - header - 2. * padding) / cell_height).floor() as usize).max(1);
+    let actual_width = (width - 2. * padding) / columns as f64;
+    let actual_height = (height - header - 2. * padding) / rows as f64;
+    let mut free: BTreeSet<usize> = (0..columns * rows).collect();
+    let mut cells: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
+    let alive = scene.players.iter().filter(|p| !p.dead).count();
+    for (index, player) in scene.players.iter().enumerate().filter(|(_, p)| !p.dead) {
+        let x = player.x * width / scene.viewport[0];
+        let y = player.y * (scene.area[3] - scene.area[1]) / scene.viewport[1] - 23.;
+        let column = (((x - padding) / actual_width).floor().max(0.) as usize).min(columns - 1);
+        let row = (((y - header - padding) / actual_height).floor().max(0.) as usize).min(rows - 1);
+        let preferred = row * columns + column;
+        let cell = free
+            .range(preferred..)
+            .next()
+            .or_else(|| free.first())
+            .copied()
+            .unwrap_or(preferred);
+        free.remove(&cell);
+        cells.entry(cell).or_default().push(index);
+    }
+    cells
+        .into_iter()
+        .map(|(cell, mut members)| {
+            // A selected actor remains visible in a grouped label.
+            members.sort_by_key(|index| !scene.players[*index].selected);
+            let player = &scene.players[members[0]];
+            let value = if members.len() > 1 {
+                format!(
+                    "{} · +{}",
+                    player.compact_label(members[0]),
+                    members.len() - 1
+                )
+            } else if alive > 6 || player.label.is_empty() {
+                player.compact_label(members[0])
+            } else {
+                player.label.clone()
+            };
+            ActorLabel {
+                x: padding + (cell % columns) as f64 * actual_width,
+                y: header + padding + (cell / columns) as f64 * actual_height + actual_height / 2.,
+                width: actual_width,
+                colour: player.colour(),
+                members,
+                value,
+            }
+        })
+        .collect()
 }
 #[derive(Clone, Deserialize, PartialEq, Default)]
 #[serde(default)]
@@ -58,6 +175,7 @@ struct Guide {
     updating: bool,
     blocked: bool,
     measured: bool,
+    font_size: f64,
 }
 impl Default for Guide {
     fn default() -> Self {
@@ -70,6 +188,7 @@ impl Default for Guide {
             updating: false,
             blocked: false,
             measured: false,
+            font_size: 12.,
         }
     }
 }
@@ -129,7 +248,6 @@ impl Scene {
         }
         if self.planned.len() > 512
             || self.observed.len() > 512
-            || self.players.len() > 256
             || self.annotations.len() > 512
             || self.guide.label.chars().count() > 2048
         {
@@ -138,13 +256,26 @@ impl Scene {
         if !self.guide.max_power.is_finite()
             || self.guide.max_power <= 0.
             || self.guide.power.is_some_and(|v| !v.is_finite())
+            || !self.guide.font_size.is_finite()
         {
             return false;
         }
-        let mut count = 0usize;
+        let mut count = self.guide.label.chars().count();
+        // checked_add also makes this safe on 32-bit hosts. There is no player
+        // count cap; all actors fit or the entire proposed scene is rejected.
+        for player in &self.players {
+            let cost = ACTOR_UNITS + player.label.chars().count();
+            let Some(next) = count.checked_add(cost) else {
+                return false;
+            };
+            count = next;
+            if count > MAX_GEOMETRY_UNITS {
+                return false;
+            }
+        }
         for path in points {
             count += path.len();
-            if count > 200_000 || !path.iter().flatten().flatten().all(|v| finite(*v)) {
+            if count > MAX_GEOMETRY_UNITS || !path.iter().flatten().flatten().all(|v| finite(*v)) {
                 return false;
             }
         }
@@ -156,8 +287,8 @@ impl Scene {
             return false;
         }
         for a in &self.annotations {
-            count += a.points.len();
-            if count > 200_000
+            count += a.points.len() + a.label.chars().count() + 8;
+            if count > MAX_GEOMETRY_UNITS
                 || !finite(a.x)
                 || !finite(a.y)
                 || a.label.chars().count() > 2048
@@ -166,8 +297,13 @@ impl Scene {
                 return false;
             }
         }
-        self.bounds()
-            .is_none_or(|b| b.w > 0 && b.h > 0 && b.w <= 16384 && b.h <= 16384)
+        self.bounds().is_none_or(|b| {
+            b.w > 0
+                && b.h > 0
+                && b.w <= 16384
+                && b.h <= 16384
+                && (b.w as u64) * (b.h as u64) <= 32_000_000
+        })
     }
     fn field_height(&self) -> f64 {
         (self.area[3] - self.area[1]) * (516. / self.viewport[1]).min(1.)
@@ -186,9 +322,9 @@ impl Scene {
             let [x1, y1, x2, y2] = self.guide.bar;
             let rect = [
                 x1.min(x2) - 16.,
-                y1.min(y2) - 54.,
+                y1.min(y2) - 38.,
                 x1.max(x2) + 16.,
-                y1.max(y2) + 20.,
+                y1.max(y2) + 8.,
             ];
             rectangle = Some(if let Some(r) = rectangle {
                 [
@@ -237,6 +373,11 @@ struct Shared {
     submitted: AtomicU64,
     painted: AtomicU64,
     coalesced: AtomicU64,
+    presentations: AtomicU64,
+    geometry_updates: AtomicU64,
+    shows: AtomicU64,
+    hides: AtomicU64,
+    presentation_errors: AtomicU64,
 }
 
 #[cfg(windows)]
@@ -383,9 +524,9 @@ mod tests {
             scene.bounds(),
             Some(Bounds {
                 x: 84,
-                y: 646,
+                y: 662,
                 w: 432,
-                h: 84
+                h: 56
             })
         );
         scene.visible = true;
@@ -396,7 +537,7 @@ mod tests {
                 x: 10,
                 y: 20,
                 w: 800,
-                h: 710
+                h: 698
             })
         );
     }
@@ -414,8 +555,64 @@ mod tests {
     }
     #[test]
     fn colors_and_strokes_are_bounded() {
-        assert_eq!(color("#77F59C", 0), GREEN);
+        assert_eq!(color("#BBFF00", 0), GREEN);
         assert_eq!(color("oops", 3), 3);
         assert_eq!(stroke(100., 2), 12);
+    }
+    #[test]
+    fn actor_roles_are_distinct_and_legacy_nonheroes_are_unknown() {
+        let hero = Player {
+            hero: true,
+            ..Player::default()
+        };
+        let ally = Player {
+            role: Some(Role::Ally),
+            ..Player::default()
+        };
+        let enemy = Player {
+            role: Some(Role::Enemy),
+            ..Player::default()
+        };
+        assert_eq!(hero.role(), Role::Hero);
+        assert_eq!(Player::default().role(), Role::Unknown);
+        assert_ne!(hero.colour(), ally.colour());
+        assert_ne!(ally.colour(), enemy.colour());
+    }
+    #[test]
+    fn crowded_labels_preserve_every_actor_without_overlaps_or_an_actor_cap() {
+        for count in [8, 12, 16, 32, 300] {
+            let scene = Scene {
+                area: [0., 0., 800., 600.],
+                visible: true,
+                players: (0..count)
+                    .map(|i| Player {
+                        x: 1500.,
+                        y: 400.,
+                        number: Some(i as i64 + 1),
+                        role: Some(Role::Enemy),
+                        selected: i == count - 1,
+                        ..Player::default()
+                    })
+                    .collect(),
+                ..Scene::default()
+            };
+            assert!(scene.valid());
+            let labels = actor_labels(&scene, 800., scene.field_height(), 12);
+            let members: BTreeSet<usize> = labels
+                .iter()
+                .flat_map(|l| l.members.iter().copied())
+                .collect();
+            assert_eq!(members.len(), count);
+            assert!(labels.iter().any(|label| label.value.starts_with('▶')));
+            for (index, label) in labels.iter().enumerate() {
+                for other in labels.iter().skip(index + 1) {
+                    assert!(
+                        (label.y - other.y).abs() >= 20.
+                            || label.x + label.width <= other.x + 0.01
+                            || other.x + other.width <= label.x + 0.01
+                    );
+                }
+            }
+        }
     }
 }

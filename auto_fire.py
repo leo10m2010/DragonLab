@@ -2,6 +2,7 @@
 import time,math
 from cdp import CDP
 from firing import WindowsInput
+from session_lifecycle import ROSTER_HELPERS_JS, SOURCE_IDENTITY_JS
 
 DRAG_POINT = r"""(()=>{
  const game=document.getElementById('gameScreen');if(!game)return null;
@@ -11,6 +12,30 @@ DRAG_POINT = r"""(()=>{
   if(hit&&game.contains(hit)&&!hit.closest('#gameui,#touch_ui,#gameChatHtml,#gameChat .scrollbar,#howtoplay,button,input,textarea,select,a,[role="button"]'))return [x,y];
  }return null;
 })()"""
+
+POWER_READ_JS = r'''function(renderer){
+ __ROSTER_HELPERS__
+ const number=(o,keys)=>{for(const k of keys){const v=num(own(o,k));if(v!==null)return v}return null};
+ const wireId=v=>typeof v==='string'&&/^\d+$/.test(v)?Number(v):v;
+ const rows=roster(this,['players','player_list']),hid=heroId(this),href=heroObject(this,rows,hid);
+ const source=(__SOURCE_IDENTITY__)(this,hid,href,false);
+ const meter=own(renderer,'wind_meter'),stat=own(this,'stat'),last=Array.isArray(stat)?own(stat,String(stat.length-1)):null;
+ const mode=document.getElementById('slice_drag_button'),mark=document.getElementById('powerMarkArea')?.getBoundingClientRect(),fill=document.getElementById('powerBar')?.getBoundingClientRect();
+ const duration=number(this,['turn_time']),started=number(this,['start_turn_time']),elapsed=started===null?null:(Date.now()-started)/1000;
+ return {...source,turnSeconds:duration!==null&&duration>0&&duration<=120&&elapsed!==null&&elapsed>=0&&elapsed<=180?Math.max(0,duration-elapsed):null,
+   turnNumber:number(this,['turn_number']),turn:wireId(primitive(this,['turn'])),hero:wireId(hid),
+   power:mark?.width>0&&fill?Math.round(Math.max(0,Math.min(400,400*fill.width/mark.width))):number(this,['curUIPower']),
+   mode:mode?(mode.classList.contains('drag')?'drag':'space'):null,focused:document.hasFocus()&&document.visibilityState==='visible',
+   moving:['intervalDoLeft','intervalDoRight','intervalDoUp','intervalDoDown'].some(k=>!!own(this,k)),
+   dragSens:own(this,'dragSens'),dragStartX:own(this,'drag_start_x'),dragUpdates:Array.isArray(stat)&&Array.isArray(own(stat,'0'))?Math.max(0,stat.length-1):null,
+   dragPointX:Array.isArray(last)?own(last,'1'):null,busy:!!own(this,'intervalDoSpace')||!!own(this,'isInDrag'),over:!!own(this,'isGameOver')||!!own(this,'destructed'),
+   chat:['INPUT','TEXTAREA','SELECT'].includes(document.activeElement?.tagName)||!!document.activeElement?.isContentEditable,shot:own(this,'selectedShot'),
+   wind:number(this,['windPower','wind_power','wind'])??number(renderer,['wind_power'])??number(meter,['value','power']),
+   windAngle:number(this,['windAngle','wind_angle'])??number(renderer,['wind_angle'])??number(meter,['angle','ang']),
+   players:rows.filter(([k,p])=>playerLike(p)).map(([k,p])=>({id:wireId(playerId(p,k)),x:pick(p,['x','posX']),y:pick(p,['y','posY']),rawAngle:own(p,'ang'),
+     minAngle:number(p,['truang_min','minang']),maxAngle:number(p,['truang_max','maxang']),body:own(p,'body'),look:own(p,'look'),
+     dead:flag(pick(p,['dead','is_dead','isDead']))||[false,0].includes(pick(p,['is_alive']))}))};
+}'''.replace('__ROSTER_HELPERS__',ROSTER_HELPERS_JS).replace('__SOURCE_IDENTITY__',SOURCE_IDENTITY_JS)
 
 class PowerReader:
     def __init__(self,endpoint,target=None):
@@ -25,7 +50,9 @@ class PowerReader:
         # A closure flag from a particular prototype version is not a stable API.
         self.client.sock.settimeout(.3)
     def read(self):
-        r=self.client.call('Runtime.callFunctionOn',{'objectId':self.client.game,'functionDeclaration':r'''function(renderer){const own=(o,k)=>o&&Object.getOwnPropertyDescriptor(o,k)?.value;const pick=(o,keys)=>{for(let k of keys){let v=own(o,k);if(typeof v==='number'&&Number.isFinite(v))return v}return null};let meter=own(renderer,'wind_meter');let list=own(this,'players')||[];let mode=document.getElementById('slice_drag_button'),mark=document.getElementById('powerMarkArea')?.getBoundingClientRect(),fill=document.getElementById('powerBar')?.getBoundingClientRect();let id=v=>typeof v==='string'&&/^\d+$/.test(v)?Number(v):v;const duration=pick(this,['turn_time']),started=pick(this,['start_turn_time']),elapsed=started===null?null:(Date.now()-started)/1000;return {turnSeconds:duration!==null&&duration>0&&duration<=120&&elapsed!==null&&elapsed>=0&&elapsed<=180?Math.max(0,duration-elapsed):null,turnNumber:pick(this,['turn_number']),turn:id(own(this,'turn')),hero:id(own(this,'my_player_number')),power:mark?.width>0&&fill?Math.round(Math.max(0,Math.min(400,400*fill.width/mark.width))):pick(this,['curUIPower']),mode:mode?(mode.classList.contains('drag')?'drag':'space'):null,focused:document.hasFocus()&&document.visibilityState==='visible',moving:['intervalDoLeft','intervalDoRight','intervalDoUp','intervalDoDown'].some(k=>!!own(this,k)),dragSens:own(this,'dragSens'),dragStartX:own(this,'drag_start_x'),dragUpdates:Array.isArray(own(this,'stat'))&&Array.isArray(own(this,'stat')[0])?Math.max(0,own(this,'stat').length-1):null,dragPointX:Array.isArray(own(this,'stat'))&&Array.isArray(own(this,'stat').at(-1))?own(this,'stat').at(-1)[1]:null,busy:!!own(this,'intervalDoSpace')||!!own(this,'isInDrag'),over:!!own(this,'isGameOver')||!!own(this,'destructed'),chat:['INPUT','TEXTAREA','SELECT'].includes(document.activeElement?.tagName)||!!document.activeElement?.isContentEditable,shot:own(this,'selectedShot'),wind:pick(this,['windPower','wind_power','wind'])??pick(renderer,['wind_power'])??pick(meter,['value','power']),windAngle:pick(this,['windAngle','wind_angle'])??pick(renderer,['wind_angle'])??pick(meter,['angle','ang']),players:list.filter(Boolean).map(p=>({id:id(own(p,'n')),x:own(p,'x'),y:own(p,'y'),rawAngle:own(p,'ang'),minAngle:pick(p,['truang_min','minang']),maxAngle:pick(p,['truang_max','maxang']),body:own(p,'body'),look:own(p,'look'),dead:own(p,'is_alive')===false}))}}''','arguments':[{'objectId':self.client.renderer}] if self.client.renderer else [{'value':None}],'returnByValue':True})
+        lifecycle=getattr(self.client,'lifecycle',None);generation=lifecycle.revision if lifecycle else None
+        r=self.client.call('Runtime.callFunctionOn',{'objectId':self.client.game,'functionDeclaration':POWER_READ_JS,'arguments':[{'objectId':self.client.renderer}] if self.client.renderer else [{'value':None}],'returnByValue':True})
+        if lifecycle and generation!=lifecycle.revision:raise RuntimeError('Cambió la sesión del juego; vuelve a calcular')
         if r.get('exceptionDetails'):raise RuntimeError('No se pudo leer la fuerza del juego')
         return r['result']['value']
     def drag_start(self,window):
@@ -39,7 +66,12 @@ class PowerReader:
         return tuple(round(origin[i]+point[i]*meta.get('dpr',1)) for i in (0,1))
     def close(self):self.client.close()
 
+def validate_source(plan,state):
+    if plan.get('sourceEpoch') is not None and state.get('sourceEpoch')!=plan['sourceEpoch']:
+        raise RuntimeError('Cambió la sesión del juego; vuelve a calcular')
+
 def validate(plan,state):
+    validate_source(plan,state)
     if state.get('over') or state.get('chat') or state.get('focused') is not True:raise RuntimeError('Cierra el chat y vuelve a tu turno')
     if state.get('moving'):raise RuntimeError('Suelta las teclas de movimiento y ángulo antes de disparar')
     if state.get('mode') not in ('space','drag'):raise RuntimeError('No se pudo detectar Slice / Drag')
@@ -99,7 +131,7 @@ def execute(plan,reader,cancel,backend=None,trace=None):
             last_cursor=(px,y);backend.move(*last_cursor);charging=True
         while True:
             check()
-            state=reader.read();check();power=state.get('power')
+            state=reader.read();check();validate_source(plan,state);power=state.get('power')
             # At full charge the native controller can already have released
             # and advanced the turn before our final reading arrives.
             full_drag_confirmed=(method=='drag' and state.get('dragStartX')==drag_origin and state.get('dragSens')==sensitivity and isinstance(state.get('dragUpdates'),int) and state['dragUpdates']>move_revision and isinstance(state.get('dragPointX'),(int,float)) and abs(state['dragPointX']-expected_drag_x)<=1)

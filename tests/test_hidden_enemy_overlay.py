@@ -1,6 +1,6 @@
 import os,unittest,tkinter as tk
 from unittest.mock import patch
-from trajectories import TrajectoryOverlay
+from trajectories import TrajectoryOverlay,actor_label_layout
 @unittest.skipUnless(os.name=='nt' or os.environ.get('DISPLAY'),'requires desktop')
 class HiddenEnemyOverlayTests(unittest.TestCase):
     def setUp(self):
@@ -35,3 +35,30 @@ class HiddenEnemyOverlayTests(unittest.TestCase):
             self.assertEqual(overlay.canvas.itemcget(overlay.labels['current-weather'],'text'),'Clima: Mirror')
             self.assertIn('climate:0',overlay.marks);self.assertIn('climate:1',overlay.marks)
         finally:overlay.close();root.destroy()
+
+    def test_crowded_edge_labels_keep_all_roles_and_actor_membership(self):
+        root=tk.Tk();root.withdraw();overlay=TrajectoryOverlay(root)
+        try:
+            players=[{'id':0,'x':100,'y':200,'team':0},{'id':1,'x':100,'y':900,'team':0},
+                     *({'id':i,'x':1200,'y':900,'team':1} for i in range(2,18))]
+            overlay.update((0,0,800,600),(800,600),lambda x,y:(x,y),[],{},True,players=players,target_id=17,hero_id=0)
+            members={ident for values in overlay.actor_label_groups.values() for ident in values}
+            self.assertEqual(members,set(range(18)))
+            self.assertTrue(all('player:'+str(i) in overlay.marks for i in range(18)))
+            texts=[overlay.canvas.itemcget(overlay.labels[key],'text') for key in overlay.actor_label_groups]
+            self.assertTrue(any(text.startswith('▶ E16') for text in texts))
+            self.assertIn('TÚ',texts);self.assertIn('A2',texts)
+            boxes=[overlay.canvas.bbox(overlay.label_backgrounds[key]) for key in overlay.actor_label_groups]
+            for index,(left,top,right,bottom) in enumerate(boxes):
+                for l,t,r,b in boxes[index+1:]:self.assertTrue(right<=l or r<=left or bottom<=t or b<=top)
+        finally:overlay.close();root.destroy()
+
+
+class ActorLayoutTests(unittest.TestCase):
+    def test_overflow_is_grouped_without_actor_cap_or_mutating_input(self):
+        import copy
+        actors=[{'id':i,'key':'player:'+str(i),'x':780,'y':490,'label':'ENEMIGO '+str(i),'short':('▶ ' if i==299 else '')+'E'+str(i),
+                 'color':'#FFFFFF','selected':i==299} for i in range(300)]
+        before=copy.deepcopy(actors);labels=actor_label_layout(actors,800,516,12)
+        self.assertEqual({i for item in labels for i in item['members']},set(range(300)))
+        self.assertTrue(any(item['text'].startswith('▶ E299') for item in labels));self.assertEqual(actors,before)

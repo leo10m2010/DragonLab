@@ -24,8 +24,19 @@ try {
  child.stdin.write(JSON.stringify({key:'R'})+'\n');await wait(m=>m.kind==='configured');
  await page.locator('#chat').evaluate(e=>e.blur());await page.keyboard.press('q');await page.keyboard.press('r');
  const custom=await wait(m=>m.kind==='shot'&&m.key===82);assert.equal(custom.count,1);
- await page.reload();await page.keyboard.press('r');
- await wait(m=>m.kind==='shot'&&m.key===82&&m.at>custom.at);
+ const oldEpoch=await page.evaluate(()=>window.__dragonlabShotGesture.sourceEpoch);
+ await page.reload();
+ const document=await page.evaluate(()=>performance.timeOrigin);
+ child.stdin.write(JSON.stringify({waitReady:true,previousEpoch:oldEpoch,document})+'\n');
+ const rearmed=await wait(m=>m.kind==='rearmed'&&m.document===document);
+ assert.notEqual(rearmed.sourceEpoch,oldEpoch);
+ assert.equal(await page.evaluate(()=>window.__dragonlabShotGesture.sourceEpoch),rearmed.sourceEpoch);
+ // A queued callback from the previous document remains invalid after rearm.
+ await page.evaluate(previous=>window.__dragonlabShot_bridgefixture(JSON.stringify({owner:previous.owner,key:previous.key,count:2,at:Date.now(),document:previous.document,sourceEpoch:previous.sourceEpoch})),custom);
+ await new Promise(r=>setTimeout(r,60));assert.equal(messages.filter(m=>m.kind==='shot').length,2);
+ await page.keyboard.press('r');
+ const afterReload=await wait(m=>m.kind==='shot'&&m.key===82&&m.at>custom.at);
+ assert.equal(afterReload.sourceEpoch,rearmed.sourceEpoch);assert.equal(afterReload.document,document);assert.equal(afterReload.count,1);
  console.log(`Python/CDP shortcut, custom key, chat, modifiers and reload passed; event latency ${latency.toFixed(1)} ms`);
 } finally {
  if(child){child.stdin.end(JSON.stringify({stop:true})+'\n');await new Promise(r=>setTimeout(r,150));if(child.exitCode===null)child.kill();}

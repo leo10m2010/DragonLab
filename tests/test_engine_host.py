@@ -27,7 +27,7 @@ class EmbeddedTests(unittest.TestCase):
                 self.assertEqual(host.window.state(),'withdrawn')
                 app.assert_called_once_with(host.window,embedded=True)
                 self.assertIs(host.app.ui_parent,root)
-                self.assertTrue(host.start('gunbound-world'));self.assertEqual(host.app.clone_id,'gunbound-world')
+                self.assertTrue(host.start('gunbound-world'));host.app.prepare_game.assert_called_once_with('gunbound-world')
                 host.window.after(60000,lambda:calls.append('engine'))
                 # The mocked app.close does not destroy its test window; destroy it here to verify timer isolation.
                 host.window.destroy()

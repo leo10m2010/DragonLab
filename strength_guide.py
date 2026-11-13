@@ -8,6 +8,18 @@ def guide_power(result):
     value=result.get('power') if result.get('reachable') else result.get('guide_power') if result.get('blocked') else None
     return value if isinstance(value,(int,float)) and math.isfinite(value) and 0<value<=400 else None
 
+def compact_guide_label(result,maximum,updating=False):
+    """Only actionable information belongs above the game's small power bar."""
+    power=guide_power(result)
+    notice=' '.join(str(result.get('guide_notice') or '').split())
+    if notice:return 'Q: '+(notice if len(notice)<=23 else notice[:22]+'…')
+    if power is None:
+        if result.get('guide_state')=='pending' or result.get('guide_message'):return 'Sin calibrar'
+        return 'Calculando…' if updating else 'Ajusta el ángulo'
+    label=('≈' if result.get('guide_state')=='approximate' else '')+f'{power:g} · {power/maximum*100:.1f}%'
+    if result.get('blocked'):return 'Bloqueado · '+label
+    return label+(' …' if updating else '')
+
 def draw_force(canvas,result,maximum=400,current=None,updating=False):
     canvas.delete('all');w=max(120,canvas.winfo_width());left,right=18,w-18;y=28
     canvas.create_line(left,y,right,y,fill=LINE,width=11,capstyle='round')
@@ -35,11 +47,12 @@ def clickthrough(win):
 
 class PowerGuide:
     def __init__(self,root,start,end):
+        self.suspended=False
         self.win=tk.Toplevel(root);self.win.withdraw();self.win.overrideredirect(True)
         self.win.attributes('-topmost',True);self.win.configure(bg='#010203')
         self.win.wm_attributes('-transparentcolor','#010203')
         self.canvas=tk.Canvas(self.win,bg='#010203',highlightthickness=0);self.canvas.pack(fill='both',expand=True)
-        self.items=[self.canvas.create_line(0,0,0,0,fill=GREEN,width=2),self.canvas.create_line(0,0,0,0,fill=ORANGE,width=3),self.canvas.create_polygon(0,0,0,0,0,0,fill=ORANGE),self.canvas.create_text(0,0,text='',fill=ORANGE,font=('Bahnschrift',13,'bold'))]
+        self.items=[self.canvas.create_line(0,0,0,0,fill=GREEN,width=1),self.canvas.create_line(0,0,0,0,fill=ORANGE,width=2),self.canvas.create_polygon(0,0,0,0,0,0,fill=ORANGE),self.canvas.create_text(0,0,text='',fill=ORANGE,font=('Bahnschrift',-12,'bold'))]
         self.last_draw=None;self.points=None;self.update_position(start,end)
         self.win.update_idletasks();clickthrough(self.win)
         if os.name=='nt':
@@ -50,10 +63,11 @@ class PowerGuide:
         points=(tuple(start),tuple(end))
         if points==self.points:return
         self.points=points;self.start,self.end=points
-        self.x=min(start[0],end[0])-16;self.y=min(start[1],end[1])-45
-        width=max(320,abs(end[0]-start[0])+32);height=max(65,abs(end[1]-start[1])+65)
+        self.x=min(start[0],end[0])-12;self.y=min(start[1],end[1])-31
+        width=max(160,abs(end[0]-start[0])+24);height=max(46,abs(end[1]-start[1])+46)
         self.win.geometry(f'{width}x{height}{self.x:+d}{self.y:+d}');self.last_draw=None
     def draw(self,result,maximum,updating=False):
+        if self.suspended:return
         power=guide_power(result)
         key=(power,maximum,self.points,updating,bool(result.get('blocked')),result.get('guide_message'),result.get('guide_label'),result.get('guide_state'),result.get('guide_notice'))
         if key==self.last_draw:return
@@ -62,18 +76,23 @@ class PowerGuide:
             for item in self.items:c.itemconfigure(item,state='hidden')
             # Show an honest state instead of disappearing without explanation.
             a=[self.start[0]-self.x,self.start[1]-self.y];b=[self.end[0]-self.x,self.end[1]-self.y]
-            c.itemconfigure(self.items[3],state='normal',text=result.get('guide_notice') or result.get('guide_message') or ('Calculando fuerza…' if updating else 'Sin potencia válida · revisa DragonLab'),fill=MUTED)
-            c.coords(self.items[3],(a[0]+b[0])/2,min(a[1],b[1])-35)
+            c.itemconfigure(self.items[3],state='normal',text=compact_guide_label(result,maximum,updating),fill=MUTED)
+            c.coords(self.items[3],(a[0]+b[0])/2,min(a[1],b[1])-22)
+            self.win.deiconify()
             return
         a=[self.start[0]-self.x,self.start[1]-self.y];b=[self.end[0]-self.x,self.end[1]-self.y]
         fraction=max(0,min(1,power/maximum));px=a[0]+(b[0]-a[0])*fraction;py=a[1]+(b[1]-a[1])*fraction
         for item in self.items:c.itemconfigure(item,state='normal')
         for item in self.items[1:]:c.itemconfigure(item,fill=MUTED if updating else GREEN if result.get('guide_state')=='measured' and not result.get('blocked') else ORANGE)
-        c.coords(self.items[0],*a,*b);c.coords(self.items[1],px,py-22,px,py+12)
-        c.coords(self.items[2],px-7,py-24,px+7,py-24,px,py-15)
-        c.coords(self.items[3],(a[0]+b[0])/2,min(a[1],b[1])-35)
-        prefix=('Q: '+result['guide_notice'][:95]+' · ') if result.get('guide_notice') else (result.get('guide_label','')+' · ') if result.get('guide_label') else ''
-        c.itemconfigure(self.items[3],text=prefix+f'{"ACTUALIZANDO" if updating else "TERRENO BLOQUEA" if result.get("blocked") else "SUELTA EN"} {power:g} / {maximum:g} · {fraction*100:.1f}%')
+        c.coords(self.items[0],*a,*b);c.coords(self.items[1],px,py-12,px,py+8)
+        c.coords(self.items[2],px-4,py-14,px+4,py-14,px,py-8)
+        c.coords(self.items[3],(a[0]+b[0])/2,min(a[1],b[1])-22)
+        c.itemconfigure(self.items[3],text=compact_guide_label(result,maximum,updating))
+        self.win.deiconify()
+    def hide(self):
+        if self.suspended:return
+        self.suspended=True;self.last_draw=None;self.win.withdraw()
+    def show(self):self.suspended=False
     def close(self):self.win.destroy()
 
 def select_game_bar(app):

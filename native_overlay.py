@@ -1,8 +1,9 @@
 """Rust overlay adapter. Coordinates are projected before crossing the C boundary."""
 import ctypes,json,math,os,threading
+from contextlib import contextmanager
 from native_solver import library_path
-from strength_guide import guide_power,PowerGuide
-from targeting import enemies
+from strength_guide import guide_power,PowerGuide,compact_guide_label
+from targeting import enemies,find_hero,player_role
 from theme import GREEN,ORANGE,MUTED,TEXT,OBSERVED
 from trajectories import TrajectoryOverlay,projected_runs
 
@@ -12,10 +13,19 @@ class NativeScene:
         self.dll.dl_overlay_update_json.argtypes=[ctypes.c_char_p,ctypes.c_size_t];self.dll.dl_overlay_update_json.restype=ctypes.c_int
         self.dll.dl_overlay_close.argtypes=[];self.dll.dl_overlay_close.restype=None
         self.dll.dl_overlay_status.argtypes=[];self.dll.dl_overlay_status.restype=ctypes.c_uint32
+        self.dll.dl_overlay_status_json.argtypes=[];self.dll.dl_overlay_status_json.restype=ctypes.c_void_p
+        self.dll.dl_overlay_string_free.argtypes=[ctypes.c_void_p];self.dll.dl_overlay_string_free.restype=None
         self.frame={'box':[0,0,1,1],'viewport':[1,1],'planned':[],'observed':{},'players':[],'annotations':[],'style':{},'guide':{'visible':False},'visible':False}
         self.trajectory_visible=False;self.guide_visible=False;self.last=None;self.closed=False;self.owners=set()
     def submit(self):
         if self.closed:raise RuntimeError('Guía nativa cerrada')
+        self.pending=True
+        if _batch_depth:return
+        self.flush()
+    def flush(self):
+        if self.closed:raise RuntimeError('Guía nativa cerrada')
+        if not getattr(self,'pending',False):return
+        self.pending=False
         self.frame['visible']=self.trajectory_visible
         payload=json.dumps(self.frame,ensure_ascii=False,allow_nan=False,separators=(',',':')).encode('utf-8')
         if payload==self.last:
@@ -35,8 +45,31 @@ class NativeScene:
     def close(self):
         if not self.closed:self.dll.dl_overlay_close();self.closed=True
     def viewable(self):return not self.closed and bool(self.dll.dl_overlay_status()&2)
+    def counters(self):
+        pointer=self.dll.dl_overlay_status_json()
+        if not pointer:return {}
+        try:
+            data=json.loads(ctypes.string_at(pointer))
+            return {key:value for key,value in data.items() if key in ('running','visible','submitted','painted','coalesced','presentations','geometry_updates','shows','hides') and isinstance(value,(int,bool))}
+        finally:self.dll.dl_overlay_string_free(pointer)
 
-_scene=None;_unavailable=False;_error='';_lock=threading.Lock()
+_scene=None;_unavailable=False;_error='';_lock=threading.Lock();_batch_depth=0
+
+@contextmanager
+def frame_batch():
+    """Publish field and power marker together after the complete UI tick."""
+    global _batch_depth
+    _batch_depth+=1
+    try:yield
+    except BaseException:
+        _batch_depth-=1
+        if not _batch_depth and _scene:_scene.pending=False
+        raise
+    else:
+        _batch_depth-=1
+        if not _batch_depth and _scene and not _scene.closed:
+            try:_scene.flush()
+            except (OSError,RuntimeError,ValueError,TypeError):failed(_scene)
 def scene():
     global _scene,_unavailable,_error
     if os.name!='nt' or os.environ.get('DRAGONLAB_DISABLE_RUST')=='1' or os.environ.get('DRAGONLAB_DISABLE_NATIVE_OVERLAY')=='1':return None
@@ -52,7 +85,11 @@ def failed(native):
     native.close();_unavailable=True;_error='Dibujo compatible activo'
 
 def diagnostics():
-    return {'renderer':'rust' if _scene and not _scene.closed else 'tk','available':not _unavailable,'error':_error}
+    result={'renderer':'rust' if _scene and not _scene.closed else 'tk','available':not _unavailable,'error':_error}
+    if _scene and not _scene.closed:
+        try:result['counters']=_scene.counters()
+        except (OSError,ValueError,AttributeError):pass
+    return result
 
 def projected_paths(paths,project):
     output=[]
@@ -76,11 +113,14 @@ class NativeTrajectory:
             frame['planned']=projected_paths(planned,project)
             frame['observed']={str(key)+':'+str(i):run for key,path in observed.items() for i,run in enumerate(projected_paths([path],project))}
             numbers={p['id']:i for i,p in enumerate(enemies(players,hero_id),1)}
+            hero=find_hero(players,hero_id)
             frame['players']=[]
             for player in players:
                 if player.get('dead'):continue
                 x,y=project(player['x'],player['y'])
-                frame['players'].append({'id':player['id'],'x':x,'y':y,'hero':player['id']==hero_id,'selected':player['id']==target_id,'label':('▶ ' if player['id']==target_id else '')+'ENEMIGO '+str(numbers[player['id']]) if player['id'] in numbers else 'TÚ'})
+                role=player_role(player,hero);number=numbers.get(player['id'])
+                label='TÚ' if role=='hero' else 'ALIADO' if role=='ally' else ('ENEMIGO ' if role=='enemy' else 'OBJETIVO ') + str(number or '')
+                frame['players'].append({'id':player['id'],'x':x,'y':y,'role':role,'number':number,'hero':role=='hero','selected':player['id']==target_id,'label':('▶ ' if player['id']==target_id else '')+label})
             frame['annotations']=annotations(viewport,project,weather,style,numbers,target_id)
             self.native.submit()
         except (OSError,RuntimeError,ValueError,TypeError,KeyError):
@@ -97,7 +137,7 @@ def annotations(viewport,project,weather,style,numbers,target_id):
     """Annotations are viewport coordinates, just like paths and players."""
     items=[];vw,vh=viewport;field_height=min(vh,516)
     if numbers:
-        label=f'Objetivo {numbers.get(target_id,"—")}/{len(numbers)} · {style.get("target_key","Ctrl")}' if len(numbers)>1 else '1 enemigo vivo'
+        label=f'Objetivo {numbers.get(target_id,"—")}/{len(numbers)} · {style.get("target_key","Ctrl")}' if len(numbers)>1 else '1 objetivo disponible'
         items.append({'x':min(vw/2,190),'y':16,'label':label,'color':GREEN})
     if style.get('weather_name'):
         from gunbound_weather import weather_name
@@ -121,23 +161,35 @@ def annotations(viewport,project,weather,style,numbers,target_id):
 
 class NativeGuide:
     def __init__(self,root,start,end,native):
-        self.root=root;self.native=native;self.fallback=None;self.win=self;self.points=(tuple(start),tuple(end));self.last=None;self.closed=False;native.owners.add(self)
+        self.root=root;self.native=native;self.fallback=None;self.win=self;self.points=(tuple(start),tuple(end));self.last=None;self.closed=False;self.suspended=False;native.owners.add(self)
     def winfo_viewable(self):return self.fallback.win.winfo_viewable() if self.fallback else self.native.guide_visible and self.native.viewable()
     def update_position(self,start,end):
         self.points=(tuple(start),tuple(end));self.last=None
         if self.fallback:self.fallback.update_position(start,end)
     def draw(self,result,maximum,updating=False):
+        if self.suspended:return
         if self.fallback:return self.fallback.draw(result,maximum,updating)
         try:
+            if self.native.closed:raise RuntimeError('Guía nativa cerrada')
             power=guide_power(result);a,b=self.points
-            prefix=('Q: '+result['guide_notice'][:95]+' · ') if result.get('guide_notice') else (result.get('guide_label','')+' · ') if result.get('guide_label') else ''
-            if power is None:label=result.get('guide_notice') or result.get('guide_message') or ('Calculando fuerza…' if updating else 'Sin potencia válida · revisa DragonLab')
-            else:label=prefix+f'{"ACTUALIZANDO" if updating else "TERRENO BLOQUEA" if result.get("blocked") else "SUELTA EN"} {power:g} / {maximum:g} · {power/maximum*100:.1f}%'
+            label=compact_guide_label(result,maximum,updating)
+            key=(power,maximum,self.points,label,bool(updating),bool(result.get('blocked')),result.get('guide_state'))
+            if key==self.last and self.native.guide_visible:return
+            self.last=key
             self.native.guide_visible=True
             self.native.frame['guide']={'visible':True,'bar':[*a,*b],'power':power,'maxPower':maximum,'label':label,'updating':bool(updating),'blocked':bool(result.get('blocked')),'measured':result.get('guide_state')=='measured'}
             self.native.submit()
         except (OSError,RuntimeError,ValueError,TypeError):
             failed(self.native);self.fallback=PowerGuide(self.root,*self.points);self.fallback.draw(result,maximum,updating)
+    def hide(self):
+        if self.suspended:return
+        self.suspended=True;self.last=None
+        if self.fallback:self.fallback.hide()
+        elif not self.native.closed:
+            self.native.guide_visible=False;self.native.frame['guide']={'visible':False};self.native.submit()
+    def show(self):
+        self.suspended=False
+        if self.fallback:self.fallback.show()
     def close(self):
         if self.closed:return
         self.closed=True

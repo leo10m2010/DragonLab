@@ -11,6 +11,8 @@ def open_settings(app):
     existing=getattr(app,'settings_window',None)
     if existing and existing.winfo_exists():existing.lift();return existing
     win=tk.Toplevel(getattr(app,'ui_parent',app.root));app.settings_window=win;win.title('DragonLab · Ajustes');height=min(720,max(540,win.winfo_screenheight()-100));win.geometry(f'620x{height}');win.minsize(620,min(640,height));win.configure(bg=BG)
+    from desktop_shell import style_window
+    style_window(win)
     tk.Label(win,text='Ajustes',bg=BG,fg=TEXT,font=('Bahnschrift',25,'bold')).pack(anchor='w',padx=26,pady=(18,4))
     tk.Label(win,text='Guía y controles',bg=BG,fg=MUTED,font=('Bahnschrift',11)).pack(anchor='w',padx=26,pady=(0,14))
     feedback=tk.Label(win,text='',bg=BG,fg=ORANGE,font=('Bahnschrift',10),wraplength=440);feedback.pack(fill='x',padx=26)
@@ -53,7 +55,7 @@ def open_settings(app):
     tk.Label(keys,text='Pulsa y suelta el atajo una vez, sin mover ni ajustar ángulo.\nFunciona en tu turno con el juego en primer plano.\nEsc libera la entrada; una carga iniciada puede lanzar parcialmente.',justify='left',bg=PANEL,fg=MUTED,font=('Bahnschrift',10)).pack(anchor='w',padx=16,pady=(5,6))
     speed=section('RENDIMIENTO')
     from diagnostics_ui import open_diagnostics
-    if not getattr(app,'embedded',False):RoundedButton(speed,text='Ver diagnóstico',command=lambda:open_diagnostics(app)).pack(anchor='w',padx=16,pady=(0,6))
+    RoundedButton(speed,text='Ver diagnóstico',command=lambda:open_diagnostics(app)).pack(anchor='w',padx=16,pady=(0,6))
     row=tk.Frame(speed,bg=PANEL);row.pack(fill='x',padx=16)
     tk.Label(row,text='Modo',bg=PANEL,fg=TEXT,font=('Bahnschrift',12)).pack(side='left')
     RoundedChoice(row,textvariable=performance,values=['Auto','Ligero','Normal'],state='readonly',width=10).pack(side='right')

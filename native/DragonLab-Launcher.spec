@@ -10,4 +10,4 @@ a = Analysis([str(project / 'launcher.py')], pathex=[str(project)],
 pyz = PYZ(a.pure)
 exe = EXE(pyz,a.scripts,a.binaries,a.datas,[],name='DragonLab-Launcher',debug=False,
     bootloader_ignore_signals=False,strip=False,upx=False,console=False,
-    disable_windowed_traceback=False)
+    manifest=str(project / 'native' / 'windows.manifest'),disable_windowed_traceback=False)

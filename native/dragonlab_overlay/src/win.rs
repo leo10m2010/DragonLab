@@ -13,7 +13,7 @@ use windows_sys::Win32::{
 
 const UPDATE: u32 = WM_APP + 71;
 const CLOSE: u32 = WM_APP + 72;
-const CLASS: &str = "DragonLab.Native.PassiveOverlay.019";
+const CLASS: &str = "DragonLab.Native.PassiveOverlay.0200";
 
 pub(super) struct Runtime {
     hwnd: usize,
@@ -41,7 +41,9 @@ impl Runtime {
         })
     }
     pub fn submit(&mut self, scene: Scene) -> i32 {
-        if self.thread.as_ref().is_none_or(|h| h.is_finished()) {
+        if self.thread.as_ref().is_none_or(|h| h.is_finished())
+            || self.shared.presentation_errors.load(Ordering::Acquire) != 0
+        {
             return -7;
         }
         if self.last.as_ref() == Some(&scene) {
@@ -82,13 +84,18 @@ impl Runtime {
             GetWindowRect(h, &mut rectangle);
             serde_json::json!({"running":self.thread.as_ref().is_some_and(|t|!t.is_finished()),"visible":IsWindowVisible(h)!=0,
                 "submitted":self.shared.submitted.load(Ordering::Relaxed),"painted":self.shared.painted.load(Ordering::Acquire),"coalesced":self.shared.coalesced.load(Ordering::Relaxed),
+                "presentations":self.shared.presentations.load(Ordering::Relaxed),"geometry_updates":self.shared.geometry_updates.load(Ordering::Relaxed),
+                "shows":self.shared.shows.load(Ordering::Relaxed),"hides":self.shared.hides.load(Ordering::Relaxed),"presentation_errors":self.shared.presentation_errors.load(Ordering::Acquire),
+                "presentation":"atomic-layered",
                 "transparent":style&WS_EX_TRANSPARENT!=0,"no_activate":style&WS_EX_NOACTIVATE!=0,"layered":style&WS_EX_LAYERED!=0,
                 "box":[rectangle.left,rectangle.top,rectangle.right,rectangle.bottom]})
         }
     }
     pub fn flags(&self) -> u32 {
-        u32::from(self.thread.as_ref().is_some_and(|t| !t.is_finished()))
-            | (u32::from(unsafe { IsWindowVisible(self.hwnd as HWND) } != 0) << 1)
+        u32::from(
+            self.thread.as_ref().is_some_and(|t| !t.is_finished())
+                && self.shared.presentation_errors.load(Ordering::Acquire) == 0,
+        ) | (u32::from(unsafe { IsWindowVisible(self.hwnd as HWND) } != 0) << 1)
     }
 }
 impl Drop for Runtime {
@@ -135,13 +142,8 @@ unsafe fn run(shared: Arc<Shared>, ready: mpsc::SyncSender<Result<usize, String>
         UnregisterClassW(name.as_ptr(), instance);
         return;
     }
-    if SetLayeredWindowAttributes(hwnd, COLOR_KEY, 255, LWA_COLORKEY) == 0 {
-        let error = GetLastError();
-        DestroyWindow(hwnd);
-        let _ = ready.send(Err(format!("SetLayeredWindowAttributes: {error}")));
-        UnregisterClassW(name.as_ptr(), instance);
-        return;
-    }
+    // Do not call SetLayeredWindowAttributes: it switches layered windows to
+    // redirected WM_PAINT mode and prevents UpdateLayeredWindow until reset.
     if ready.send(Ok(hwnd as usize)).is_err() {
         DestroyWindow(hwnd);
         UnregisterClassW(name.as_ptr(), instance);
@@ -197,30 +199,29 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) ->
                 state.scene = Some(scene);
                 state.sequence = seq;
                 if let Some(bounds) = bounds {
-                    if state.bounds != Some(bounds) {
-                        SetWindowPos(
-                            hwnd,
-                            HWND_TOPMOST,
-                            bounds.x,
-                            bounds.y,
-                            bounds.w,
-                            bounds.h,
-                            SWP_NOACTIVATE | SWP_NOOWNERZORDER,
-                        );
-                        state.bounds = Some(bounds);
+                    // Position, size and the completed bitmap are committed
+                    // together, so a resize cannot expose an empty frame.
+                    if !state.present(hwnd, bounds) {
+                        state
+                            .shared
+                            .presentation_errors
+                            .fetch_add(1, Ordering::Release);
                     }
-                    ShowWindow(hwnd, SW_SHOWNOACTIVATE);
-                    InvalidateRect(hwnd, null(), 0);
-                    UpdateWindow(hwnd);
                 } else {
-                    ShowWindow(hwnd, SW_HIDE);
+                    if state.shown {
+                        ShowWindow(hwnd, SW_HIDE);
+                        state.shown = false;
+                        state.shared.hides.fetch_add(1, Ordering::Relaxed);
+                    }
                     state.shared.painted.store(seq, Ordering::Release);
                 }
             }
             return 0;
         }
         if msg == WM_PAINT {
-            state.paint(hwnd);
+            // Pixels are owned by the compositor after UpdateLayeredWindow.
+            // Validate exposure messages without erasing or repainting them.
+            ValidateRect(hwnd, null());
             return 0;
         }
     }
@@ -273,6 +274,8 @@ struct WindowState {
     font: HFONT,
     font_size: i32,
     guide_font: HFONT,
+    guide_font_size: i32,
+    shown: bool,
 }
 impl WindowState {
     unsafe fn new(shared: Arc<Shared>) -> Self {
@@ -282,59 +285,116 @@ impl WindowState {
             sequence: 0,
             bounds: None,
             buffer: None,
-            font: make_font(16),
-            font_size: 16,
-            guide_font: make_font(18),
+            font: make_font(12),
+            font_size: 12,
+            guide_font: make_font(12),
+            guide_font_size: 12,
+            shown: false,
         }
     }
-    unsafe fn paint(&mut self, hwnd: HWND) {
-        let mut ps = std::mem::zeroed::<PAINTSTRUCT>();
-        let target = BeginPaint(hwnd, &mut ps);
-        if !target.is_null() {
-            if let (Some(bounds), Some(scene)) = (self.bounds, self.scene.as_ref()) {
-                if self
-                    .buffer
-                    .as_ref()
-                    .is_none_or(|b| b.w != bounds.w || b.h != bounds.h)
-                {
-                    self.buffer = Buffer::new(target, bounds.w, bounds.h);
+    unsafe fn present(&mut self, hwnd: HWND, bounds: Bounds) -> bool {
+        let target = GetDC(null_mut());
+        if target.is_null() {
+            return false;
+        }
+        let mut presented = false;
+        if let Some(scene) = self.scene.as_ref() {
+            if self
+                .buffer
+                .as_ref()
+                .is_none_or(|b| b.w != bounds.w || b.h != bounds.h)
+            {
+                self.buffer = Buffer::new(target, bounds.w, bounds.h);
+            }
+            let font_size = actor_font_pixels(scene);
+            if font_size != self.font_size {
+                DeleteObject(self.font);
+                self.font = make_font(font_size);
+                self.font_size = font_size;
+            }
+            let guide_size = guide_font_pixels(&scene.guide);
+            if guide_size != self.guide_font_size {
+                DeleteObject(self.guide_font);
+                self.guide_font = make_font(guide_size);
+                self.guide_font_size = guide_size;
+            }
+            if let Some(buffer) = &self.buffer {
+                let dc = buffer.dc;
+                let brush = CreateSolidBrush(COLOR_KEY);
+                FillRect(
+                    dc,
+                    &RECT {
+                        left: 0,
+                        top: 0,
+                        right: bounds.w,
+                        bottom: bounds.h,
+                    },
+                    brush,
+                );
+                DeleteObject(brush);
+                if scene.visible {
+                    draw_field(dc, scene, bounds, self.font);
                 }
-                let font_size = if scene.style.font_size.is_finite() && scene.style.font_size > 0. {
-                    (scene.style.font_size * 1.333).round().clamp(10., 36.) as i32
-                } else {
-                    16
+                if scene.guide.visible {
+                    draw_guide(dc, &scene.guide, bounds, self.guide_font);
+                }
+                let destination = POINT {
+                    x: bounds.x,
+                    y: bounds.y,
                 };
-                if font_size != self.font_size {
-                    DeleteObject(self.font);
-                    self.font = make_font(font_size);
-                    self.font_size = font_size;
-                }
-                if let Some(buffer) = &self.buffer {
-                    let dc = buffer.dc;
-                    let brush = CreateSolidBrush(COLOR_KEY);
-                    FillRect(
-                        dc,
-                        &RECT {
-                            left: 0,
-                            top: 0,
-                            right: bounds.w,
-                            bottom: bounds.h,
-                        },
-                        brush,
-                    );
-                    DeleteObject(brush);
-                    if scene.visible {
-                        draw_field(dc, scene, bounds, self.font);
+                let size = SIZE {
+                    cx: bounds.w,
+                    cy: bounds.h,
+                };
+                let source = POINT { x: 0, y: 0 };
+                if UpdateLayeredWindow(
+                    hwnd,
+                    target,
+                    &destination,
+                    &size,
+                    dc,
+                    &source,
+                    COLOR_KEY,
+                    null(),
+                    ULW_COLORKEY,
+                ) != 0
+                {
+                    if self.bounds != Some(bounds) {
+                        self.shared.geometry_updates.fetch_add(1, Ordering::Relaxed);
                     }
-                    if scene.guide.visible {
-                        draw_guide(dc, &scene.guide, bounds, self.guide_font);
+                    self.bounds = Some(bounds);
+                    if !self.shown {
+                        ShowWindow(hwnd, SW_SHOWNOACTIVATE);
+                        self.shown = true;
+                        self.shared.shows.fetch_add(1, Ordering::Relaxed);
                     }
-                    BitBlt(target, 0, 0, bounds.w, bounds.h, dc, 0, 0, SRCCOPY);
+                    self.shared.presentations.fetch_add(1, Ordering::Relaxed);
                     self.shared.painted.store(self.sequence, Ordering::Release);
+                    presented = true;
                 }
             }
         }
-        EndPaint(hwnd, &ps);
+        ReleaseDC(null_mut(), target);
+        presented
+    }
+}
+
+fn guide_font_pixels(guide: &Guide) -> i32 {
+    let width = (guide.bar[2] - guide.bar[0]).hypot(guide.bar[3] - guide.bar[1]);
+    let scale = (width / 480.).clamp(0.85, 1.1);
+    let requested = if guide.font_size > 0. {
+        guide.font_size
+    } else {
+        12.
+    };
+    (requested * scale).round().clamp(11., 13.) as i32
+}
+fn actor_font_pixels(scene: &Scene) -> i32 {
+    if scene.style.font_size.is_finite() && scene.style.font_size > 0. {
+        let scale = ((scene.area[2] - scene.area[0]) / scene.viewport[0]).clamp(0.75, 1.25);
+        (scene.style.font_size * scale).round().clamp(10., 15.) as i32
+    } else {
+        12
     }
 }
 impl Drop for WindowState {
@@ -414,9 +474,23 @@ unsafe fn paths<F: Fn(f64, f64) -> POINT>(
     line(dc, &run, colour, width);
 }
 unsafe fn text(dc: HDC, x: f64, y: f64, value: &str, colour: u32, font: HFONT, width: i32) {
+    text_bounded(dc, x, y, value, colour, font, 0, width);
+}
+#[allow(clippy::too_many_arguments)]
+unsafe fn text_bounded(
+    dc: HDC,
+    x: f64,
+    y: f64,
+    value: &str,
+    colour: u32,
+    font: HFONT,
+    region_left: i32,
+    region_right: i32,
+) {
     if value.is_empty() {
         return;
     }
+    let width = (region_right - region_left).max(24);
     let value = wide(value);
     let old_font = SelectObject(dc, font);
     SetBkMode(dc, TRANSPARENT as i32);
@@ -436,7 +510,10 @@ unsafe fn text(dc: HDC, x: f64, y: f64, value: &str, colour: u32, font: HFONT, w
     );
     let text_height = (measured.bottom - measured.top).max(1);
     let actual = (measured.right - measured.left + 2).min((width - 12).max(1));
-    let left = (x.round() as i32 - actual / 2).clamp(4, (width - actual - 8).max(4));
+    let left = (x.round() as i32 - actual / 2).clamp(
+        region_left + 4,
+        (region_right - actual - 8).max(region_left + 4),
+    );
     let top = y.round() as i32 - text_height / 2;
     let brush = CreateSolidBrush(BG);
     let old_brush = SelectObject(dc, brush);
@@ -532,13 +609,7 @@ unsafe fn draw_field(dc: HDC, scene: &Scene, b: Bounds, font: HFONT) {
             continue;
         }
         let raw = project(player.x, player.y);
-        let colour = if player.hero {
-            GREEN
-        } else if player.selected {
-            ORANGE
-        } else {
-            OBSERVED
-        };
+        let colour = player.colour();
         let (min_x, max_x, min_y, max_y) = (
             ox + 20.,
             (ox + w - 20.).max(ox + 20.),
@@ -574,19 +645,36 @@ unsafe fn draw_field(dc: HDC, scene: &Scene, b: Bounds, font: HFONT) {
             line(dc, &[point(x - 8., y), point(x + 8., y)], colour, 3);
             line(dc, &[point(x, y), point(x, y - 12.)], colour, 3);
         }
-        let value = if outside {
-            format!("{} · fuera de vista", player.label)
-        } else {
-            player.label.clone()
-        };
-        text(
+    }
+    let labels = actor_labels(scene, w, field_h, actor_font_pixels(scene));
+    // Leaders explain a displaced label while keeping the actual actor marker.
+    for label in &labels {
+        for index in &label.members {
+            let player = &scene.players[*index];
+            let raw = project(player.x, player.y);
+            let x = (raw.x as f64).clamp(ox + 20., (ox + w - 20.).max(ox + 20.));
+            let y = (raw.y as f64).clamp(oy + 35., (oy + field_h - 25.).max(oy + 35.));
+            let center = [ox + label.x + label.width / 2., oy + label.y];
+            if (center[0] - x).hypot(center[1] - y) > 35. {
+                line(
+                    dc,
+                    &[point(x, y), point(center[0], center[1])],
+                    player.colour(),
+                    1,
+                );
+            }
+        }
+    }
+    for label in labels {
+        text_bounded(
             dc,
-            x,
-            y + if outside { 15. } else { -23. },
-            &value,
-            colour,
+            ox + label.x + label.width / 2.,
+            oy + label.y,
+            &label.value,
+            label.colour,
             font,
-            b.w,
+            (ox + label.x).ceil() as i32,
+            (ox + label.x + label.width).floor() as i32,
         );
     }
     RestoreDC(dc, clip);
@@ -611,58 +699,57 @@ unsafe fn draw_guide(dc: HDC, guide: &Guide, b: Bounds, font: HFONT) {
             dc,
             &[point(x1 - ox, y1 - oy), point(x2 - ox, y2 - oy)],
             GREEN,
-            2,
+            1,
         );
-        line(dc, &[point(x, y - 22.), point(x, y + 12.)], colour, 3);
+        line(dc, &[point(x, y - 14.), point(x, y + 6.)], colour, 2);
         line(
             dc,
             &[
-                point(x - 7., y - 24.),
-                point(x, y - 15.),
-                point(x + 7., y - 24.),
-                point(x - 7., y - 24.),
+                point(x - 4., y - 17.),
+                point(x, y - 12.),
+                point(x + 4., y - 17.),
+                point(x - 4., y - 17.),
             ],
             colour,
-            3,
+            2,
         );
         if label.is_empty() {
-            label = format!(
-                "{} {power:.0} / {:.0} · {:.1}%",
-                if guide.updating {
-                    "ACTUALIZANDO"
-                } else if guide.blocked {
-                    "TERRENO BLOQUEA"
-                } else {
-                    "SUELTA EN"
-                },
-                guide.max_power,
-                fraction * 100.
-            );
+            label = if guide.blocked {
+                format!("Bloqueado · {power:.0}")
+            } else {
+                format!("{power:.0} · {:.0}%", fraction * 100.)
+            };
         }
     } else if label.is_empty() {
         label = if guide.updating {
-            "Calculando fuerza…"
+            "Calculando…"
         } else {
-            "Sin potencia válida · revisa DragonLab"
+            "Sin guía"
         }
         .into();
     }
-    text(
+    let center = (x1 + x2) / 2. - ox;
+    let caption_width = ((x2 - x1).abs() * 0.7).clamp(80., 220.) as i32;
+    text_bounded(
         dc,
-        (x1 + x2) / 2. - ox,
-        y1.min(y2) - 35. - oy,
+        center,
+        y1.min(y2) - 26. - oy,
         &label,
         if guide.power.is_some() { colour } else { MUTED },
         font,
-        b.w,
+        (center - caption_width as f64 / 2.).floor() as i32,
+        (center + caption_width as f64 / 2.).ceil() as i32,
     );
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    // These checks inspect process-global Win32/GDI state and must serialize.
+    static UI_TEST_LOCK: Mutex<()> = Mutex::new(());
     #[test]
     fn latest_scene_is_painted_without_focus_or_input() {
+        let _guard = UI_TEST_LOCK.lock().unwrap();
         let before = unsafe { GetForegroundWindow() };
         let gdi_before = unsafe {
             windows_sys::Win32::System::Threading::GetGuiResources(
@@ -696,6 +783,14 @@ mod tests {
         assert_eq!(status["transparent"], true);
         assert_eq!(status["no_activate"], true);
         assert_eq!(status["layered"], true);
+        assert_eq!(status["presentation"], "atomic-layered");
+        assert_eq!(status["presentation_errors"], 0);
+        assert_eq!(status["shows"], 1);
+        assert_eq!(status["hides"], 0);
+        assert_eq!(status["geometry_updates"], 1);
+        let idle_presentations = status["presentations"].clone();
+        thread::sleep(std::time::Duration::from_millis(25));
+        assert_eq!(runtime.status()["presentations"], idle_presentations);
         assert_eq!(unsafe { GetForegroundWindow() }, before);
         runtime.close();
         let gdi_after = unsafe {
@@ -711,18 +806,103 @@ mod tests {
     }
 
     #[test]
+    fn resize_and_visibility_commit_complete_frames_without_repeated_show_calls() {
+        let _guard = UI_TEST_LOCK.lock().unwrap();
+        let before = unsafe { GetForegroundWindow() };
+        let mut runtime = Runtime::start().unwrap();
+        let mut scene = Scene {
+            area: [-1900., -1800., -1100., -1200.],
+            visible: true,
+            planned: vec![vec![Some([20., 30.]), Some([700., 400.])]],
+            ..Scene::default()
+        };
+        fn settle(runtime: &Runtime) {
+            let until = std::time::Instant::now() + std::time::Duration::from_secs(2);
+            loop {
+                let status = runtime.status();
+                assert_eq!(status["presentation_errors"], 0);
+                if status["painted"] == status["submitted"] {
+                    return;
+                }
+                assert!(
+                    std::time::Instant::now() < until,
+                    "overlay presentation stalled"
+                );
+                thread::sleep(std::time::Duration::from_millis(2));
+            }
+        }
+        runtime.submit(scene.clone());
+        settle(&runtime);
+        for offset in 1..=12 {
+            scene.area[0] = -1900. + offset as f64;
+            scene.area[2] = -1100. + offset as f64 * 2.;
+            runtime.submit(scene.clone());
+            settle(&runtime);
+            let expected = scene.bounds().unwrap();
+            assert_eq!(
+                runtime.status()["box"],
+                serde_json::json!([
+                    expected.x,
+                    expected.y,
+                    expected.x + expected.w,
+                    expected.y + expected.h
+                ])
+            );
+        }
+        let live = runtime.status();
+        assert_eq!(live["shows"], 1);
+        assert_eq!(live["hides"], 0);
+        scene.visible = false;
+        runtime.submit(scene.clone());
+        settle(&runtime);
+        assert_eq!(runtime.status()["visible"], false);
+        assert_eq!(runtime.status()["hides"], 1);
+        scene.style.width = 4.;
+        runtime.submit(scene.clone());
+        settle(&runtime);
+        assert_eq!(runtime.status()["hides"], 1);
+        scene.visible = true;
+        runtime.submit(scene);
+        settle(&runtime);
+        let restored = runtime.status();
+        assert_eq!(restored["shows"], 2);
+        assert_eq!(restored["hides"], 1);
+        assert_eq!(restored["presentation_errors"], 0);
+        assert_eq!(unsafe { GetForegroundWindow() }, before);
+        runtime.close();
+    }
+
+    #[test]
+    fn guide_typography_is_bounded_in_physical_pixels_at_different_game_scales() {
+        for width in [200., 360., 480., 740., 1400.] {
+            let guide = Guide {
+                bar: [0., 0., width, 0.],
+                ..Guide::default()
+            };
+            assert!((11..=13).contains(&guide_font_pixels(&guide)));
+        }
+        let guide = Guide {
+            bar: [0., 0., 2000., 0.],
+            font_size: 72.,
+            ..Guide::default()
+        };
+        assert_eq!(guide_font_pixels(&guide), 13);
+    }
+
+    #[test]
     fn exports_only_own_offscreen_render_for_visual_qa() {
+        let _guard = UI_TEST_LOCK.lock().unwrap();
         // This renders synthetic geometry into a private compatible bitmap.
         // No desktop pixels, app windows or screen captures are read.
         unsafe {
             let scene:Scene=serde_json::from_value(serde_json::json!({
-                "box":[0,0,900,640],"viewport":[900,640],"visible":true,
-                "style":{"color":"#77F59C","width":3},
+                "box":[0,0,710,505],"viewport":[900,640],"visible":true,
+                "style":{"color":"#BBFF00","width":3},
                 "planned":[(0..=120).map(|i|{let t=i as f64/2.;Some([100.+10.*t,400.-0.25*t*(60.-t)])}).collect::<Vec<_>>()],
                 "observed":{"fixture":(0..=60).map(|i|{let t=i as f64;Some([100.+10.*t,405.-0.24*t*(60.-t)])}).collect::<Vec<_>>()},
-                "players":[{"x":100,"y":400,"hero":true,"label":"TÚ"},{"x":700,"y":400,"selected":true,"label":"▶ ENEMIGO 1"},{"x":1100,"y":300,"label":"2"}],
+                "players":[{"x":100,"y":400,"hero":true,"role":"hero","label":"TÚ"},{"x":700,"y":400,"selected":true,"role":"enemy","label":"▶ ENEMIGO 1"},{"x":1100,"y":300,"role":"enemy","number":2,"label":"ENEMIGO 2"},{"x":400,"y":450,"role":"ally","label":"ALIADO"}],
                 "annotations":[{"points":[[450,0],[450,516]],"color":"#D69CFC","width":1,"label":"Mirror","x":450,"y":43},{"points":[[650,0],[650,516]],"color":"#7BCDDB","width":1,"label":"Tornado","x":650,"y":43}],
-                "guide":{"visible":true,"bar":[80,610,820,610],"power":205,"maxPower":400,"label":"Armor · SUELTA EN 205 / 400 · 51.2%","measured":true}
+                "guide":{"visible":true,"bar":[63,480,647,480],"power":321,"maxPower":400,"label":"321 · 80%","measured":true}
             })).unwrap();
             assert!(scene.valid());
             let bounds = scene.bounds().unwrap();
@@ -741,8 +921,8 @@ mod tests {
                 brush,
             );
             DeleteObject(brush);
-            let font = make_font(16);
-            let guide_font = make_font(18);
+            let font = make_font(12);
+            let guide_font = make_font(guide_font_pixels(&scene.guide));
             draw_field(buffer.dc, &scene, bounds, font);
             draw_guide(buffer.dc, &scene.guide, bounds, guide_font);
             DeleteObject(font);

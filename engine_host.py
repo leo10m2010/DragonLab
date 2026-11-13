@@ -29,17 +29,19 @@ class EngineHost:
         if client:
             from cloud_runtime import CloudRuntime
             self.app.cloud_runtime=CloudRuntime(self.app,client)
-    def start(self,clone):
+    def prepare(self,clone):
         from game_catalog import game_by_id
         if not game_by_id(clone):raise ValueError('Juego no disponible.')
-        self.app.clone_id=clone;self.app.adapter_config=None;self.app.browser_target=None
-        self.app.change_mobile();self.app.persist_preferences()
+        self.app.prepare_game(clone)
+        return self.app
+    def start(self,clone):
+        self.prepare(clone)
         return self.app.open_game_browser()
     def settings(self):return self.app.open_settings()
     def stop(self):
         if self.closed:return
         self.closed=True
-        for name in ('settings_window','diagnostics_window','training_window','learning_library_window'):
+        for name in ('settings_window','diagnostics_window','training_window','learning_library_window','catalog_window','calibration_window','performance_window'):
             win=getattr(self.app,name,None)
             if win and win.winfo_exists():win.destroy()
         if self.window.winfo_exists():self.app.close()

@@ -26,12 +26,27 @@ class RoundedPanel(tk.Frame):
         self.surface.pack(fill='both',expand=True)
         self.body=tk.Frame(self.surface,bg=color)
         self.item=self.surface.create_window(padding,padding,window=self.body,anchor='nw')
+        self.layout_job=None;self.body_width=None;self.request_height=None
         self.body.bind('<Configure>',self.resize)
         self.surface.bind('<Configure>',self.resize)
+        self.bind('<Destroy>',self.destroyed,add='+')
     def resize(self,event=None):
-        p=self.padding;w=max(1,self.surface.winfo_width());h=self.body.winfo_reqheight()+p*2
-        if int(float(self.surface.cget('height')))!=h:self.surface.configure(height=h)
-        self.surface.itemconfigure(self.item,width=max(1,w-2*p))
+        if self.layout_job is None:self.layout_job=self.after_idle(self.layout)
+    def destroyed(self,event):
+        if event.widget is self and self.layout_job is not None:
+            try:self.after_cancel(self.layout_job)
+            except tk.TclError:pass
+            self.layout_job=None
+    def layout(self):
+        self.layout_job=None
+        if not self.winfo_exists():return
+        p=self.padding;w=max(1,self.surface.winfo_width());body_width=max(1,w-2*p)
+        if body_width!=self.body_width:
+            self.body_width=body_width;self.surface.itemconfigure(self.item,width=body_width)
+        requested=self.body.winfo_reqheight()+p*2
+        if requested!=self.request_height:
+            self.request_height=requested;self.surface.configure(height=requested)
+        h=max(requested,self.surface.winfo_height())
         stamp=(w,h,self.radius,self.color)
         if getattr(self,'shape_stamp',None)!=stamp:
             self.shape_stamp=stamp;self.surface.delete('shape')

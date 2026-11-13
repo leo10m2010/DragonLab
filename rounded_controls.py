@@ -1,8 +1,10 @@
 """Rounded, keyboard-accessible native controls with event-only rendering."""
 import tkinter as tk
 from tkinter import font as tkfont
+from tkinter import ttk
 from rounded_widgets import rounded,RoundedButton,RoundedPanel
 from theme import BG,PANEL,TEXT,MUTED,GREEN,FIELD,LINE
+from desktop_shell import monitor_work_area,place_in_work_area
 
 class RoundedChoice(tk.Canvas):
     def __init__(self,master,textvariable=None,values=(),width=18,font=('Bahnschrift',11),state='readonly',**kwargs):
@@ -54,6 +56,10 @@ class RoundedChoice(tk.Canvas):
         self.create_text(14,h/2,text=text,anchor='w',fill=TEXT if self.state!='disabled' else MUTED,font=self.typeface)
         self.create_line(w-24,h/2-2,w-19,h/2+3,w-14,h/2-2,fill=MUTED,width=2)
     def close(self,restore=True):
+        for sequence,identifier in getattr(self,'owner_bindings',[]):
+            try:self.winfo_toplevel().unbind(sequence,identifier)
+            except tk.TclError:pass
+        self.owner_bindings=[]
         if self.popup:
             popup=self.popup;self.popup=None
             try:popup.grab_release();popup.destroy()
@@ -67,11 +73,16 @@ class RoundedChoice(tk.Canvas):
         win=tk.Toplevel(self);self.popup=win;win.withdraw();win.overrideredirect(True);win.configure(bg='#010203')
         try:win.wm_attributes('-transparentcolor','#010203')
         except tk.TclError:pass
-        win.transient(self.winfo_toplevel());width=max(self.winfo_width(),150);self.row_height=36;self.visible_count=min(7,len(self.values))
+        owner=self.winfo_toplevel();win.transient(owner);width=max(self.winfo_width(),150)
+        self.row_height=max(36,tkfont.Font(self,font=self.typeface).metrics('linespace')+16);self.visible_count=min(7,len(self.values))
         height=self.visible_count*self.row_height+16
-        x=max(8,min(self.winfo_rootx(),self.winfo_screenwidth()-width-8));y=self.winfo_rooty()+self.winfo_height()+5
-        if y+height>self.winfo_screenheight()-35:y=max(8,self.winfo_rooty()-height-5)
-        win.geometry(f'{width}x{height}+{max(8,x)}+{y}')
+        bounds=monitor_work_area(owner);x=self.winfo_rootx();y=self.winfo_rooty()+self.winfo_height()+5
+        if y+height>bounds[3]-8:y=self.winfo_rooty()-height-5
+        x,y,width,height=place_in_work_area(x,y,width,height,bounds)
+        win.geometry(f'{width}x{height}{x:+d}{y:+d}')
+        def owner_changed(event):
+            if event.widget is owner:self.close(restore=False)
+        self.owner_bindings=[(event,owner.bind(event,owner_changed,add='+')) for event in ('<Configure>','<Unmap>','<Destroy>')]
         canvas=tk.Canvas(win,bg='#010203',highlightthickness=0);canvas.pack(fill='both',expand=True);self.menu_canvas=canvas;self.menu_width=width
         win.bind('<Escape>',lambda e:self.close());win.bind('<Down>',lambda e:self.move(1));win.bind('<Up>',lambda e:self.move(-1));win.bind('<Return>',lambda e:self.choose())
         win.bind('<Tab>',lambda e:self.traverse(False));win.bind('<Shift-Tab>',lambda e:self.traverse(True))
@@ -207,35 +218,41 @@ class RoundedTabs(tk.Frame):
         self.current=index;self.pages[index].pack(in_=self.content,fill='both',expand=True);self.buttons[index].config(bg=GREEN,fg=BG)
         self.resize()
 
+class _TableRow:
+    """Legacy row text accessor; values are rendered in real Treeview columns."""
+    def __init__(self,table,iid):self.table=table;self.iid=iid
+    def cget(self,key):
+        if key=='text':return ' · '.join(str(v) for v in self.table.tree.item(self.iid,'values'))
+        raise tk.TclError('unknown option '+key)
+
 class RoundedTable(tk.Frame):
-    """Scrollable rounded rows with Treeview's small API used by the tools."""
+    """A dark native table with measured columns, keyboard selection and scroll."""
     def __init__(self,master,columns=(),show=None,height=12,**kwargs):
-        super().__init__(master,bg=master.cget('bg'));self.columns=columns;self.rows={};self.order=[];self.selected=();self.labels={}
-        self.head=tk.Frame(self,bg=self.cget('bg'));self.head.pack(fill='x')
-        self.viewport=tk.Canvas(self,bg=self.cget('bg'),highlightthickness=0,height=min(270,height*28));self.viewport.pack(side='left',fill='both',expand=True)
-        scroll=RoundedScroll(self,command=self.viewport.yview);scroll.pack(side='right',fill='y');self.viewport.configure(yscrollcommand=scroll.set)
-        self.content=tk.Frame(self.viewport,bg=self.cget('bg'));self.item_id=self.viewport.create_window(0,0,window=self.content,anchor='nw')
-        self.viewport.bind('<Configure>',lambda e:self.viewport.itemconfigure(self.item_id,width=e.width))
-        self.content.bind('<Configure>',lambda e:self.viewport.configure(scrollregion=self.viewport.bbox('all')))
-        self.bind('<MouseWheel>',lambda e:self.viewport.yview_scroll(-int(e.delta/120),'units'))
-    def heading(self,key,text=''):
-        label=tk.Label(self.head,text=text,bg=self.cget('bg'),fg=MUTED,font=('Bahnschrift',10),anchor='w');label.pack(side='left',fill='x',expand=True,padx=10,pady=8)
-        self.labels[key]=label
-    def column(self,*args,**kwargs):pass
-    def exists(self,iid):return iid in self.rows
-    def item(self,iid,values=()):
-        row=self.rows[iid];row.config(text='  ·  '.join(str(v) for v in values))
-    def insert(self,parent,index,iid=None,values=()):
-        iid=iid if iid is not None else str(len(self.order));self.order.append(iid)
-        row=RoundedButton(self.content,text='  ·  '.join(str(v) for v in values),command=lambda:self.choose(iid),font=('Bahnschrift',10),pady=7,padx=12,bg=FIELD)
-        row.pack(fill='x',pady=3,padx=2);row.bind('<MouseWheel>',lambda e:self.viewport.yview_scroll(-int(e.delta/120),'units'));self.rows[iid]=row;return iid
-    def choose(self,iid):
-        for key in self.selected:
-            if key in self.rows:self.rows[key].config(bg=FIELD,fg=TEXT)
-        self.selected=(iid,);self.rows[iid].config(bg=LINE,fg=GREEN)
-    def selection(self):return self.selected
-    def get_children(self):return tuple(self.order)
+        super().__init__(master,bg=master.cget('bg'));self.columns=columns;self.rows={}
+        style=ttk.Style(self)
+        style.configure('DragonLab.Treeview',background=PANEL,fieldbackground=PANEL,foreground=TEXT,borderwidth=0,rowheight=max(32,tkfont.Font(self,font=('Bahnschrift',-13)).metrics('linespace')+14),font=('Bahnschrift',-13))
+        style.configure('DragonLab.Treeview.Heading',background=FIELD,foreground=MUTED,relief='flat',font=('Bahnschrift',-12,'bold'),padding=(8,10))
+        style.map('DragonLab.Treeview',background=[('selected',LINE)],foreground=[('selected',GREEN)])
+        style.map('DragonLab.Treeview.Heading',background=[('active',LINE)],foreground=[('active',TEXT)])
+        self.rowconfigure(0,weight=1);self.columnconfigure(0,weight=1)
+        self.tree=ttk.Treeview(self,columns=columns,show=show or 'headings',height=height,style='DragonLab.Treeview',selectmode='browse',**kwargs)
+        self.tree.grid(row=0,column=0,sticky='nsew')
+        scroll=RoundedScroll(self,command=self.tree.yview);scroll.grid(row=0,column=1,sticky='ns')
+        horizontal=ttk.Scrollbar(self,orient='horizontal',command=self.tree.xview);horizontal.grid(row=1,column=0,sticky='ew')
+        def horizontal_range(first,last):
+            horizontal.set(first,last)
+            if float(last)-float(first)<.999:horizontal.grid()
+            else:horizontal.grid_remove()
+        self.tree.configure(yscrollcommand=scroll.set,xscrollcommand=horizontal_range)
+    def heading(self,*args,**kwargs):return self.tree.heading(*args,**kwargs)
+    def column(self,*args,**kwargs):return self.tree.column(*args,**kwargs)
+    def exists(self,iid):return self.tree.exists(iid)
+    def item(self,*args,**kwargs):return self.tree.item(*args,**kwargs)
+    def insert(self,parent,index,iid=None,values=(),**kwargs):
+        iid=self.tree.insert(parent,index,iid=iid,values=values,**kwargs);self.rows[iid]=_TableRow(self,iid);return iid
+    def choose(self,iid):self.tree.selection_set(iid);self.tree.focus(iid);self.tree.see(iid)
+    def selection(self):return self.tree.selection()
+    def get_children(self,*args):return self.tree.get_children(*args)
     def delete(self,*ids):
-        for iid in ids:
-            if iid in self.rows:self.rows.pop(iid).destroy();self.order.remove(iid)
-        self.selected=tuple(i for i in self.selected if i in self.rows)
+        for iid in ids:self.rows.pop(iid,None)
+        self.tree.delete(*ids)

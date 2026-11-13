@@ -1,9 +1,22 @@
 """One explicit shortcut shot through native Windows controls, with live checks."""
 import math,time
 from adapters import AdapterClient
-from auto_fire import validate
+from auto_fire import validate,validate_source
 from firing import WindowsInput
 from automatic import GEOMETRY_JS,content_origin,screen_geometry
+from session_lifecycle import ROSTER_HELPERS_JS, SOURCE_IDENTITY_JS
+
+GUNBOUND_POWER_READ_JS = '''function(){
+ __ROSTER_HELPERS__
+ const s=this.room.state,rows=roster(s,['players','player_list']),hid=primitive(this,['myId']),p=heroObject(s,rows,hid);
+ const source=(__SOURCE_IDENTITY__)(s,hid,p,false);
+ return {...source,releaseAt:this.__dragonlabLearning?.lastSubmittedAt??this.__dragonlabLearning?.pending?.at,hero:hid,turn:s.activePlayerId,power:this.drag?.power??this.power,lastPower:this.lastPower,mode:this.inputMode==='slice'?'space':this.inputMode==='drag'?'drag':null,
+   focused:document.hasFocus()&&document.visibilityState==='visible',over:this.destroyed||s.phase==='GAME_OVER'||s.phase==='LOBBY',blocked:this.gameInputBlocked||!this.roomConnected||this.observer||this.renderSurface!=='live'||s.phase!=='TURN',
+   chat:['INPUT','TEXTAREA','SELECT'].includes(document.activeElement?.tagName)||!!document.activeElement?.isContentEditable,moving:!!this.moveHeld||!!this.touchAimHeld||!!this.keyboardMoveKeys?.size,
+   busy:!!this.charging||!!this.drag,shot:({shot1:0,shot2:1,ss:2})[this.shot],wind:s.windPower,windAngle:s.windAngleDeg,armedItem:!!p?.armedItem,
+   sensitivity:this.graphicsSettings?.dragSensitivity,canvasWidth:this.app.canvas.getBoundingClientRect().width,stageWidth:this.stageSize.width,
+   players:rows.filter(([id,p])=>playerLike(p)).map(([id,p])=>({id:playerId(p,id),x:p.x,y:p.y,rawAngle:playerId(p,id)===hid?this.angle:p.aimAngle,body:p.bodyTilt,look:p.facing==='right'?1:0,dead:p.alive===false||p.hp<=0}))};
+}'''.replace('__ROSTER_HELPERS__',ROSTER_HELPERS_JS).replace('__SOURCE_IDENTITY__',SOURCE_IDENTITY_JS)
 
 class GunBoundPowerReader:
     def __init__(self,endpoint,target=None):
@@ -12,15 +25,9 @@ class GunBoundPowerReader:
         if self.initial.get('status')!='live':self.close();raise RuntimeError('Espera una partida activa')
         self.client.sock.settimeout(.4)
     def read(self):
-        script="""function(){const s=this.room.state,p=s.players.get(this.myId),rear=['nak','aduka'].includes(p?.mobileId),right=(p?.facing==='right')!==rear;
-        return {releaseAt:this.__dragonlabLearning?.lastSubmittedAt??this.__dragonlabLearning?.pending?.at,hero:this.myId,turn:s.activePlayerId,power:this.drag?.power??this.power,lastPower:this.lastPower,mode:this.inputMode==='slice'?'space':this.inputMode==='drag'?'drag':null,
-        focused:document.hasFocus()&&document.visibilityState==='visible',over:this.destroyed||s.phase==='GAME_OVER'||s.phase==='LOBBY',blocked:this.gameInputBlocked||!this.roomConnected||this.observer||this.renderSurface!=='live'||s.phase!=='TURN',
-        chat:['INPUT','TEXTAREA','SELECT'].includes(document.activeElement?.tagName)||!!document.activeElement?.isContentEditable,moving:!!this.moveHeld||!!this.touchAimHeld||!!this.keyboardMoveKeys?.size,
-        busy:!!this.charging||!!this.drag,shot:({shot1:0,shot2:1,ss:2})[this.shot],wind:s.windPower,windAngle:s.windAngleDeg,armedItem:!!p?.armedItem,
-        sensitivity:this.graphicsSettings?.dragSensitivity,canvasWidth:this.app.canvas.getBoundingClientRect().width,stageWidth:this.stageSize.width,
-        players:[...s.players.$items.entries()].map(([id,p])=>({id,x:p.x,y:p.y,rawAngle:id===this.myId?this.angle:p.aimAngle,body:p.bodyTilt,look:p.facing==='right'?1:0,dead:p.alive===false||p.hp<=0}))}}
-        """
-        result=self.client.call('Runtime.callFunctionOn',{'objectId':self.client.controller,'functionDeclaration':script,'returnByValue':True})
+        lifecycle=getattr(self.client,'lifecycle',None);generation=lifecycle.revision if lifecycle else None
+        result=self.client.call('Runtime.callFunctionOn',{'objectId':self.client.controller,'functionDeclaration':GUNBOUND_POWER_READ_JS,'returnByValue':True})
+        if lifecycle and generation!=lifecycle.revision:raise RuntimeError('Cambió la sesión del juego; vuelve a calcular')
         if result.get('exceptionDetails'):raise RuntimeError('No se pudo confirmar la fuerza del juego')
         return result['result']['value']
     def drag_start(self,window):
@@ -53,7 +60,7 @@ def execute_gunbound(plan,reader,cancel,backend=None,trace=None):
             if not backend.point_in_window(x,y,plan['window']):raise RuntimeError('Otra ventana cubre el arrastre')
             backend.mouse(True);held=True;report('charge-start',method=method)
         while True:
-            check();state=reader.read();check();power=state.get('power')
+            check();state=reader.read();check();validate_source(plan,state);power=state.get('power')
             if charging and plan['power']==100 and not state.get('busy') and state.get('lastPower')==100 and (method=='space' or move_sent):return {'power':100,'method':method}
             validate(plan,state)
             if state.get('blocked') or state.get('armedItem') or state['mode']!=method:raise RuntimeError('Cambió el turno, modo o ítem; entrada liberada')

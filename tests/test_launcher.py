@@ -53,8 +53,8 @@ class LauncherUITests(unittest.TestCase):
                             for child in widget.winfo_children():
                                 if isinstance(child,LauncherButton) and child.winfo_ismapped():buttons.append(child.cget('text'))
                                 visit(child)
-                        visit(app.dashboard_page)
-                        self.assertIn('Cómo usarlo',buttons);self.assertIn('Ajustes',buttons)
+                        visit(root)
+                        self.assertIn('Cómo usarlo',buttons);self.assertIn('Atajos',buttons)
                     finally:app.close()
     def test_production_build_does_not_allow_demo_flag_to_skip_login(self):
         import tkinter as tk
@@ -119,7 +119,7 @@ class LauncherUITests(unittest.TestCase):
         finally:
             if not app.closed:destroy_root(root)
     @unittest.skipUnless(os.name=='nt','Windows chrome')
-    def test_custom_chrome_removes_native_white_caption(self):
+    def test_native_dark_chrome_keeps_moving_resizing_and_maximize(self):
         import tkinter as tk,ctypes
         from ctypes import wintypes as w
         from desktop_shell import style_window
@@ -128,7 +128,9 @@ class LauncherUITests(unittest.TestCase):
             root.update_idletasks();style_window(root)
             u=ctypes.WinDLL('user32');u.GetAncestor.argtypes=[w.HWND,w.UINT];u.GetAncestor.restype=w.HWND
             u.GetWindowLongPtrW.argtypes=[w.HWND,ctypes.c_int];u.GetWindowLongPtrW.restype=ctypes.c_ssize_t
-            self.assertEqual(u.GetWindowLongPtrW(u.GetAncestor(root.winfo_id(),2),-16)&0x00C00000,0)
+            style=u.GetWindowLongPtrW(u.GetAncestor(root.winfo_id(),2),-16)
+            self.assertEqual(style&0x00C00000,0x00C00000)
+            self.assertTrue(style&0x00040000);self.assertTrue(style&0x00010000)
         finally:destroy_root(root)
     def test_disabled_button_has_legible_separate_colors_and_no_hover_action(self):
         import tkinter as tk

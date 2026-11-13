@@ -11,10 +11,10 @@ from adapters import AdapterClient,built_in_profiles
 from PIL import Image,ImageTk,ImageGrab
 from strength_guide import draw_force,PowerGuide,select_game_bar
 from trajectories import TrajectoryOverlay,ObservedTrails
-from native_overlay import create_overlay,create_guide
+from native_overlay import create_overlay,create_guide,frame_batch
 from projection import project,unproject
 from calibration_book import CalibrationBook,mobile_name
-from targeting import enemies,next_target,normalize_players,find_hero,PlayerTracker
+from targeting import enemies,next_target,normalize_players,find_hero,PlayerTracker,roster_diagnostics
 from shortcuts import GameShortcuts
 
 BASE=pathlib.Path(sys.executable).parent if getattr(sys,'frozen',False) else pathlib.Path(__file__).parent
@@ -36,9 +36,10 @@ class App:
         self.screen_box=None;self.events=queue.Queue();self.live_stop=threading.Event();self.worker=None;self.live_players=[];self.last_live=0;self.live_camera=None
         from latest_calculation import LatestCalculation
         self.calculations=LatestCalculation(self.events.put);self.training_enabled=False
-        self.profiles={};self.server=None;self.share_token=secrets.token_urlsafe(24);self.shared={};self.dirty=True;self.last_input='';self.selected_target=None;self.target_ids={}
+        self.source_epoch=None;self.reader_run=0;self.active_fire_id=None;self.game_preferences={};self.roster_diagnostics={}
+        self.profiles={};self.server=None;self.share_token=secrets.token_urlsafe(24);self.shared={};self.dirty=True;self.visual_dirty_since=time.monotonic();self.last_input='';self.selected_target=None;self.target_ids={}
         self.base=BASE;self.clone_id='dragonbound';self.adapter_config=None;self.browser_target=None;self.viewport=(800,600);self.last_fingerprint=None;self.last_computed=0;self.compute_generation=0;self.computing=False;self.direction='Auto'
-        self.power_guide=None;self.guide_points=None;self.current_game_power=None;self.auto_visible=False;self.auto_enabled=True;self.auto_points=None;self.auto_guide_enabled=True;self.auto_target_id=None;self.target_hero_id=None
+        self.power_guide=None;self.guide_points=None;self.guide_geometry_fresh=False;self.current_game_power=None;self.auto_visible=False;self.auto_enabled=True;self.auto_points=None;self.auto_guide_enabled=True;self.auto_target_id=None;self.target_hero_id=None
         self.training_session=None;self.preferences_path=BASE/'preferencias.json';self.target_key='Ctrl';self.fire_key='Q';self.auto_shot_enabled=True;self.performance='Auto';self.map_expanded=False;self.fire_busy=False;self.pending_fire=None;self.result_context=None;self.fire_shortcut_count=0;self.page_shortcuts_active=False;self.last_page_gesture=None;self.last_fire_message=None;self.fire_cancel=threading.Event();self.capture_dpr=1
         self.player_tracker=PlayerTracker();self.compact=False;self.large_text=False;self.path_color='Verde';self.path_width=3;self.unrecognized_mobile_id=None;self.live_input_issue=''
         from shot_review import ShotReview
@@ -50,28 +51,26 @@ class App:
         self.learned_launches=LearnedLaunchLibrary(BASE);self.learning_refresh_busy=False;self.learning_refresh_at=0
         prefs={}
         try:
-            prefs=json.loads(self.preferences_path.read_text(encoding='utf-8'));self.clone_id=prefs.get('clone','dragonbound');self.adapter_config=prefs.get('adapter')
-            self.viewport=tuple(prefs.get('viewport',[800,600]));self.target_key=prefs.get('target_key','Ctrl');self.fire_key=prefs.get('fire_key','Q');self.auto_shot_enabled=bool(prefs.get('auto_shot',True));self.performance=prefs.get('performance','Ligero');self.compact=bool(prefs.get('compact',False));self.large_text=bool(prefs.get('large_text',False));self.path_color=prefs.get('path_color','Menta');self.path_width=max(1,min(5,int(prefs.get('path_width',3))))
+            prefs=json.loads(self.preferences_path.read_text(encoding='utf-8'));self.clone_id=prefs.get('clone','dragonbound');self.game_preferences=prefs.get('games',{}) if isinstance(prefs.get('games'),dict) else {};game_prefs=self.game_preferences.get(self.clone_id,prefs);self.adapter_config=game_prefs.get('adapter')
+            self.viewport=tuple(game_prefs.get('viewport',[800,600]));self.target_key=prefs.get('target_key','Ctrl');self.fire_key=prefs.get('fire_key','Q');self.auto_shot_enabled=bool(prefs.get('auto_shot',True));self.performance=prefs.get('performance','Ligero');self.compact=bool(prefs.get('compact',False));self.large_text=bool(prefs.get('large_text',False));self.path_color=prefs.get('path_color','Menta');self.path_width=max(1,min(5,int(prefs.get('path_width',3))))
             from shortcuts import validate_bindings
             validate_bindings(self.target_key,self.fire_key)
         except (OSError,ValueError,TypeError):self.target_key='Ctrl';self.fire_key='Q'
-        if os.name=='nt':
-            try:ctypes.windll.shcore.SetProcessDpiAwareness(2)
-            except:pass
         style=ttk.Style();style.theme_use('clam')
         style.configure('TCombobox',fieldbackground=PANEL,background=PANEL,foreground=TEXT,arrowcolor=GREEN)
         style.map('TCombobox',fieldbackground=[('readonly',PANEL)],foreground=[('readonly',TEXT)],selectbackground=[('readonly',PANEL)],selectforeground=[('readonly',TEXT)])
         self.mobile=tk.StringVar(value='ARMOR');self.weather=tk.StringVar(value='Normal');self.muzzle=tk.BooleanVar(value=True)
         for key,value in [('angle',46),('wind',0),('wind_angle',90),('body_angle',0),('gravity',73.5),('wind_scale',.74),('power_scale',1)]:
             var=tk.StringVar(value=str(value));var.trace_add('write',lambda *args:self.mark());self.vars[key]=var
-        self.endpoint=tk.StringVar(value='http://127.0.0.1:9222')
+        self.endpoint=tk.StringVar(value=self.game_preferences.get(self.clone_id,{}).get('endpoint','http://127.0.0.1:9222'))
         self.weather.trace_add('write',lambda *args:self.mark())
         from ui_shell import build
         build(self,prefs)
         self.root.protocol('WM_DELETE_WINDOW',self.close)
         root.bind('<Control-s>',lambda e:self.save_session());root.bind('<Escape>',lambda e:(self.cancel_actions(),self.hide_overlay(),self.hide_power_guide()))
         self.profile_path=BASE/'perfiles.json'
-        try:self.profiles=json.loads(self.profile_path.read_text(encoding='utf-8'))
+        try:
+            raw=json.loads(self.profile_path.read_text(encoding='utf-8'));self.profiles=raw.get('profiles',raw) if isinstance(raw,dict) else {}
         except (OSError,ValueError):pass
         self.game_window=None;self.shortcut_count=0;self.preview_visible=False;self.terrain_revision=0;self.last_terrain=None;self.change_mobile();self.tick()
         if not (embedded and '--check' in sys.argv):self.start_target_shortcut()
@@ -87,7 +86,7 @@ class App:
         self.preview_button.config(text='Ocultar mapa' if self.map_expanded else 'Ver mapa');self.draw()
     def fire_context(self):
         # A pending key press cannot survive another angle, target or map change.
-        return (self.last_fingerprint,self.auto_target_id,self.target_hero_id,self.clone_id,
+        return (getattr(self,'source_epoch',None),self.last_fingerprint,self.auto_target_id,self.target_hero_id,self.clone_id,
                 tuple((k,v.get()) for k,v in self.vars.items()))
     def fire_notice(self,text):
         self.last_fire_message=text
@@ -108,6 +107,8 @@ class App:
         if self.fire_busy or not self.auto_shot_enabled:return
         if self.clone_id not in ('dragonbound','gunbound-world') or not self.auto_enabled or not self.last_live or time.monotonic()-self.last_live>1.5:
             self.fire_notice('Espera la conexión con el juego');return
+        if not getattr(self,'guide_geometry_fresh',True):
+            self.fire_notice('Espera a confirmar la barra del juego');return
         if self.clone_id=='gunbound-world' and not self.s.environment.get('terrain'):
             self.fire_notice('Espera a detectar el terreno antes de disparar');return
         if self.computing or self.dirty:
@@ -126,9 +127,11 @@ class App:
         if not hero or not target or not self.game_window or not self.screen_box:
             self.fire_notice('Espera a detectar el jugador y la ventana del juego');return
         plan={'power':round(chosen_power),'window':self.game_window,'hero':hero['id'],'target':target['id'],'shot':self.s.selected_shot,'wind':self.s.wind,'windAngle':self.s.wind_angle,'barStart':self.guide_points[0] if self.guide_points else None,'dpr':self.capture_dpr,'screenBox':self.screen_box,'heroState':{k:hero[k] for k in ('x','y','rawAngle','body','look') if k in hero},'targetState':{k:target[k] for k in ('x','y')}}
+        plan['sourceEpoch']=getattr(self,'source_epoch',None)
+        fire_id=secrets.token_hex(8);self.active_fire_id=fire_id
         self.pending_fire=None;self.fire_busy=True;self.fire_cancel.clear();self.footer.config(text='Aplicando fuerza…')
         clone=self.clone_id
-        endpoint=self.endpoint.get();target_id=self.browser_target;snapshot=replace(self.s,environment=dict(self.s.environment))
+        endpoint=getattr(self,'live_endpoint',None) or self.endpoint.get();target_id=getattr(self,'live_target_id',None) or self.browser_target;snapshot=replace(self.s,environment=dict(self.s.environment))
         if getattr(self,'active_measured_profile',False):
             speed=plan['power']*snapshot.power_scale+snapshot.speed_offset
             plan['expectedSpeed']=math.trunc(speed) if snapshot.quantize_power else speed
@@ -158,7 +161,7 @@ class App:
                 attempt['confirmation']=confirmation
                 outcome=confirmation['status']
                 message=(f"Tiro confirmado · Fuerza {confirmation['actualPower']:g}" if outcome=='confirmed' else f"Revisar tiro · marcaba {plan['power']:g}, barra final {confirmation['actualPower']:g}" if outcome=='mismatch' else 'Proyectil observado · fuerza de barra confirmada' if outcome=='observed' and confirmation.get('observedPower') is not None else 'Tiro enviado · no se pudo confirmar la fuerza final')
-                self.events.put({'status':'fire-confirmed','confirmation':confirmation})
+                self.events.put({'status':'fire-confirmed','confirmation':confirmation,'sourceEpoch':plan['sourceEpoch'],'fire_id':fire_id})
                 try:self.replays.record(snapshot,outcome,confirmation)
                 except (OSError,ValueError,TypeError):pass
             except Exception as error:
@@ -168,7 +171,7 @@ class App:
                 attempt['finished']=time.time()
                 try:(BASE/'ultimo-autotiro.json').write_text(json.dumps(attempt,indent=2),encoding='utf-8')
                 except OSError:pass
-            self.events.put({'status':'fire-finished','message':message})
+            self.events.put({'status':'fire-finished','message':message,'sourceEpoch':plan['sourceEpoch'],'fire_id':fire_id})
         threading.Thread(target=run,daemon=True).start()
     def apply_measured_profile(self):
         library=getattr(self,'learned_launches',None)
@@ -205,7 +208,7 @@ class App:
         previous=getattr(self,'last_applied_profile',self.profile_stamp);self.profile_stamp=stamp;self.last_applied_profile=stamp
         if not fit:
             if previous and previous[-1] is not None:
-                name=self.s.mobile;g,w,p,*_=PROFILES[name];custom=self.profiles.get(self.profile_key(),{})
+                name=self.s.mobile;g,w,p,*_=PROFILES[name];custom=App.custom_profile(self)
                 for key,value in [('gravity',g),('wind_scale',w),('power_scale',p)]:
                     value=custom.get(key,value);setattr(self.s,key,value)
                     if float(self.vars[key].get())!=value:self.vars[key].set(str(value))
@@ -227,13 +230,35 @@ class App:
         tk.Spinbox(p,textvariable=v,from_=minimum,to=maximum,increment=.1 if key in ('power_scale','wind_scale') else 1,width=9,bg=BG,fg=TEXT,insertbackground=TEXT,buttonbackground=LINE,relief='flat').grid(row=row,column=1,sticky='e',padx=(10,0),ipady=4)
         p.columnconfigure(1,weight=1)
     def mark(self):
+        if not self.dirty and not getattr(self,'computing',False):self.visual_dirty_since=time.monotonic()
         self.dirty=True;self.compute_generation+=1
         if getattr(self,'calculations',None):self.calculations.invalidate()
     def persist_preferences(self):
-        self.preferences_path.write_text(json.dumps({'clone':self.clone_id,'adapter':self.adapter_config,'viewport':self.viewport,'target_key':self.target_key,'fire_key':self.fire_key,'auto_shot':self.auto_shot_enabled,'performance':self.performance,'trajectories':self.trajectory_enabled.get(),'guide':self.guide_enabled.get(),'compact':self.compact,'large_text':self.large_text,'path_color':self.path_color,'path_width':self.path_width},indent=2),encoding='utf-8')
-    def profile_key(self):return self.clone_id+':'+self.mobile.get()
+        if not hasattr(self,'game_preferences'):self.game_preferences={}
+        self.game_preferences[self.clone_id]={'adapter':self.adapter_config,'viewport':self.viewport,'endpoint':self.endpoint.get()}
+        from local_storage import atomic_write
+        atomic_write(self.preferences_path,json.dumps({'schema':2,'clone':self.clone_id,'games':self.game_preferences,'target_key':self.target_key,'fire_key':self.fire_key,'auto_shot':self.auto_shot_enabled,'performance':self.performance,'trajectories':self.trajectory_enabled.get(),'guide':self.guide_enabled.get(),'compact':self.compact,'large_text':self.large_text,'path_color':self.path_color,'path_width':self.path_width},indent=2).encode())
+    def prepare_game(self,clone):
+        from game_profiles import get_profile
+        profile=get_profile(clone)
+        if not profile or profile['status']!='supported':raise ValueError('Juego no disponible')
+        if self.clone_id==clone:return
+        self.persist_preferences();self.live_stop.set();self.reader_run+=1
+        session=getattr(self,'training_session',None)
+        if session:session.stop()
+        from app_lifecycle import reset_source
+        reset_source(self)
+        self.clone_id=clone;preferences=self.game_preferences.get(clone,{})
+        self.adapter_config=preferences.get('adapter');self.browser_target=None;self.live_target_id=None
+        self.viewport=tuple(preferences.get('viewport',[800,600]));self.endpoint.set(preferences.get('endpoint','http://127.0.0.1:9223'))
+        self.s.selected_shot=0;self.change_mobile();self.persist_preferences()
+    def profile_key(self):return self.clone_id+':'+self.mobile.get()+':'+str(self.s.selected_shot)
+    def custom_profile(self):
+        name=self.mobile.get() if hasattr(self,'mobile') else self.s.mobile
+        key=self.clone_id+':'+name
+        return self.profiles.get(key+':'+str(self.s.selected_shot),self.profiles.get(key,self.profiles.get(name,{}) if self.clone_id=='dragonbound' else {}))
     def change_mobile(self):
-        name=self.mobile.get();g,w,p,*_=PROFILES[name];custom=self.profiles.get(self.profile_key(),self.profiles.get(name,{}) if self.clone_id=='dragonbound' else {})
+        name=self.mobile.get();g,w,p,*_=PROFILES[name];custom=self.custom_profile()
         if self.clone_id=='gunbound-world':
             g={'MAGE':360,'LIGHTNING':360,'ADUKA':376,'FROG':368,'DRAGON':360}.get(name,392)
             self.s.max_power=100
@@ -254,12 +279,12 @@ class App:
     def projected(self,x,y):return project(x,y,self.live_camera,self.viewport)
     def unprojected(self,x,y):return unproject(x,y,self.live_camera,self.viewport)
     def visual_context(self):
-        return (self.clone_id,self.mobile.get(),self.s.selected_shot,self.target_hero_id,self.auto_target_id,
+        return (getattr(self,'source_epoch',None),self.clone_id,self.mobile.get(),self.s.selected_shot,self.target_hero_id,self.auto_target_id,
                 self.s.hero_x,self.s.hero_y,self.s.target_x,self.s.target_y,self.terrain_revision)
     def display_result(self):
         if self.autonomous_training() or getattr(self,'live_input_issue',''):return {}
         if getattr(self,'result_context',None)!=self.visual_context():return {}
-        if (self.dirty or self.computing) and time.monotonic()-self.last_computed>1.5:return {}
+        if (self.dirty or self.computing) and time.monotonic()-getattr(self,'visual_dirty_since',self.last_computed)>.2:return {}
         return self.result
     def planned_paths(self):
         r=self.display_result()
@@ -357,7 +382,7 @@ class App:
             return
         if not self.overlay:self.overlay=create_overlay(getattr(self,'ui_parent',self.root))
         planned=self.planned_paths()
-        self.overlay.update(self.screen_box,self.viewport,self.projected,planned,self.observed_paths,True,players=self.live_players,target_id=self.auto_target_id,hero_id=self.target_hero_id,weather=self.s.environment.get('activeWeathers',[]),style={'color':MUTED if self.dirty or self.computing else TEXT if self.path_color=='Blanco' else '#80cfff' if self.path_color=='Azul' else GREEN,'width':self.path_width,'font_size':13 if self.large_text else 11,'target_key':self.target_key,'events':self.display_result().get('interactions',[]),'weather_name':getattr(self,'weather_current','')})
+        self.overlay.update(self.screen_box,self.viewport,self.projected,planned,self.observed_paths,True,players=self.live_players,target_id=self.auto_target_id,hero_id=self.target_hero_id,weather=self.s.environment.get('activeWeathers',[]),style={'color':MUTED if self.visual_updating() else TEXT if self.path_color=='Blanco' else '#80cfff' if self.path_color=='Azul' else GREEN,'width':self.path_width,'font_size':11 if self.large_text else 9,'target_key':self.target_key,'events':self.display_result().get('interactions',[]),'weather_name':getattr(self,'weather_current','')})
     def hide_overlay(self):
         if self.overlay:self.overlay.close();self.overlay=None
     def copy_power(self):
@@ -365,11 +390,13 @@ class App:
     def autonomous_training(self):
         session=getattr(self,'training_session',None)
         return bool(session and getattr(session,'autonomous',False) and session.running)
+    def visual_updating(self):
+        return bool((self.dirty or self.computing) and time.monotonic()-getattr(self,'visual_dirty_since',self.last_computed)>.12)
     def draw_force(self):
         if self.autonomous_training():self.hide_power_guide();return
         from product_status import calibration_label
         label,state=calibration_label(self)
-        r={**self.display_result(),'guide_label':label,'guide_state':state};updating=self.dirty or self.computing
+        r={**self.display_result(),'guide_label':label,'guide_state':state};updating=self.visual_updating()
         if hasattr(self,'force_canvas') and not getattr(self,'embedded',False):draw_force(self.force_canvas,r,self.s.max_power,self.current_game_power,updating)
         if self.clone_id=='gunbound-world' and getattr(self,'profile_required',True) and not r.get('reachable') and not r.get('blocked') and not updating:
             from product_status import pending_calibration
@@ -388,7 +415,9 @@ class App:
         self.power_guide=create_guide(getattr(self,'ui_parent',self.root),*self.guide_points);self.draw_force()
     def save_profile(self):
         try:
-            self.read();solve(self.s);self.profiles[self.profile_key()]={k:getattr(self.s,k) for k in ('gravity','wind_scale','power_scale','speed_offset','angle_offset','quantize_power','launch_offset')};self.profile_path.write_text(json.dumps(self.profiles,indent=2),encoding='utf-8');self.footer.config(text='Perfil guardado para '+self.clone_id+' / '+self.s.mobile)
+            self.read();solve(self.s);self.profiles[self.profile_key()]={k:getattr(self.s,k) for k in ('gravity','wind_scale','power_scale','speed_offset','angle_offset','quantize_power','launch_offset')}
+            from local_storage import atomic_write
+            atomic_write(self.profile_path,json.dumps({'schema':2,'profiles':self.profiles},indent=2).encode());self.footer.config(text='Perfil guardado para '+self.clone_id+' / '+self.s.mobile)
         except Exception as e:messagebox.showerror('Perfil',str(e))
     def calibrate(self):
         from tkinter.simpledialog import askfloat
@@ -433,10 +462,12 @@ class App:
         return True
     def toggle_live(self):
         if self.worker and self.worker.is_alive():
+            self.cancel_actions()
             if getattr(self,'training_session',None):self.training_session.stop()
             self.live_stop.set();self.auto_enabled=False;self.auto_visible=False;self.hide_overlay();self.hide_power_guide();self.live_camera=None;self.last_live=0
             self.status.config(text='●  Captura pausada',fg=ORANGE);self.connect.config(text='Activar captura automática');return
         self.auto_enabled=True;stop=threading.Event();self.live_stop=stop
+        self.reader_run=getattr(self,'reader_run',0)+1;reader_run=self.reader_run
         endpoint=self.endpoint.get();clone=self.clone_id;config=self.adapter_config;target=self.browser_target
         self.connect.config(text='Pausar captura automática')
         def run():
@@ -454,23 +485,21 @@ class App:
                         from gunbound_learning import GunBoundLearning
                         learning=GunBoundLearning(client)
                     capture=AutoCapture(client);capture.capture_interval=3 if self.performance=='Ligero' else 1.5;client.terrain_interval=5 if self.performance=='Ligero' else 2
-                    self.live_endpoint=client.endpoint
+                    self.live_endpoint=client.endpoint;self.live_target_id=client.target['id']
                     if clone in ('dragonbound','gunbound-world'):
                         from browser_shortcuts import BrowserShotEvents
-                        shot_events=BrowserShotEvents(client.endpoint,client.target['id'],capture.gesture_owner,lambda:self.fire_key,lambda gesture:self.events.put({'status':'fire-gesture','gesture':gesture}))
+                        shot_events=BrowserShotEvents(client.endpoint,client.target['id'],capture.gesture_owner,lambda:self.fire_key,lambda gesture:self.events.put({'status':'fire-gesture','gesture':gesture,'sourceEpoch':gesture.get('sourceEpoch')}),lambda:getattr(client,'source_epoch',None))
                         shot_events.start();self.browser_shot_events=shot_events
                     while not stop.is_set():
                         interval,capture.capture_interval,client.terrain_interval=governor.intervals(self.performance,active=sample.get('status')=='live',own_turn=str(sample.get('activePlayer'))==str(sample.get('heroId')),manual=not self.autonomous_training())
-                        auto=capture.read(capture=self.preview_visible,fire_key=self.fire_key) if clone in ('dragonbound','gunbound-world') else {}
-                        if clone=='dragonbound' and not auto.get('geometry',{}).get('active'):
-                            sample={'status':'waiting','reason':'Navegador conectado. La captura aparecerá al empezar la partida.'}
-                            client.game=None;client.renderer=None
-                        else:sample=client.sample()
+                        read_started=time.monotonic();sample=client.sample()
+                        if shot_events:shot_events.set_source_epoch(sample.get('sourceEpoch'))
+                        auto=capture.read(capture=self.preview_visible,fire_key=self.fire_key,source_epoch=sample.get('sourceEpoch')) if clone in ('dragonbound','gunbound-world') else {}
                         if learning:
                             sample['measurements']=learning.poll();sample['learning_error']=learning.error;sample['weather_cases']=learning.cases;sample['gunbound_paths']=learning.paths
-                        sample['_auto']=auto;self.events.put(sample);stop.wait(interval)
+                        sample['_auto']=auto;sample['_reader_run']=reader_run;sample['_game']=clone;sample['_read_seconds']=time.monotonic()-read_started;self.events.put(sample);stop.wait(interval)
                 except Exception as e:
-                    if not stop.is_set():self.events.put({'status':'waiting','reason':'Buscando el navegador del juego… '+str(e)})
+                    if not stop.is_set():self.events.put({'status':'waiting','reason':'Buscando el navegador del juego…','_reader_run':reader_run,'_game':clone,'sourceEpoch':None})
                 finally:
                     if learning:learning.close()
                     if shot_events:shot_events.close()
@@ -482,7 +511,7 @@ class App:
     def apply_auto(self,data):
         auto=data.pop('_auto',{});meta=auto.get('geometry',{})
         gesture=auto.get('fire_gesture');self.page_shortcuts_active=isinstance(gesture,dict)
-        if self.consume_fire_gesture(gesture):self.events.put({'status':'fire-shortcut','hero':data.get('heroId')})
+        if self.consume_fire_gesture(gesture):self.events.put({'status':'fire-shortcut','hero':data.get('heroId'),'sourceEpoch':data.get('sourceEpoch')})
         if meta.get('windowHandle'):self.game_window=meta['windowHandle']
         self.capture_dpr=meta.get('dpr',1)
         self.game_visible=bool(self.auto_enabled and meta.get('active') and meta.get('focused') and data.get('status')=='live')
@@ -494,28 +523,39 @@ class App:
         self.auto_visible=bool(self.auto_enabled and self.auto_guide_enabled and has_target and meta.get('active') and meta.get('focused') and data.get('status')=='live')
         area=auto.get('screen_box');points=auto.get('guide_points')
         if area:self.screen_box=area
-        if not self.auto_visible or not points:
-            self.hide_power_guide();return
+        self.guide_geometry_fresh=bool(self.auto_visible and points and area)
+        if not self.guide_geometry_fresh:
+            if self.power_guide:self.power_guide.hide()
+            return
         if self.auto_points!=points:
             if self.power_guide:self.power_guide.update_position(*points)
             self.auto_points=points
         self.guide_points=points
         if not self.power_guide:self.power_guide=create_guide(getattr(self,'ui_parent',self.root),*points)
-        self.draw_force()
+        self.power_guide.show()
     def consume_fire_gesture(self,gesture):
         if not isinstance(gesture,dict) or not isinstance(gesture.get('owner'),str) or not isinstance(gesture.get('count'),int) or not isinstance(gesture.get('at'),(int,float)):return False
+        if gesture.get('sourceEpoch')!=getattr(self,'source_epoch',None):return False
         stamp=(gesture['owner'],gesture.get('key'),gesture.get('document'),gesture['count']);previous=self.last_page_gesture
         if previous and stamp[:3]==previous[:3] and stamp[3]<=previous[3]:return False
         self.last_page_gesture=stamp
         return stamp[3]>0 and -.05<=time.time()-gesture['at']/1000<.8
     def apply_live(self,d):
+        if d.get('_reader_run',getattr(self,'reader_run',0))!=getattr(self,'reader_run',0) or d.get('_game',self.clone_id)!=self.clone_id:return
+        epoch=d.get('sourceEpoch')
+        if epoch!=getattr(self,'source_epoch',None):
+            from app_lifecycle import reset_source
+            reset_source(self,epoch)
+        self.last_read_seconds=d.get('_read_seconds')
+        self.source_context=d.get('sourceContext',{})
+        self.roster_diagnostics=roster_diagnostics(d.get('players',[]),d.get('heroId'),d.get('rosterDiagnostics'))
         self.learning_error=d.get('learning_error','');self.reader_status=d.get("status");self.reader_reason=d.get("reason","");self.weather_current=d.get('weatherCurrent','')
         raw_hero=find_hero(normalize_players(d.get('players',[])),d.get('heroId')) or {}
         input_issue=manual_input_issue(d,raw_hero) if d.get('status')=='live' else ''
-        if d.get('status')=='live':d['players']=self.player_tracker.update(d.get('players',[]))
+        if d.get('status')=='live':d['players']=self.player_tracker.update(d.get('players',[]),source_epoch=epoch)
         else:self.player_tracker.reset()
         try:
-            if not self.autonomous_training():self.shot_review.observe(d,replace(self.s,environment=dict(self.s.environment)))
+            if not self.autonomous_training():self.shot_review.observe(d,replace(self.s,environment=dict(self.s.environment)),game_id=self.clone_id,model_version=PROGRAM_VERSION,model_revision=self.book.revision)
         except (OSError,ValueError,TypeError,KeyError):pass
         self.observed_paths=self.trails.update(d.get('shots',[]))
         if self.clone_id=='gunbound-world':
@@ -548,12 +588,12 @@ class App:
             self.live_input_issue=''
             self.last_page_gesture=None;self.page_shortcuts_active=False
             self.result={};self.power.config(text='—');self.details.config(text='Abre el juego e inicia una partida.\nLa guía aparecerá automáticamente.');self.s.environment={};self.draw_force()
-            self.last_live=0;self.live_camera=None;self.live_look=None;self.live_launch_offset=None;self.s.launch_offset=None;self.has_position_data=False;self.game_visible=False;self.current_game_power=None;self.hide_overlay();self.trails.reset();self.observed_paths={};self.last_fingerprint=None;self.auto_target_id=None;self.target_hero_id=None;self.selected_target=None;self.live_players=[];self.target_ids={};self.target_name.set('Objetivo automático');self.target_box.config(values=['Objetivo automático'])
+            self.last_live=0;self.live_camera=None;self.live_look=None;self.live_launch_offset=None;self.s.launch_offset=None;self.has_position_data=False;self.game_visible=False;self.current_game_power=None;self.hide_overlay();self.hide_power_guide();self.trails.reset();self.observed_paths={};self.last_fingerprint=None;self.auto_target_id=None;self.target_hero_id=None;self.selected_target=None;self.live_players=[];self.target_ids={};self.target_name.set('Objetivo automático');self.target_box.config(values=['Objetivo automático'])
             if self.power_guide:self.power_guide.draw({},self.s.max_power)
             if d['status']=='error':self.connect.config(text='Conectar lectura experimental')
             self.status.config(text='●  Esperando partida' if d['status']=='waiting' else '●  Sin conexión',fg=MUTED);self.footer.config(text='Entra a una partida en el navegador conectado.' if d['status']=='waiting' else 'Abre el juego para conectar la guía.');return
         self.last_live=time.monotonic();self.status.config(text='●  En partida',fg=GREEN)
-        self.current_game_power=d.get('currentPower');self.draw_force()
+        self.current_game_power=d.get('currentPower')
         self.live_camera=d.get('camera')
         ps=normalize_players(d.get('players',[]))
         hero=find_hero(ps,d.get('heroId'))
@@ -590,7 +630,8 @@ class App:
         if d.get('wind') is not None:self.set_live_value('wind',d['wind'])
         if d.get('windAngle') is not None:self.set_live_value('wind_angle',d['windAngle'])
         if hero.get('body') is not None:self.set_live_value('body_angle',hero['body'])
-        if d.get('selectedShot') in (0,1,2):self.s.selected_shot=d['selectedShot']
+        if d.get('selectedShot') in (0,1,2) and self.s.selected_shot!=d['selectedShot']:
+            self.s.selected_shot=d['selectedShot'];self.change_mobile()
         from launch_geometry import muzzle_offset
         self.live_launch_offset=muzzle_offset(hero,self.mobile.get(),self.s.selected_shot)
         terrain=d.get('terrain')
@@ -636,7 +677,8 @@ class App:
             if value==target:self.target_name.set(label);break
         self.last_fingerprint=None;self.mark();self.draw_overlay()
     def start_target_shortcut(self):
-        self.shortcuts=GameShortcuts(lambda:(bool(self.auto_enabled and self.has_position_data and self.last_live and time.monotonic()-self.last_live<4),self.game_window,self.target_hero_id),lambda hero:self.events.put({'status':'target-shortcut','hero':hero}),lambda hero:None if self.page_shortcuts_active else self.events.put({'status':'fire-shortcut','hero':hero}),self.target_key,self.fire_key,lambda hero:self.events.put({'status':'cancel-shortcut','hero':hero}))
+        def emit(status,identity):self.events.put({'status':status,'sourceEpoch':identity[0],'hero':identity[1]})
+        self.shortcuts=GameShortcuts(lambda:(bool(self.auto_enabled and self.has_position_data and self.last_live and time.monotonic()-self.last_live<4),self.game_window,(getattr(self,'source_epoch',None),self.target_hero_id)),lambda identity:emit('target-shortcut',identity),lambda identity:None if self.page_shortcuts_active else emit('fire-shortcut',identity),self.target_key,self.fire_key,lambda identity:emit('cancel-shortcut',identity))
         self.shortcuts.start()
     def share(self):
         if not self.server:
@@ -662,7 +704,8 @@ class App:
         self.button(win,'Copiar enlace',lambda:(self.root.clipboard_clear(),self.root.clipboard_append(url))).pack(pady=12)
         self.button(win,'Abrir visor aquí',lambda:webbrowser.open(url)).pack()
     def tick(self):
-        try:self.tick_once()
+        try:
+            with frame_batch():self.tick_once()
         except Exception as error:
             import traceback
             self.last_error=type(error).__name__+': '+str(error)[:180]
@@ -691,8 +734,13 @@ class App:
         live=[e for e in pending if e.get('status') not in ('calculated','target-shortcut','fire-shortcut','fire-gesture','fire-finished','fire-confirmed','cancel-shortcut','training-observation','training-settings','learning-library')]
         # Consume the latest state before results/shortcuts; old frames must not
         # delay the game or allow an obsolete calculation to replace a new one.
+        live=[e for e in live if e.get('_reader_run',getattr(self,'reader_run',0))==getattr(self,'reader_run',0) and e.get('_game',self.clone_id)==self.clone_id]
         pending=([live[-1]] if live else [])+[e for e in pending if e.get('status') in ('calculated','target-shortcut','fire-shortcut','fire-gesture','fire-finished','fire-confirmed','cancel-shortcut','training-observation','training-settings','learning-library')]
         for event in pending:
+            from app_lifecycle import event_current
+            if event.get('status')=='fire-finished' and event.get('fire_id')==getattr(self,'active_fire_id',None):
+                self.fire_busy=False;self.active_fire_id=None
+            if event.get('status') in ('target-shortcut','fire-shortcut','fire-gesture','fire-finished','fire-confirmed','cancel-shortcut') and not event_current(self,event):continue
             if event.get('status')=='learning-library':
                 self.learning_refresh_busy=False
                 if event.get('changed'):self.profile_stamp=None;self.last_fingerprint=None;self.mark()
@@ -733,6 +781,7 @@ class App:
                 if confirmation['status']=='confirmed' and confirmation.get('release'):self.book.note_release(confirmation['release'])
                 continue
             if event.get('status')=='fire-finished':
+                if event.get('fire_id') is not None and self.active_fire_id is not None and event['fire_id']!=self.active_fire_id:continue
                 self.fire_busy=False;self.last_fire_message=event['message'];self.notice_until=time.monotonic()+4;self.footer.config(text=event['message'],fg=GREEN if event['message'].startswith('Tiro confirmado') else ORANGE);continue
             if event.get('status')=='target-shortcut':
                 if event.get('hero')==self.target_hero_id and self.auto_enabled and self.has_position_data and self.last_live and time.monotonic()-self.last_live<4:self.shortcut_count+=1;self.cycle_target()
@@ -760,6 +809,7 @@ class App:
             except Exception as e:
                 self.computing=False;self.dirty=False;self.result_context=None;self.result={};self.show_result(str(e))
         self.process_pending_fire()
+        self.draw_force()
         if (self.dirty or self.computing) and time.monotonic()-self.last_computed>1.5:
             self.draw_force();self.draw_overlay()
         self.preview_visible=self.root.state()=='normal' and self.map_expanded

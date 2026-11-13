@@ -7,9 +7,15 @@ from launcher import Launcher
 
 class TrainingColdStartTests(unittest.TestCase):
     def app(self,folder):
-        value=SimpleNamespace(closed=False,authenticated=True,training_mode=True,engine=SimpleNamespace(app=SimpleNamespace(book=SimpleNamespace(path=Path(folder)/'book.json'))),training_instances=2,status=Mock(),root=Mock())
+        value=SimpleNamespace(closed=False,authenticated=True,training_mode=True,engine=SimpleNamespace(app=SimpleNamespace(clone_id='dragonbound',book=SimpleNamespace(path=Path(folder)/'book.json'))),training_instances=2,status=Mock(),root=Mock())
         value.start_training=lambda:Launcher.start_training(value)
         return value
+    def test_unsupported_game_never_starts_autonomous_training(self):
+        with tempfile.TemporaryDirectory() as folder:
+            app=self.app(folder);app.engine.app.clone_id='gunbound-world'
+            with patch('training_ui.start_training') as train,patch('training_browsers.open_second_browser') as browser:
+                app.start_training();train.assert_not_called();browser.assert_not_called();app.root.after.assert_not_called()
+                self.assertIn('guía manual',app.status.config.call_args.kwargs['text'])
     def test_second_browser_opens_once_and_only_ready_sessions_start(self):
         with tempfile.TemporaryDirectory() as folder:
             app=self.app(folder)

@@ -3,8 +3,11 @@ import json
 import re
 import urllib.parse
 import urllib.request
+import time
 from pathlib import Path
 from cdp import CDP
+from session_lifecycle import ROSTER_HELPERS_JS, SOURCE_IDENTITY_JS
+from targeting import roster_diagnostics
 
 PROFILES = [
     {'id': 'dragonbound', 'name': 'DragonBound', 'hosts': ['dragonbound.net'],
@@ -77,8 +80,9 @@ class AdapterClient(CDP):
                        if urllib.parse.urlparse(p['url']).hostname in hosts]
             if not matches:
                 raise RuntimeError('Selecciona una página abierta para este adaptador')
+            if len(matches)>1:raise RuntimeError('Hay varias páginas de este juego; selecciona la pestaña exacta')
             target_id = matches[0]['id']
-        super().__init__(endpoint, target_id=target_id)
+        super().__init__(endpoint, target_id=target_id,hostname=self.profile.get('hosts') or None)
 
     def close(self):
         if not self.manual:
@@ -87,16 +91,30 @@ class AdapterClient(CDP):
     def discover(self):
         if self.profile.get('mode') == 'dragonbound':
             return super().discover()
+        previous_controller=getattr(self,'controller',None)
         # Follow only explicit own data properties; getters and game functions are never invoked.
         paths = self.profile.get('state_paths', [])
-        expression = '''(function(paths){for(const path of paths){let o=window;
+        expression = '''(function(paths){const found=[];for(const path of paths){let o=window;
           for(const k of path.split('.')){let d=o&&Object.getOwnPropertyDescriptor(o,k);o=d&&('value'in d)?d.value:null;}
-          if(o&&typeof o==='object')return o;}return null;})(%s)''' % json.dumps(paths)
+          if(o&&typeof o==='object')found.push(o);}return found;})(%s)''' % json.dumps(paths)
         result = self.call('Runtime.evaluate', {'expression': expression,
                             'objectGroup': 'dragonlab-discovery', 'timeout': 2000})
         value = result.get('result', {})
-        self.game = value.get('objectId') if value.get('subtype') != 'null' else None
-        if not self.game and self.profile['id']=='gunbound-world':self.game=self._discover_controller()
+        candidates=[]
+        if value.get('objectId'):
+            candidates=[p.get('value',{}).get('objectId') for p in self.props(value['objectId']).get('result',[]) if p['name'].isdigit() and p.get('value',{}).get('objectId')]
+        selected_controller=None
+        if not candidates and self.profile['id']=='gunbound-world':
+            state=self._discover_controller()
+            if state:candidates.append(state);selected_controller=self.controller
+        self._adopt_game(candidates[:64])
+        if selected_controller:
+            self.controller=self.call('Runtime.callFunctionOn',{'objectId':selected_controller,'functionDeclaration':'function(){return this}','objectGroup':'dragonlab-live'}).get('result',{}).get('objectId')
+            if previous_controller and previous_controller!=self.controller:
+                try:self.call('Runtime.releaseObject',{'objectId':previous_controller})
+                except RuntimeError:pass
+        self.discovery_clock=time.monotonic()
+        self.call('Runtime.releaseObjectGroup',{'objectGroup':'dragonlab-discovery'})
         return self.game
 
     def _discover_controller(self):
@@ -181,48 +199,57 @@ class AdapterClient(CDP):
         result['adapter'] = self.profile['id']
         # Measured projectile acceleration uses the game's angle directly.
         result['compatibility'] = self.profile.get('compatibility', 'Experimental')
-        return result
+        if result.get('status')=='live':result['rosterDiagnostics']=roster_diagnostics(result.get('players',[]),result.get('heroId'),result.get('rosterDiagnostics'))
+        return self.tag_sample(result)
 
     def _generic_sample(self):
-        if not self.game and not self.discover():
-            return {'status': 'waiting', 'reason': 'Estado inaccesible: configura state_paths o usa captura manual'}
+        if getattr(self,'allowed_hosts',None) and self.lifecycle.host not in self.allowed_hosts:
+            self.invalidate_source('incompatible-host')
+            return self.tag_sample({'status':'waiting','reason':'La pestaña cambió a un dominio incompatible'})
+        if hasattr(self,'discovery_clock') and (not self.game or time.monotonic()-self.discovery_clock>=getattr(self,'discovery_interval',2.)):
+            if not self.discover():return self.tag_sample({'status': 'waiting', 'reason': 'Estado inaccesible: configura state_paths o usa captura manual'})
+        elif not self.game and not self.discover():
+            return self.tag_sample({'status': 'waiting', 'reason': 'Estado inaccesible: configura state_paths o usa captura manual'})
         fields = {'players': 'players', 'heroId': 'my_player_number', 'wind': 'wind_power',
                   'windAngle': 'wind_angle', 'turn': 'turn', 'shots': 'projectiles',
                   'weather': 'weather', 'terrain': 'terrain', 'camera': 'camera'}
         fields.update(self.profile.get('fields', {}))
-        serializer = '''function(fields,gunbound){
-          const own=(o,k)=>{const d=o&&Object.getOwnPropertyDescriptor(o,k);if(d&&('value'in d))return d.value;if(gunbound&&o)try{return o[k]??null}catch{}return null};
-          const path=(o,p)=>p.split('.').reduce(own,o);
-          const n=v=>typeof v==='number'&&Number.isFinite(v)?v:null,id=v=>typeof v==='string'?v.slice(0,80):n(v);
-          const values=o=>Array.isArray(o)?o:(gunbound&&o&&o.$items instanceof Map?[...o.$items.values()]:o instanceof Map?[...o.values()]:o&&typeof o==='object'?Object.getOwnPropertyNames(o).slice(0,64).map(k=>own(o,k)):[]);
+        generation=self.lifecycle.revision if hasattr(self,'lifecycle') else None
+        serializer = '''function(fields,gunbound,sourceReset){
+          __ROSTER_HELPERS__
+          const path=ownPath,n=num,values=o=>entries(o).map(([k,v])=>v);
           const limited=(o,keys)=>Object.fromEntries(keys.map(k=>[k,n(own(o,k))]).filter(x=>x[1]!==null));
-          const collection=path(this,fields.players), entries=gunbound&&collection?.$items instanceof Map?[...collection.$items.entries()]:values(collection).map((p,i)=>[i,p]);
-          const players=entries.slice(0,16).filter(([k,p])=>p&&typeof p==='object').map(([key,p],i)=>({
-            id:id(own(p,'actorId'))??id(own(p,'userId'))??id(own(p,'id'))??n(own(p,'n'))??id(key)??i,x:n(own(p,'x')),y:n(own(p,'y')),
+          const rows=roster(this,[fields.players,'player_list']),hid=gunbound?null:(id(path(this,fields.heroId))??heroId(this));
+          const source=(__SOURCE_IDENTITY__)(this,hid,heroObject(this,rows,hid),sourceReset);
+          const players=rows.filter(([k,p])=>playerLike(p)).map(([key,p],i)=>({
+            id:playerId(p,key),x:n(own(p,'x'))??n(own(p,'posX')),y:n(own(p,'y'))??n(own(p,'posY')),
             name:typeof (own(p,'username')??own(p,'name'))==='string'?(own(p,'username')??own(p,'name')).slice(0,60):'Jugador '+(i+1),
             angle:n(own(p,'aimAngle'))??n(own(p,'angle'))??n(own(p,'ang')),mobile:id(own(p,'mobileId'))??n(own(p,'mobile')),look:n(own(p,'look'))??(own(p,'facing')==='right'?1:own(p,'facing')==='left'?0:null),
             dead:own(p,'alive')===false||n(own(p,'hp'))===0,body:n(own(p,'bodyTilt'))??n(own(p,'bodyAngle'))??n(own(p,'body_angle')),team:id(own(p,'team')),isHero:own(p,'isMe')===true}));
           const camera=path(this,fields.camera),terrain=path(this,fields.terrain),surface=own(terrain,'heights');
-          return {status:players.length?'live':'waiting',phase:gunbound?own(this,'phase'):null,players,heroId:gunbound?null:id(path(this,fields.heroId)),
+          return {...source,rosterDiagnostics:{raw:rows.length,objects:rows.filter(([k,p])=>playerLike(p)).length,truncated:0},status:players.length&&own(this,'destructed')!==true&&own(this,'isGameOver')!==true?'live':'waiting',phase:gunbound?own(this,'phase'):null,players,heroId:hid,
             wind:n(path(this,fields.wind)),windAngle:n(path(this,fields.windAngle)),turn:n(path(this,fields.turn)),
             camera:camera?limited(camera,['x','y','scale']):null,
             shots:values(path(this,fields.shots)).slice(0,64).map(s=>limited(s,['id','x','y','vx','vy','ax','ay','time','power','angle'])),
             weather:values(path(this,fields.weather)).slice(0,32).map(w=>limited(w,['type','id','x','y','width','height','power','angle'])),
             terrain:terrain?{...limited(terrain,['width','height','originX','originY']),surface:Array.isArray(surface)?surface.slice(0,4096).map(n):null}:null};
-        }'''
+        }'''.replace('__ROSTER_HELPERS__',ROSTER_HELPERS_JS).replace('__SOURCE_IDENTITY__',SOURCE_IDENTITY_JS)
         result = self.call('Runtime.callFunctionOn', {'objectId': self.game, 'functionDeclaration': serializer,
-                            'arguments': [{'value': fields},{'value':self.profile['id']=='gunbound-world'}], 'returnByValue': True})
+                            'arguments': [{'value': fields},{'value':self.profile['id']=='gunbound-world'},{'value':getattr(self,'_source_reset',False)}], 'returnByValue': True})
+        if generation is not None and generation!=self.lifecycle.revision:return self.tag_sample({'status':'waiting','reason':'Cambio de contexto; descartando lectura anterior'})
         if result.get('exceptionDetails'):
-            self.game = None
-            return {'status': 'waiting', 'reason': 'El estado cambió; esperando una estructura compatible'}
+            self.invalidate_source('schema-changed')
+            return self.tag_sample({'status': 'waiting', 'reason': 'El estado cambió; esperando una estructura compatible'})
         sample=result.get('result', {}).get('value', {'status': 'waiting'})
+        self._source_reset=False
         if self.profile['id']=='gunbound-world' and self.controller:
             from gunbound_weather import WEATHER_ZONES_JS
-            info=self.call('Runtime.callFunctionOn',{'objectId':self.controller,'functionDeclaration':'''function(){const s=this.room?.state,p=s?.players?.get(this.myId),m=this.world?.worldTransform,z=this.stageSize,rear=['nak','aduka'].includes(p?.mobileId),right=(p?.facing==='right')!==rear,world=(right?this.angle:180-this.angle)-(p?.bodyTilt??0);return {weatherCurrent:s?.weather,weatherQueue:typeof s?.weatherQueue==='string'?s.weatherQueue.split(',').slice(0,8):[],weatherRevision:s?.weatherRevision,weatherZones:__WEATHER_ZONES__,heroId:this.myId,activePlayer:s?.activePlayerId,currentPower:this.power,rawAngle:this.angle,localAngle:right?world:180-world,muzzles:p?.mobileId==='armor'?[{angle:52,radius:33}]:[],selectedShot:({shot1:0,shot2:1,ss:2})[p?.selectedShot],camera:m&&z?{matrix:{a:m.a,b:m.b,c:m.c,d:m.d,tx:m.tx,ty:m.ty},renderWidth:z.width,renderHeight:z.height}:null}}'''.replace('__WEATHER_ZONES__',WEATHER_ZONES_JS),'returnByValue':True}).get('result',{}).get('value',{})
+            info=self.call('Runtime.callFunctionOn',{'objectId':self.controller,'functionDeclaration':'''function(){__ROSTER_HELPERS__ const s=this.room?.state,rows=roster(s,['players','player_list']),hid=primitive(this,['myId']),p=heroObject(s,rows,hid),m=this.world?.worldTransform,z=this.stageSize,rear=['nak','aduka'].includes(own(p,'mobileId')),right=(own(p,'facing')==='right')!==rear,world=(right?this.angle:180-this.angle)-(own(p,'bodyTilt')??0);return {...(__SOURCE_IDENTITY__)(s,hid,p,false),weatherCurrent:s?.weather,weatherQueue:typeof s?.weatherQueue==='string'?s.weatherQueue.split(',').slice(0,8):[],weatherRevision:s?.weatherRevision,weatherZones:__WEATHER_ZONES__,heroId:hid,activePlayer:s?.activePlayerId,currentPower:this.power,rawAngle:this.angle,localAngle:right?world:180-world,muzzles:own(p,'mobileId')==='armor'?[{angle:52,radius:33}]:[],selectedShot:({shot1:0,shot2:1,ss:2})[own(p,'selectedShot')],camera:m&&z?{matrix:{a:m.a,b:m.b,c:m.c,d:m.d,tx:m.tx,ty:m.ty},renderWidth:z.width,renderHeight:z.height}:null}}'''.replace('__WEATHER_ZONES__',WEATHER_ZONES_JS).replace('__ROSTER_HELPERS__',ROSTER_HELPERS_JS).replace('__SOURCE_IDENTITY__',SOURCE_IDENTITY_JS),'returnByValue':True}).get('result',{}).get('value',{})
             sample.update(info)
+            if generation is not None and generation!=self.lifecycle.revision:return self.tag_sample({'status':'waiting','reason':'Cambio de contexto; descartando lectura anterior'})
+            self.tag_sample(sample)
             from gunbound_weather import normalize_weather
             sample['weather']=normalize_weather(info.get('weatherCurrent'),info.get('weatherZones'))
-            import time
             stamp=(self.controller,sample.get('turn'))
             if sample.get('phase') in ('TURN','RESOLVING') and (stamp!=getattr(self,'gunbound_terrain_stamp',None) or time.monotonic()-getattr(self,'gunbound_terrain_clock',0)>5):
                 ground=self.call('Runtime.callFunctionOn',{'objectId':self.controller,'functionDeclaration':'''function(){const c=this.terrain?.canvas,ctx=this.terrain?.ctx;if(!c||!ctx||!c.width||!c.height||c.width*c.height>12000000)return null;const w=c.width,h=c.height,p=ctx.getImageData(0,0,w,h).data,rows=[];for(let y=0;y<h;y++){let row=[],inside=false;for(let x=0;x<w;x++){const opaque=p[(y*w+x)*4+3]>0;if(opaque!==inside){row.push(x);inside=opaque}}if(inside)row.push(w);rows.push(row)}return {width:w,height:h,originX:0,originY:0,rows,rowsSorted:true}}''','returnByValue':True}).get('result',{}).get('value')
@@ -238,6 +265,9 @@ class AdapterClient(CDP):
             if sample.get('phase') not in ('TURN','RESOLVING'):
                 sample['status']='waiting'
                 sample['reason']='Esperando una partida activa de GunBound World'
-                self.game=None;self.controller=None;self.terrain_cache=None
+                self.invalidate_source('game-ended')
                 self.call('Runtime.releaseObjectGroup',{'objectGroup':'dragonlab-discovery'})
-        return sample
+        elif sample.get('status')!='live':
+            self.invalidate_source('game-ended')
+            sample={'status':'waiting','reason':'Esperando una partida activa compatible'}
+        return self.tag_sample(sample)

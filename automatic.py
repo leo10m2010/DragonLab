@@ -1,9 +1,9 @@
 """Automatic passive capture of the selected game page; no game input or storage."""
-import base64,io,ctypes,os,time,secrets,json
+import base64,io,ctypes,os,time,secrets,json,math
 from PIL import Image
 
 GEOMETRY_JS = r'''(()=>{
- const box=e=>{if(!e)return null;let r=e.getBoundingClientRect();return r.width>1&&r.height>1?[r.x,r.y,r.width,r.height]:null};
+ const box=e=>{if(!e)return null;let r=e.getBoundingClientRect(),s=getComputedStyle(e);return s.display!=='none'&&s.visibility!=='hidden'&&r.width>1&&r.height>1&&r.right>0&&r.bottom>0&&r.left<innerWidth&&r.top<innerHeight?[r.x,r.y,r.width,r.height]:null};
  const gunbound=location.hostname==='play.gunbound.world';
  let game=gunbound?document.querySelector('canvas.gb-battle-canvas'):document.getElementById('gameScreen'),bar=gunbound?document.querySelector('.powerrow .pgauge'):document.getElementById('powerMarkArea');
  let rect=box(game),power=box(bar),fill=document.getElementById('powerBar')?.getBoundingClientRect();if(power&&fill?.height>1){power[1]=fill.y;power[3]=fill.height;}let canvas=[...document.querySelectorAll('canvas')].map(box).filter(Boolean).sort((a,b)=>b[2]*b[3]-a[2]*a[3])[0];
@@ -13,11 +13,11 @@ GEOMETRY_JS = r'''(()=>{
 
 # Only this configured action is counted. No key text, chat or storage is read.
 GESTURE_JS = r'''(()=>{
- const owner=__OWNER__,key=__KEY__,binding=__BINDING__;
+ const owner=__OWNER__,key=__KEY__,binding=__BINDING__,sourceEpoch=__EPOCH__;
  let s=window.__dragonlabShotGesture;
- if(!s||s.owner!==owner||s.key!==key){
+ if(!s||s.owner!==owner||s.key!==key||s.sourceEpoch!==sourceEpoch){
   if(s?.handler)window.removeEventListener('keydown',s.handler,true);
-  s={owner,key,count:0,at:0,document:performance.timeOrigin};
+  s={owner,key,sourceEpoch,count:0,at:0,document:performance.timeOrigin};
   s.handler=e=>{
    if(!e.isTrusted||e.repeat||e.keyCode!==s.key||e.ctrlKey||e.shiftKey||e.altKey||e.metaKey)return;
    const g=location.hostname==='play.gunbound.world'?document.querySelector('canvas.gb-battle-canvas'):document.getElementById('gameScreen');
@@ -26,13 +26,13 @@ GESTURE_JS = r'''(()=>{
    if(['INPUT','TEXTAREA','SELECT'].includes(f?.tagName)||f?.isContentEditable||!document.hasFocus()||document.visibilityState!=='visible')return;
    s.count++;s.at=Date.now();
    if(s.binding&&typeof window[s.binding]==='function'){
-    try{window[s.binding](JSON.stringify({owner:s.owner,key:s.key,count:s.count,at:s.at,document:s.document}));}catch{}
+    try{window[s.binding](JSON.stringify({owner:s.owner,key:s.key,count:s.count,at:s.at,document:s.document,sourceEpoch:s.sourceEpoch}));}catch{}
    }
   };
   window.addEventListener('keydown',s.handler,true);window.__dragonlabShotGesture=s;
  }
  if(binding)s.binding=binding;
- return {owner:s.owner,key:s.key,count:s.count,at:s.at,document:s.document};
+ return {owner:s.owner,key:s.key,count:s.count,at:s.at,document:s.document,sourceEpoch:s.sourceEpoch};
 })()'''
 
 def content_origin(meta):
@@ -81,18 +81,24 @@ def content_origin(meta):
 def screen_geometry(meta,origin):
     if not meta.get('active') or origin is None:return None,None
     dpr=meta.get('dpr',1)
+    def finite(v):return isinstance(v,(int,float)) and not isinstance(v,bool) and math.isfinite(v)
+    def valid(b):
+        if not isinstance(b,(list,tuple)) or len(b)!=4 or not all(finite(v) for v in b) or b[2]<=1 or b[3]<=1:return False
+        viewport=meta.get('inner')
+        return not viewport or (b[0]>=0 and b[1]>=0 and b[0]+b[2]<=viewport[0]+1 and b[1]+b[3]<=viewport[1]+1)
+    if not finite(dpr) or not 0<dpr<=8 or not all(finite(v) for v in origin) or not valid(meta.get('game')):return None,None
     def rect(b):return tuple(round(v) for v in (origin[0]+b[0]*dpr,origin[1]+b[1]*dpr,origin[0]+(b[0]+b[2])*dpr,origin[1]+(b[1]+b[3])*dpr))
     area=rect(meta['game']);bar=meta.get('bar')
     # The DOM's mark area covers the full 0..400 range, unlike the shrinking fill.
     points=None
-    if bar:
+    if valid(bar):
         x,y,right,bottom=rect(bar);points=((x,round((y+bottom)/2)),(right,round((y+bottom)/2)))
     return area,points
 
 class AutoCapture:
     def __init__(self,client,clock=time.monotonic):
         self.client=client;self.clock=clock;self.last_capture=-float('inf');self.capture_interval=3;self.gesture_owner=secrets.token_hex(12)
-    def read(self,capture=True,fire_key='Q'):
+    def read(self,capture=True,fire_key='Q',source_epoch=None):
         result=self.client.call('Runtime.evaluate',{'expression':GEOMETRY_JS,'returnByValue':True,'timeout':1500})
         meta=result.get('result',{}).get('value',{})
         origin=content_origin(meta) if meta.get('active') else None
@@ -100,7 +106,7 @@ class AutoCapture:
         out={'geometry':meta,'screen_box':area,'guide_points':points}
         if meta.get('active'):
             from shortcuts import KEYS
-            script=GESTURE_JS.replace('__OWNER__',json.dumps(self.gesture_owner)).replace('__KEY__',str(KEYS[fire_key])).replace('__BINDING__','null')
+            script=GESTURE_JS.replace('__OWNER__',json.dumps(self.gesture_owner)).replace('__KEY__',str(KEYS[fire_key])).replace('__BINDING__','null').replace('__EPOCH__',json.dumps(source_epoch))
             gesture=self.client.call('Runtime.evaluate',{'expression':script,'returnByValue':True}).get('result',{}).get('value')
             if isinstance(gesture,dict):out['fire_gesture']=gesture
         now=self.clock()
