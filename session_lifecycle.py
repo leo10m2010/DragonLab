@@ -2,6 +2,11 @@
 import math
 import secrets
 
+def scoped_epoch(epoch,target_id):
+    if not isinstance(epoch,str) or not target_id:return epoch
+    prefix=str(target_id)+':'
+    return epoch if epoch.startswith(prefix) else prefix+epoch
+
 
 def primitive_id(value):
     """Only bounded native scalar identifiers are safe dictionary/transport keys."""

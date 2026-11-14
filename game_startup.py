@@ -7,8 +7,8 @@ def activate_existing_game(endpoint='http://127.0.0.1:9223',host='dragonbound.ne
     if host not in {g['host'] for g in GAMES.values()}:raise ValueError('Juego no disponible.')
     try:
         targets=get_json(endpoint,timeout=.35)
-        target=next((t for t in targets if t.get('type')=='page' and urlparse(t.get('url','')).hostname==host),None)
-        if not target:return False
-        get_bytes(endpoint,'/json/activate/'+quote(target['id'],safe=''),timeout=.35)
+        from browser_targets import resolve_game_target
+        target_id=resolve_game_target(endpoint,[host],pages=targets)
+        get_bytes(endpoint,'/json/activate/'+quote(target_id,safe=''),timeout=.35)
         return True
-    except (OSError,ValueError,KeyError,TypeError):return False
+    except (OSError,ValueError,KeyError,TypeError,RuntimeError):return False

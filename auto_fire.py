@@ -54,7 +54,11 @@ class PowerReader:
         r=self.client.call('Runtime.callFunctionOn',{'objectId':self.client.game,'functionDeclaration':POWER_READ_JS,'arguments':[{'objectId':self.client.renderer}] if self.client.renderer else [{'value':None}],'returnByValue':True})
         if lifecycle and generation!=lifecycle.revision:raise RuntimeError('Cambió la sesión del juego; vuelve a calcular')
         if r.get('exceptionDetails'):raise RuntimeError('No se pudo leer la fuerza del juego')
-        return r['result']['value']
+        state=r['result']['value']
+        from session_lifecycle import scoped_epoch
+        target=getattr(self.client,'target',{})
+        state['sourceEpoch']=scoped_epoch(state.get('sourceEpoch'),target.get('id') if isinstance(target,dict) else None)
+        return state
     def drag_start(self,window):
         from automatic import GEOMETRY_JS,content_origin,screen_geometry
         meta=self.client.call('Runtime.evaluate',{'expression':GEOMETRY_JS,'returnByValue':True})['result']['value']

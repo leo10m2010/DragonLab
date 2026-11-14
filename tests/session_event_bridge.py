@@ -6,7 +6,7 @@ import sys
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 from adapters import AdapterClient
 from cdp import CDP
-from session_lifecycle import ROSTER_HELPERS_JS, SOURCE_IDENTITY_JS
+from session_lifecycle import ROSTER_HELPERS_JS, SOURCE_IDENTITY_JS,scoped_epoch
 
 client = AdapterClient(sys.argv[1], sys.argv[2], config={
     'id': 'local-session-fixture', 'mode': 'dragonbound', 'hosts': ['127.0.0.1']})
@@ -28,6 +28,7 @@ try:
             identity = validator.call('Runtime.evaluate', {
                 'expression': '(()=>{' + ROSTER_HELPERS_JS + 'const g=window.fixtureGame,hid=heroId(g);return (' + SOURCE_IDENTITY_JS + ')(g,hid,heroObject(g,roster(g,["players","player_list"]),hid),false)})()',
                 'returnByValue': True})['result'].get('value')
+            if identity:identity['sourceEpoch']=scoped_epoch(identity.get('sourceEpoch'),client.target['id'])
             print(json.dumps({'sample': sample, 'validation': identity}), flush=True)
         except Exception as error:
             print(json.dumps({'error': str(error)}), flush=True)

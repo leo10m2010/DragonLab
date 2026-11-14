@@ -29,7 +29,11 @@ class GunBoundPowerReader:
         result=self.client.call('Runtime.callFunctionOn',{'objectId':self.client.controller,'functionDeclaration':GUNBOUND_POWER_READ_JS,'returnByValue':True})
         if lifecycle and generation!=lifecycle.revision:raise RuntimeError('Cambió la sesión del juego; vuelve a calcular')
         if result.get('exceptionDetails'):raise RuntimeError('No se pudo confirmar la fuerza del juego')
-        return result['result']['value']
+        state=result['result']['value']
+        from session_lifecycle import scoped_epoch
+        target=getattr(self.client,'target',{})
+        state['sourceEpoch']=scoped_epoch(state.get('sourceEpoch'),target.get('id') if isinstance(target,dict) else None)
+        return state
     def drag_start(self,window):
         meta=self.client.call('Runtime.evaluate',{'expression':GEOMETRY_JS,'returnByValue':True})['result']['value'];origin=content_origin(meta)
         script="""(()=>{const c=document.querySelector('canvas.gb-battle-canvas');if(!c)return null;const r=c.getBoundingClientRect();for(const fraction of [.15,.25,.4]){const x=r.left+r.width*.12,y=r.top+r.height*fraction;if(document.elementFromPoint(x,y)===c)return [x,y]}return null})()"""

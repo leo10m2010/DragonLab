@@ -473,14 +473,20 @@ class App:
         def run():
             from automatic import AutoCapture
             from performance import Governor
-            governor=Governor();sample={}
+            from browser_targets import resolve_game_target,NoGamePage,AmbiguousGamePages,FollowGameTab
+            hosts=(config or next((p for p in built_in_profiles() if p['id']==clone),{})).get('hosts',[])
+            governor=Governor();sample={};automatic_target=None;selection_clock=0
+            def connect_at(address):
+                selected=target if target is not None else resolve_game_target(address,hosts,preferred=automatic_target)
+                return AdapterClient(address,selected,clone,config)
             while not stop.is_set():
-                client=None;shot_events=None;learning=None
+                client=None;shot_events=None;learning=None;fast_retry=False
                 try:
-                    try:client=AdapterClient(endpoint,target,clone,config)
-                    except Exception:
-                        if endpoint=='http://127.0.0.1:9222' and target is None:client=AdapterClient('http://127.0.0.1:9223',target,clone,config)
+                    try:client=connect_at(endpoint)
+                    except (OSError,NoGamePage):
+                        if endpoint=='http://127.0.0.1:9222' and target is None:client=connect_at('http://127.0.0.1:9223')
                         else:raise
+                    automatic_target=client.target['id']
                     if clone=='gunbound-world':
                         from gunbound_learning import GunBoundLearning
                         learning=GunBoundLearning(client)
@@ -488,25 +494,35 @@ class App:
                     self.live_endpoint=client.endpoint;self.live_target_id=client.target['id']
                     if clone in ('dragonbound','gunbound-world'):
                         from browser_shortcuts import BrowserShotEvents
-                        shot_events=BrowserShotEvents(client.endpoint,client.target['id'],capture.gesture_owner,lambda:self.fire_key,lambda gesture:self.events.put({'status':'fire-gesture','gesture':gesture,'sourceEpoch':gesture.get('sourceEpoch')}),lambda:getattr(client,'source_epoch',None))
+                        shot_events=BrowserShotEvents(client.endpoint,client.target['id'],capture.gesture_owner,lambda:self.fire_key,lambda gesture:self.events.put({'status':'fire-gesture','gesture':gesture,'sourceEpoch':gesture.get('sourceEpoch')}),lambda bound=client:getattr(bound,'source_epoch',None))
                         shot_events.start();self.browser_shot_events=shot_events
                     while not stop.is_set():
                         interval,capture.capture_interval,client.terrain_interval=governor.intervals(self.performance,active=sample.get('status')=='live',own_turn=str(sample.get('activePlayer'))==str(sample.get('heroId')),manual=not self.autonomous_training())
                         read_started=time.monotonic();sample=client.sample()
                         if shot_events:shot_events.set_source_epoch(sample.get('sourceEpoch'))
                         auto=capture.read(capture=self.preview_visible,fire_key=self.fire_key,source_epoch=sample.get('sourceEpoch')) if clone in ('dragonbound','gunbound-world') else {}
+                        if target is None and (sample.get('status')!='live' or not auto.get('geometry',{}).get('focused')) and time.monotonic()-selection_clock>1.5:
+                            selection_clock=time.monotonic()
+                            try:selected=resolve_game_target(client.endpoint,hosts,preferred=client.target['id'])
+                            except (OSError,RuntimeError,ValueError):selected=client.target['id']
+                            if selected!=client.target['id']:
+                                automatic_target=selected;raise FollowGameTab()
                         if learning:
                             sample['measurements']=learning.poll();sample['learning_error']=learning.error;sample['weather_cases']=learning.cases;sample['gunbound_paths']=learning.paths
                         sample['_auto']=auto;sample['_reader_run']=reader_run;sample['_game']=clone;sample['_read_seconds']=time.monotonic()-read_started;self.events.put(sample);stop.wait(interval)
+                except FollowGameTab:
+                    fast_retry=True
+                    if not stop.is_set():self.events.put({'status':'waiting','reason':'Conectando la pestaña activa del juego…','_reader_run':reader_run,'_game':clone,'sourceEpoch':None})
                 except Exception as e:
-                    if not stop.is_set():self.events.put({'status':'waiting','reason':'Buscando el navegador del juego…','_reader_run':reader_run,'_game':clone,'sourceEpoch':None})
+                    reason=('Activa la pestaña del juego para conectar la guía.' if isinstance(e,AmbiguousGamePages) else 'Abre el juego en el navegador conectado.' if isinstance(e,NoGamePage) else 'Reconectando con el navegador del juego…')
+                    if not stop.is_set():self.events.put({'status':'waiting','reason':reason,'_reader_run':reader_run,'_game':clone,'sourceEpoch':None})
                 finally:
                     if learning:learning.close()
                     if shot_events:shot_events.close()
                     if client:
                         try:client.close()
                         except Exception:pass
-                stop.wait(2)
+                stop.wait(.05 if fast_retry else 2)
         self.worker=threading.Thread(target=run,daemon=True);self.worker.start()
     def apply_auto(self,data):
         auto=data.pop('_auto',{});meta=auto.get('geometry',{})

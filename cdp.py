@@ -1,6 +1,6 @@
 """Small loopback-only CDP client. Never sends game actions or reads storage."""
 import socket,base64,os,json,struct,hashlib,time,urllib.request,urllib.parse
-from session_lifecycle import SourceLifecycle, ROSTER_HELPERS_JS, SOURCE_IDENTITY_JS
+from session_lifecycle import SourceLifecycle, ROSTER_HELPERS_JS, SOURCE_IDENTITY_JS,scoped_epoch
 
 class CDP:
     def __init__(self,endpoint='http://127.0.0.1:9222',target_id=None,hostname='dragonbound.net'):
@@ -74,13 +74,15 @@ class CDP:
 
     def tag_sample(self,sample):
         if not hasattr(self,'lifecycle'):return sample
+        if sample.get('sourceEpoch'):sample['sourceEpoch']=scoped_epoch(sample['sourceEpoch'],self.lifecycle.target_id)
         if sample.get('sourceEpoch'):
             if self.source_epoch!=sample['sourceEpoch']:
                 # Native game/hero replacement also invalidates cached map data.
                 self.terrain_cache=None;self.terrain_clock=0;self.terrain_turn=None;self.terrain_inflight=False
                 self.lifecycle.reason='native-source-changed'
             self.source_epoch=sample['sourceEpoch']
-        else:sample['sourceEpoch']=self.source_epoch
+        else:sample['sourceEpoch']=scoped_epoch(self.source_epoch,self.lifecycle.target_id)
+        self.source_epoch=sample['sourceEpoch']
         sample['sourceContext']={'targetId':self.lifecycle.target_id,'host':self.lifecycle.host,'adapter':self.lifecycle.adapter,'documentEpoch':self.lifecycle.document_epoch,'reason':self.lifecycle.reason}
         return sample
 
